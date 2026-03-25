@@ -64,8 +64,6 @@ flutter:
   assets: 
     - assets/logo_light.png
     - assets/logo_dark.png
-    - assets/prism_logo.png
-    - assets/prism_logo_dark.png
     - assets/google.png
     - assets/facebook.png
     - assets/lottie/prism.json

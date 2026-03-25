@@ -9,28 +9,45 @@ class SplashScreen extends StatefulWidget {
   SplashScreenState createState() => SplashScreenState();
 }
 
-class SplashScreenState extends State<SplashScreen> {
+class SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  bool _appLoaded = false;
+  bool _navigated = false;
+  bool _animationDone = false;
+
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this);
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3), // fallback duration
+    );
+
     _loadApp();
   }
 
   Future<void> _loadApp() async {
     try {
-      // Replace this with your real loading logic
       await Future.delayed(const Duration(seconds: 3));
     } finally {
       _appLoaded = true;
-      _goNextIfReady();
     }
+
+    if (!mounted) return;
+
+    setState(() {});
+    _goNextIfReady();
   }
 
   void _goNextIfReady() {
-    if (_navigated || !_appLoaded || !_animationDone || !mounted) return;
+    if (!mounted) return;
+    if (_navigated || !_appLoaded || !_animationDone) return;
 
     _navigated = true;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -46,6 +63,7 @@ class SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     final animationPath = isDarkMode
         ? 'assets/lottie/prism_dark.json'
         : 'assets/lottie/prism.json';
@@ -61,13 +79,15 @@ class SplashScreenState extends State<SplashScreen> {
             _controller
               ..duration = composition.duration
               ..forward().whenComplete(() {
-                _animationDone = true;
+                if (!mounted) return;
+                setState(() {
+                  _animationDone = true;
+                });
                 _goNextIfReady();
               });
           },
         ),
       ),
-    ); 
-    
+    );
   }
-} // dsfsd
+}
