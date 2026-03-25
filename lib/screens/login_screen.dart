@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'signup_screen.dart';
 import 'Dashboard_Screen.dart';
 
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -54,8 +55,8 @@ class LoginScreenState extends State<LoginScreen> {
                   // Dynamically swap the logo
                   Image.asset(
                     isDarkMode
-                        ? 'assets/prism_logo_dark.png'
-                        : 'assets/prism_logo.png',
+                        ? 'assets/logo_dark.png'
+                        : 'assets/logo_light.png',
                     width: 200,
                   ),
 

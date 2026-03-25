@@ -6,17 +6,10 @@ class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => SplashScreenState();
+  SplashScreenState createState() => SplashScreenState();
 }
 
-class SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  bool _appLoaded = false;
-  bool _animationDone = false;
-  bool _navigated = false;
-
+class SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
