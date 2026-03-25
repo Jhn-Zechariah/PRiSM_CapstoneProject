@@ -43,9 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Dynamically swap the logo
                   Image.asset(
-                    isDarkMode
-                        ? 'assets/prism_logo_dark.png'
-                        : 'assets/prism_logo.png',
+                    isDarkMode ? 'assets/logo_dark.png' : 'assets/logo.png',
                     width: 200,
                   ),
 

@@ -31,9 +31,7 @@ class _SplashScreenState extends State<SplashScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              isDarkMode
-                  ? 'assets/prism_logo_dark.png'
-                  : 'assets/prism_logo.png',
+              isDarkMode ? 'assets/logo_dark.png' : 'assets/logo_light.png',
               width: 200,
             ),
             SizedBox(height: 124),
