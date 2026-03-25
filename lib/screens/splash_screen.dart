@@ -74,7 +74,7 @@ class SplashScreenState extends State<SplashScreen>
           },
         ),
       ),
-    );
+    ); 
     
   }
-}
+} // dsfsd
