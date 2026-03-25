@@ -11,17 +11,17 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmpasswordController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  final TextEditingController confirmpasswordController = TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
   void _signup() {
     if (_formKey.currentState!.validate()) {
-      print("Email: ${_emailController.text}");
-      print("Password: ${_passwordController.text}");
-      print("Confirm Password: ${_confirmpasswordController.text}");
+      debugPrint("Email: ${emailController.text}");
+      debugPrint("Password: ${passwordController.text}");
+      debugPrint("Confirm Password: ${confirmpasswordController.text}");
     }
   }
   static const double fieldSpacing = 20.0;
@@ -97,7 +97,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                   // Email field
                   TextFormField(
-                    controller: _emailController,
+                    controller: emailController,
                     decoration: const InputDecoration(
                       labelText: "Email",
                       prefixIcon: Icon(Icons.email_outlined),
@@ -112,7 +112,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                   // Password field
                   TextFormField(
-                    controller: _passwordController,
+                    controller: passwordController,
                     obscureText: _obscurePassword,
                     decoration: InputDecoration(
                       labelText: "Password",
@@ -138,7 +138,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                   // Confirm Password field
                   TextFormField(
-                    controller: _confirmpasswordController,
+                    controller: confirmpasswordController,
                     obscureText: _obscureConfirmPassword,
                     decoration: InputDecoration(
                       labelText: "Confirm Password",
@@ -193,6 +193,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         child: Text(
                           "or sign up with",
                           style: TextStyle(fontSize: 14, color: Colors.grey),
+                          
                         ),
                       ),
                       Expanded(

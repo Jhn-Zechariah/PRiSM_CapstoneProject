@@ -9,7 +9,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final int _selectedIndex = 0;
+  final int selectedIndex = 0;
 
   @override
   Widget build(BuildContext context) {

@@ -7,19 +7,19 @@ class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  _LoginScreenState createState() => _LoginScreenState();
+  LoginScreenState createState() => LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
   bool _obscurePassword = true;
 
   void _login() {
     if (_formKey.currentState!.validate()) {
-      print("Email: ${_emailController.text}");
-      print("Password: ${_passwordController.text}");
+      debugPrint("Email: ${emailController.text}");
+      debugPrint("Password: ${passwordController.text}");
     }
     Navigator.push(
       context,
@@ -102,9 +102,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Email field
                   TextFormField(
-                    controller: _emailController,
+                    controller: emailController,
                     decoration: const InputDecoration(
-                      labelText: "Email",
+                      labelText: "Email", 
                       prefixIcon: Icon(Icons.email_outlined),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.all(Radius.circular(30)),
@@ -117,7 +117,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                   // Password field
                   TextFormField(
-                    controller: _passwordController,
+                    controller: passwordController,
                     obscureText: _obscurePassword,  // use a variable instead of true
                     decoration: InputDecoration(
                       labelText: "Password",
@@ -202,9 +202,11 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               Image.asset('assets/google.png', width: 30, height: 30),
                               const SizedBox(width: 12),
-                              const Text(
+                              Text(
                                 "Google",
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                               style: TextStyle(
+                                    fontSize: 20, fontWeight: FontWeight.w500, color: isDarkMode ? Colors.black : Colors.white,
+                                  ),
                               ),
                             ],
                           ),
@@ -230,9 +232,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               Image.asset('assets/facebook.png', width: 30, height: 30),
                               const SizedBox(width: 12),
-                              const Text(
+                              Text(
                                 "Facebook",
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: isDarkMode ? Colors.black : Colors.white),
                               ),
                             ],
                           ),
