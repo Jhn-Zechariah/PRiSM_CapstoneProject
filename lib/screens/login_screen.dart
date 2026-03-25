@@ -1,5 +1,7 @@
 // login_screen.dart
 import 'package:flutter/material.dart';
+import 'signup_screen.dart';
+import 'Dashboard_Screen.dart';
 
 
 class LoginScreen extends StatefulWidget {
@@ -11,14 +13,22 @@ class LoginScreen extends StatefulWidget {
 
 class LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  bool _obscurePassword = true;
 
   void _login() {
     if (_formKey.currentState!.validate()) {
-      debugPrint("Email: ${_emailController.text}");
-      debugPrint("Password: ${_passwordController.text}");
+      debugPrint("Email: ${emailController.text}");
+      debugPrint("Password: ${passwordController.text}");
     }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder:
+          (context) => DashboardScreen()
+      ),
+    );
+
   }
 
   static const double fieldSpacing = 20.0;
@@ -73,6 +83,12 @@ class LoginScreenState extends State<LoginScreen> {
                       TextButton(
                         onPressed: () {
                           // Navigate to sign up screen
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder:
+                            (context) => SignupScreen()
+                            ),
+                          );
                         },
                         child: Text(
                           "Sign Up",
@@ -87,30 +103,42 @@ class LoginScreenState extends State<LoginScreen> {
 
                   // Email field
                   TextFormField(
-                    controller: _emailController,
+                    controller: emailController,
                     decoration: const InputDecoration(
-                      labelText: "Email",
+                      labelText: "Email", 
+                      prefixIcon: Icon(Icons.email_outlined),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.all(Radius.circular(30)),
                       ),
                     ),
                     validator: (value) =>
-                        value!.isEmpty ? "Please enter your email" : null,
+                    value!.isEmpty ? "Please enter your email" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
                   // Password field
                   TextFormField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(
+                    controller: passwordController,
+                    obscureText: _obscurePassword,  // use a variable instead of true
+                    decoration: InputDecoration(
                       labelText: "Password",
-                      border: OutlineInputBorder(
+                      prefixIcon: const Icon(Icons.lock_outlined),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                      ),
+                      border: const OutlineInputBorder(
                         borderRadius: BorderRadius.all(Radius.circular(30)),
                       ),
                     ),
                     validator: (value) =>
-                        value!.isEmpty ? "Please enter your password" : null,
+                    value!.isEmpty ? "Please enter your password" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -149,6 +177,69 @@ class LoginScreenState extends State<LoginScreen> {
                       ),
                       Expanded(
                         child: Divider(thickness: 1, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Social login buttons row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Google Button
+                      GestureDetector(
+                        onTap: () {
+                          // Handle Google sign-in
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.black38),
+                            borderRadius: BorderRadius.circular(20),
+                            color: Colors.white,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Image.asset('assets/google.png', width: 30, height: 30),
+                              const SizedBox(width: 12),
+                              Text(
+                                "Google",
+                               style: TextStyle(
+                                    fontSize: 20, fontWeight: FontWeight.w500, color: isDarkMode ? Colors.black : Colors.white,
+                                  ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 20),
+
+                      // Facebook Button
+                      GestureDetector(
+                        onTap: () {
+                          // Handle Facebook sign-in
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.black38),
+                            borderRadius: BorderRadius.circular(20),
+                            color: Colors.white,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Image.asset('assets/facebook.png', width: 30, height: 30),
+                              const SizedBox(width: 12),
+                              Text(
+                                "Facebook",
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500, color: isDarkMode ? Colors.black : Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "927396793814",
+    "project_id": "prism-capstone-svncte",
+    "storage_bucket": "prism-capstone-svncte.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:927396793814:android:9241ada58b4a5b4dcb6877",
+        "android_client_info": {
+          "package_name": "com.codeVibers.prism_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDLYSz028qrQIC85Z5h42mksJC9lvE5f2I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

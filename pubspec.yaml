@@ -28,12 +28,16 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  fl_chart: ^0.68.0
+  font_awesome_flutter: ^10.7.0
   flutter:
     sdk: flutter
+  lottie: ^3.3.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  firebase_auth: ^6.2.0
 
 dev_dependencies:
   flutter_test:
@@ -60,6 +64,12 @@ flutter:
   assets: 
     - assets/logo_light.png
     - assets/logo_dark.png
+    - assets/prism_logo.png
+    - assets/prism_logo_dark.png
+    - assets/google.png
+    - assets/facebook.png
+    - assets/lottie/prism.json
+    - assets/lottie/prism_dark.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:
