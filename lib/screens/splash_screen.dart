@@ -6,10 +6,17 @@ class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  SplashScreenState createState() => SplashScreenState();
+  State<SplashScreen> createState() => SplashScreenState();
 }
 
-class SplashScreenState extends State<SplashScreen> {
+class SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  bool _appLoaded = false;
+  bool _animationDone = false;
+  bool _navigated = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,20 +59,22 @@ class SplashScreenState extends State<SplashScreen> {
 
     return Scaffold(
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              isDarkMode
-                  ? 'assets/prism_logo_dark.png'
-                  : 'assets/prism_logo.png',
-              width: 200,
-            ),
-            SizedBox(height: 124),
-          ],
+        child: Lottie.asset(
+          animationPath,
+          controller: _controller,
+          repeat: false,
+          fit: BoxFit.contain,
+          onLoaded: (composition) {
+            _controller
+              ..duration = composition.duration
+              ..forward().whenComplete(() {
+                _animationDone = true;
+                _goNextIfReady();
+              });
+          },
         ),
       ),
-    ); 
-    
+    );
+
   }
 } // dsfsd
