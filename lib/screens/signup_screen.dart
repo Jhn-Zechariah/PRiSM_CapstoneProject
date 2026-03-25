@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
 
-
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
 
@@ -13,7 +12,8 @@ class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmpasswordController = TextEditingController();
+  final TextEditingController confirmpasswordController =
+      TextEditingController();
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
@@ -24,11 +24,11 @@ class _SignupScreenState extends State<SignupScreen> {
       debugPrint("Confirm Password: ${confirmpasswordController.text}");
     }
   }
+
   static const double fieldSpacing = 20.0;
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
 
     return Scaffold(
       // SafeArea prevents your UI from overlapping with the phone's status bar
@@ -49,8 +49,8 @@ class _SignupScreenState extends State<SignupScreen> {
                   // Dynamically swap the logo
                   Image.asset(
                     isDarkMode
-                        ? 'assets/prism_logo_dark.png'
-                        : 'assets/prism_logo.png',
+                        ? 'assets/logo_dark.png'
+                        : 'assets/logo_light.png',
                     width: 200,
                   ),
 
@@ -79,8 +79,8 @@ class _SignupScreenState extends State<SignupScreen> {
                           // Navigate to sign up screen
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder:
-                                (context) => LoginScreen()
+                            MaterialPageRoute(
+                              builder: (context) => LoginScreen(),
                             ),
                           );
                         },
@@ -106,7 +106,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ),
                     validator: (value) =>
-                    value!.isEmpty ? "Please enter your email" : null,
+                        value!.isEmpty ? "Please enter your email" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -119,7 +119,9 @@ class _SignupScreenState extends State<SignupScreen> {
                       prefixIcon: const Icon(Icons.lock_outlined),
                       suffixIcon: IconButton(
                         icon: Icon(
-                          _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
                         ),
                         onPressed: () {
                           setState(() {
@@ -132,7 +134,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ),
                     validator: (value) =>
-                    value!.isEmpty ? "Please enter your password" : null,
+                        value!.isEmpty ? "Please enter your password" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -145,11 +147,13 @@ class _SignupScreenState extends State<SignupScreen> {
                       prefixIcon: const Icon(Icons.lock_outlined),
                       suffixIcon: IconButton(
                         icon: Icon(
-                          _obscureConfirmPassword  ? Icons.visibility_off : Icons.visibility,
+                          _obscureConfirmPassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
                         ),
                         onPressed: () {
                           setState(() {
-                            _obscureConfirmPassword  = !_obscureConfirmPassword ;
+                            _obscureConfirmPassword = !_obscureConfirmPassword;
                           });
                         },
                       ),
@@ -158,7 +162,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ),
                     validator: (value) =>
-                    value!.isEmpty ? "Please enter your password" : null,
+                        value!.isEmpty ? "Please enter your password" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -193,7 +197,6 @@ class _SignupScreenState extends State<SignupScreen> {
                         child: Text(
                           "or sign up with",
                           style: TextStyle(fontSize: 14, color: Colors.grey),
-                          
                         ),
                       ),
                       Expanded(
