@@ -58,8 +58,8 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets: 
-    - assets/prism_logo.png
-    - assets/prism_logo_dark.png
+    - assets/logo_light.png
+    - assets/logo_dark.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
