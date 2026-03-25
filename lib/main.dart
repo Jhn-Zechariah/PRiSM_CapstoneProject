@@ -21,6 +21,7 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
+
       // 2. Define Dark Theme
       darkTheme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -29,6 +30,7 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
+
       // 3. Tell the app to follow the system's mode (Light or Dark)
       themeMode: ThemeMode.system,
       home: const SplashScreen(),
