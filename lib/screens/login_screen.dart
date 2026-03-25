@@ -1,22 +1,23 @@
 // login_screen.dart
 import 'package:flutter/material.dart';
 
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  _LoginScreenState createState() => _LoginScreenState();
+  LoginScreenState createState() => LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
   void _login() {
     if (_formKey.currentState!.validate()) {
-      print("Email: ${_emailController.text}");
-      print("Password: ${_passwordController.text}");
+      debugPrint("Email: ${_emailController.text}");
+      debugPrint("Password: ${_passwordController.text}");
     }
   }
 
@@ -44,8 +45,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   // Dynamically swap the logo
                   Image.asset(
                     isDarkMode
-                        ? 'assets/prism_logo_dark.png'
-                        : 'assets/prism_logo.png',
+                        ? 'assets/logo_dark.png'
+                        : 'assets/logo_light.png',
                     width: 200,
                   ),
 
