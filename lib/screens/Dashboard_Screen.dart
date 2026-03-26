@@ -1,6 +1,9 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'login_screen.dart'; 
+import 'login_screen.dart';
+import 'package:curved_navigation_bar/curved_navigation_bar.dart';
+import 'package:prism_app/screens/Pig_profiles.dart';
+//import 'package:google_nav_bar/google_nav_bar.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -12,45 +15,58 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final int selectedIndex = 0;
+  int selectedIndex = 2; // Default to Home
+
+  //list of icons for the bottom navigation bar
+  final List<Widget> _navItems = const [
+    Icon(Icons.pets, size: 30, color: Colors.white),
+    Icon(Icons.thermostat, size: 30, color: Colors.white),
+    Icon(Icons.home, size: 30, color: Colors.white),
+    Icon(Icons.track_changes, size: 30, color: Colors.white),
+    Icon(Icons.monetization_on_outlined, size: 30, color: Colors.white),
+  ];
 
   @override
   Widget build(BuildContext context) {
     // Determine theme state for dynamic styling
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    //list of screens for the bottom navigation bar
+    final List<Widget> screens = [
+      const PigProfiles(), // Index 0
+      const Center(child: Text("IoT Control")),
+      _buildDashboardHome(isDarkMode), // Index 2: THE MAIN DASHBOARD
+      const Center(child: Text("Track Changes")), // Index 3
+      const Center(child: Text("Monetization")), // Index 4
+    ];
+
     return Scaffold(
       // Dynamic background color
       backgroundColor: isDarkMode ? const Color(0xFF121212) : Colors.grey[100],
       drawer: _buildCustomDrawer(isDarkMode),
-      
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: isDarkMode ? Colors.blue : Colors.black,
-        onPressed: () {},
-        child: const Icon(Icons.home, color: Colors.white),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(isDarkMode), 
-              const SizedBox(height: 16),
-              _buildWeatherCard(isDarkMode),
-              const SizedBox(height: 16),
-              _buildQuickStatsRow(isDarkMode),
-              const SizedBox(height: 16),
-              _buildTemperatureGraph(isDarkMode),
-              const SizedBox(height: 16),
-              _buildBottomStatsRow(isDarkMode),
-            ],
-          ),
-        ),
-      ),
+
+      body: SafeArea(child: screens[selectedIndex]),
       bottomNavigationBar: _buildBottomNav(isDarkMode),
+    );
+  }
+
+  Widget _buildDashboardHome(bool isDark) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildHeader(isDark),
+          const SizedBox(height: 16),
+          _buildWeatherCard(isDark),
+          const SizedBox(height: 16),
+          _buildQuickStatsRow(isDark),
+          const SizedBox(height: 16),
+          _buildTemperatureGraph(isDark),
+          const SizedBox(height: 16),
+          _buildBottomStatsRow(isDark),
+        ],
+      ),
     );
   }
 
@@ -64,16 +80,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Builder(
               builder: (context) => IconButton(
-                icon: Icon(Icons.menu, color: isDark ? Colors.white : Colors.black, size: 28),
+                icon: Icon(
+                  Icons.menu,
+                  color: isDark ? Colors.white : Colors.black,
+                  size: 28,
+                ),
                 onPressed: () => Scaffold.of(context).openDrawer(),
               ),
             ),
             // UPDATED LOGIC HERE
             Image.asset(
-              isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png', 
+              isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png',
               height: 40,
-              errorBuilder: (context, error, stackTrace) =>
-                  Icon(Icons.business, size: 40, color: isDark ? Colors.white24 : Colors.grey),
+              errorBuilder: (context, error, stackTrace) => Icon(
+                Icons.business,
+                size: 40,
+                color: isDark ? Colors.white24 : Colors.grey,
+              ),
             ),
           ],
         ),
@@ -89,10 +112,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Hello, John",
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
-                Text("What do you want today?",
-                    style: TextStyle(color: isDark ? Colors.white60 : Colors.grey)),
+                Text(
+                  "Hello, John",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+                Text(
+                  "What do you want today?",
+                  style: TextStyle(
+                    color: isDark ? Colors.white60 : Colors.grey,
+                  ),
+                ),
               ],
             ),
           ],
@@ -116,17 +149,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const CircleAvatar(
                     radius: 30,
                     backgroundColor: Colors.white24,
-                    child: Icon(Icons.person_outline, color: Colors.white, size: 35),
+                    child: Icon(
+                      Icons.person_outline,
+                      color: Colors.white,
+                      size: 35,
+                    ),
                   ),
                   const SizedBox(width: 15),
                   const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Zechariah",
-                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text("paradojhonzechariah@gmail.com",
-                            style: TextStyle(color: Colors.white70, fontSize: 11)),
+                        Text(
+                          "Zechariah",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          "paradojhonzechariah@gmail.com",
+                          style: TextStyle(color: Colors.white70, fontSize: 11),
+                        ),
                       ],
                     ),
                   ),
@@ -134,16 +179,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            const Divider(color: Colors.white24, thickness: 1, indent: 20, endIndent: 20),
+            const Divider(
+              color: Colors.white24,
+              thickness: 1,
+              indent: 20,
+              endIndent: 20,
+            ),
             _drawerTile(Icons.person_outline, "My Profile", () {}),
             _drawerTile(Icons.sensors, "IoT Control", () {}),
             _drawerTile(
-              isDark ? Icons.wb_sunny : Icons.nightlight_round, 
-              isDark ? "Switch to Light Mode" : "Switch to Dark Mode", 
+              isDark ? Icons.wb_sunny : Icons.nightlight_round,
+              isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
               () {
                 Navigator.pop(context);
                 widget.onThemeToggle();
-              }
+              },
             ),
             const Spacer(),
             const Divider(color: Colors.white24),
@@ -151,7 +201,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => LoginScreen(onThemeToggle: widget.onThemeToggle),
+                  builder: (context) =>
+                      LoginScreen(onThemeToggle: widget.onThemeToggle),
                 ),
                 (route) => false,
               );
@@ -166,7 +217,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _drawerTile(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
       leading: Icon(icon, color: Colors.white, size: 24),
-      title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+      title: Text(
+        title,
+        style: const TextStyle(color: Colors.white, fontSize: 16),
+      ),
       onTap: onTap,
     );
   }
@@ -185,8 +239,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text("Normal", style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 12)),
-              Text("35°", style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+              Text(
+                "Normal",
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                "35°",
+                style: TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
             ],
           ),
           ElevatedButton.icon(
@@ -196,7 +263,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ),
         ],
@@ -209,27 +278,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(
       children: [
         Expanded(
-          child: _buildInfoCard(
-            isDark,
-            Icons.bar_chart,
-            "Quick Stats",
-            const ["Max Temp: ", "Sprinkler: ", "Pig Status: "],
-          ),
+          child: _buildInfoCard(isDark, Icons.bar_chart, "Quick Stats", const [
+            "Max Temp: ",
+            "Sprinkler: ",
+            "Pig Status: ",
+          ]),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _buildInfoCard(
-            isDark,
-            Icons.water_outlined,
-            "Control",
-            const ["Status: ", "Last: ", "Mode: "],
-          ),
+          child: _buildInfoCard(isDark, Icons.water_outlined, "Control", const [
+            "Status: ",
+            "Last: ",
+            "Mode: ",
+          ]),
         ),
       ],
     );
   }
 
-  Widget _buildInfoCard(bool isDark, IconData icon, String title, List<String> items) {
+  Widget _buildInfoCard(
+    bool isDark,
+    IconData icon,
+    String title,
+    List<String> items,
+  ) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -243,14 +315,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Icon(icon, size: 16, color: Colors.blue),
               const SizedBox(width: 6),
-              Flexible(child: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? Colors.white : Colors.black))),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
-          ...items.map((e) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text(e, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 12)),
-              )),
+          ...items.map(
+            (e) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                e,
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -261,8 +350,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark 
-            ? const Color(0xFF3B72FF).withValues(alpha: 0.2) 
+        color: isDark
+            ? const Color(0xFF3B72FF).withValues(alpha: 0.2)
             : const Color(0xFFB0C4DE),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -275,7 +364,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 8),
               Text(
                 "Temperature Graph (last 24 hrs)",
-                style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black87,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -287,17 +379,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 barGroups: [35, 38, 36, 40, 37, 39, 35, 38]
                     .asMap()
                     .entries
-                    .map((e) => BarChartGroupData(
-                          x: e.key,
-                          barRods: [
-                            BarChartRodData(
-                              toY: e.value.toDouble(),
-                              color: isDark ? Colors.blue : Colors.black87,
-                              width: 16,
-                              borderRadius: BorderRadius.circular(4),
-                            )
-                          ],
-                        ))
+                    .map(
+                      (e) => BarChartGroupData(
+                        x: e.key,
+                        barRods: [
+                          BarChartRodData(
+                            toY: e.value.toDouble(),
+                            color: isDark ? Colors.blue : Colors.black87,
+                            width: 16,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ],
+                      ),
+                    )
                     .toList(),
                 gridData: const FlGridData(show: false),
                 borderData: FlBorderData(show: false),
@@ -327,18 +421,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.calendar_month_outlined, size: 16, color: Colors.blue),
+                    Icon(
+                      Icons.calendar_month_outlined,
+                      size: 16,
+                      color: Colors.blue,
+                    ),
                     const SizedBox(width: 6),
-                    Text("Monthly Expense",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? Colors.white : Colors.black)),
+                    Text(
+                      "Monthly Expense",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                ...["Feeds:", "Vaccines:", "Vitamins:", "Labor:"]
-                    .map((e) => Text(e, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 12))),
+                ...["Feeds:", "Vaccines:", "Vitamins:", "Labor:"].map(
+                  (e) => Text(
+                    e,
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : Colors.grey,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 8),
-                Text("₱15,000",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isDark ? Colors.greenAccent : Colors.black)),
+                Text(
+                  "₱15,000",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                    color: isDark ? Colors.greenAccent : Colors.black,
+                  ),
+                ),
               ],
             ),
           ),
@@ -366,30 +483,73 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: TextStyle(color: isDark ? Colors.white60 : Colors.grey, fontSize: 12)),
+          Text(
+            label,
+            style: TextStyle(
+              color: isDark ? Colors.white60 : Colors.grey,
+              fontSize: 12,
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isDark ? Colors.white : Colors.black)),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // --- BOTTOM NAVIGATION ---
   Widget _buildBottomNav(bool isDark) {
-    return BottomAppBar(
+    return CurvedNavigationBar(
+      backgroundColor: Colors.transparent,
       color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-      shape: const CircularNotchedRectangle(),
-      notchMargin: 8,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          IconButton(icon: const Icon(Icons.pets, color: Colors.white), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.thermostat, color: Colors.white), onPressed: () {}),
-          const SizedBox(width: 40),
-          IconButton(icon: const Icon(Icons.track_changes, color: Colors.white), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.monetization_on_outlined, color: Colors.white), onPressed: () {}),
-        ],
-      ),
+      buttonBackgroundColor: isDark ? Colors.blue : Colors.white,
+
+      height: 70,
+      index: selectedIndex,
+      items: _navItems,
+      animationDuration: const Duration(milliseconds: 300),
+      onTap: (index) {
+        setState(() {
+          selectedIndex = index;
+        });
+      },
     );
   }
+
+  /*Widget _buildBottomNav(bool isDark) {
+    return Container(
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 8),
+        child: GNav(
+          tabBorderRadius: 12,
+          backgroundColor: Colors.transparent,
+          color: isDark ? Colors.white54 : Colors.grey, // Unselected color
+          activeColor: Colors.white, // Selected icon/text color
+          tabBackgroundColor: Colors.blue, // THIS is your "Rounded Square"
+          gap: 8, // Space between icon and text
+          padding: const EdgeInsets.all(16),
+          selectedIndex: selectedIndex,
+          onTabChange: (index) {
+            setState(() {
+              selectedIndex = index;
+            });
+          },
+          tabs: const [
+            GButton(icon: Icons.pets),
+            GButton(icon: Icons.thermostat),
+            GButton(icon: Icons.home),
+            GButton(icon: Icons.track_changes),
+            GButton(icon: Icons.monetization_on),
+          ],
+        ),
+      ),
+    );
+  }*/
 }
