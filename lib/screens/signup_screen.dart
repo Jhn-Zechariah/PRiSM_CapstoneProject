@@ -23,19 +23,20 @@ class _SignupScreenState extends State<SignupScreen> {
       debugPrint("Email: ${emailController.text}");
       debugPrint("Password: ${passwordController.text}");
       debugPrint("Confirm Password: ${confirmpasswordController.text}");
-      
+
       // After signup, take them back to Login
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => LoginScreen(onThemeToggle: widget.onThemeToggle),
+          builder: (context) =>
+              LoginScreen(onThemeToggle: widget.onThemeToggle),
         ),
       );
     }
   }
 
   static const double fieldSpacing = 20.0;
-  
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -50,7 +51,7 @@ class _SignupScreenState extends State<SignupScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 80),
+                  const SizedBox(height: 60),
 
                   // Dynamically swap the logo
                   Image.asset(
@@ -64,7 +65,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   Text(
                     "Let's Get You Started!",
                     style: TextStyle(
-                      fontSize: 35,
+                      fontSize: 25,
                       fontWeight: FontWeight.bold,
                       color: isDarkMode ? Colors.white : Colors.black,
                     ),
@@ -86,16 +87,15 @@ class _SignupScreenState extends State<SignupScreen> {
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => LoginScreen(onThemeToggle: widget.onThemeToggle),
+                              builder: (context) => LoginScreen(
+                                onThemeToggle: widget.onThemeToggle,
+                              ),
                             ),
                           );
                         },
                         child: const Text(
                           "Log in",
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.blue,
-                          ),
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
                         ),
                       ),
                     ],
@@ -169,7 +169,8 @@ class _SignupScreenState extends State<SignupScreen> {
                     ),
                     validator: (value) {
                       if (value!.isEmpty) return "Please confirm your password";
-                      if (value != passwordController.text) return "Passwords do not match";
+                      if (value != passwordController.text)
+                        return "Passwords do not match";
                       return null;
                     },
                   ),
@@ -180,9 +181,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     onPressed: _signup,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),
-                      backgroundColor: isDarkMode
-                          ? Colors.white
-                          : Colors.blue,
+                      backgroundColor: isDarkMode ? Colors.white : Colors.blue,
                       foregroundColor: isDarkMode ? Colors.black : Colors.white,
                     ),
                     child: const Text(
@@ -219,9 +218,17 @@ class _SignupScreenState extends State<SignupScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildSocialTile('assets/google.png'),
-                      const SizedBox(width: 30),
-                      _buildSocialTile('assets/facebook.png'),
+                      _buildSocialTile(
+                        'assets/google.png',
+                        "Google",
+                        isDarkMode,
+                      ),
+                      const SizedBox(width: 20),
+                      _buildSocialTile(
+                        'assets/facebook.png',
+                        "Facebook",
+                        isDarkMode,
+                      ),
                     ],
                   ),
                 ],
@@ -234,23 +241,34 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   // Helper method for social tiles to keep build method clean
-  Widget _buildSocialTile(String assetPath) {
-    return GestureDetector(
-      onTap: () {
-        // Handle Social Sign-in
-      },
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Image.asset(assetPath),
-        ),
+  Widget _buildSocialTile(String asset, String label, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+      decoration: BoxDecoration(
+        border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
+        borderRadius: BorderRadius.circular(20),
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            asset,
+            width: 25,
+            height: 25,
+            errorBuilder: (context, error, stackTrace) =>
+                const Icon(Icons.login, size: 25),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+          ),
+        ],
       ),
     );
   }

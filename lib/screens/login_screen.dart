@@ -21,13 +21,14 @@ class LoginScreenState extends State<LoginScreen> {
   void _login() {
     // For direct testing: We skip the if(_formKey.currentState!.validate()) check
     // so you can enter the app immediately upon clicking the button.
-    
+
     debugPrint("Testing Mode: Navigating directly to Dashboard...");
-    
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => DashboardScreen(onThemeToggle: widget.onThemeToggle),
+        builder: (context) =>
+            DashboardScreen(onThemeToggle: widget.onThemeToggle),
       ),
     );
   }
@@ -50,18 +51,23 @@ class LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 80),
+                  const SizedBox(height: 60),
                   Image.asset(
-                    isDarkMode ? 'assets/logo_dark.png' : 'assets/logo_light.png',
+                    isDarkMode
+                        ? 'assets/logo_dark.png'
+                        : 'assets/logo_light.png',
                     width: 200,
-                    errorBuilder: (context, error, stackTrace) => 
-                      Icon(Icons.business, size: 80, color: isDarkMode ? Colors.white24 : Colors.grey),
+                    errorBuilder: (context, error, stackTrace) => Icon(
+                      Icons.business,
+                      size: 80,
+                      color: isDarkMode ? Colors.white24 : Colors.grey,
+                    ),
                   ),
-                  const SizedBox(height: 20),
+
                   Text(
                     "Welcome Back!",
                     style: TextStyle(
-                      fontSize: 35,
+                      fontSize: 30,
                       fontWeight: FontWeight.bold,
                       color: isDarkMode ? Colors.white : Colors.black,
                     ),
@@ -81,47 +87,80 @@ class LoginScreenState extends State<LoginScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => SignupScreen(onThemeToggle: widget.onThemeToggle),
+                              builder: (context) => SignupScreen(
+                                onThemeToggle: widget.onThemeToggle,
+                              ),
                             ),
                           );
                         },
-                        child: const Text("Sign Up", style: TextStyle(fontSize: 14, color: Colors.blue)),
+                        child: const Text(
+                          "Sign Up",
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 10),
                   TextFormField(
                     controller: emailController,
-                    style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: "Email",
-                      labelStyle: TextStyle(color: isDarkMode ? Colors.white60 : Colors.black54),
-                      prefixIcon: Icon(Icons.email_outlined, color: isDarkMode ? Colors.white60 : Colors.black54),
+                      labelStyle: TextStyle(
+                        color: isDarkMode ? Colors.white60 : Colors.black54,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.email_outlined,
+                        color: isDarkMode ? Colors.white60 : Colors.black54,
+                      ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide(color: isDarkMode ? Colors.white24 : Colors.black12),
+                        borderSide: BorderSide(
+                          color: isDarkMode ? Colors.white24 : Colors.black12,
+                        ),
                       ),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
                     ),
                   ),
                   const SizedBox(height: fieldSpacing),
                   TextFormField(
                     controller: passwordController,
                     obscureText: _obscurePassword,
-                    style: TextStyle(color: isDarkMode ? Colors.white : Colors.black),
+                    style: TextStyle(
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
                     decoration: InputDecoration(
                       labelText: "Password",
-                      labelStyle: TextStyle(color: isDarkMode ? Colors.white60 : Colors.black54),
-                      prefixIcon: Icon(Icons.lock_outlined, color: isDarkMode ? Colors.white60 : Colors.black54),
+                      labelStyle: TextStyle(
+                        color: isDarkMode ? Colors.white60 : Colors.black54,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.lock_outlined,
+                        color: isDarkMode ? Colors.white60 : Colors.black54,
+                      ),
                       suffixIcon: IconButton(
-                        icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
-                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide(color: isDarkMode ? Colors.white24 : Colors.black12),
+                        borderSide: BorderSide(
+                          color: isDarkMode ? Colors.white24 : Colors.black12,
+                        ),
                       ),
-                      border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(30))),
+                      border: const OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(30)),
+                      ),
                     ),
                   ),
                   const SizedBox(height: fieldSpacing),
@@ -131,28 +170,57 @@ class LoginScreenState extends State<LoginScreen> {
                       minimumSize: const Size(double.infinity, 50),
                       backgroundColor: isDarkMode ? Colors.white : Colors.blue,
                       foregroundColor: isDarkMode ? Colors.black : Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
                     ),
-                    child: const Text("Sign In", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      "Sign In",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: fieldSpacing),
                   Row(
                     children: [
-                      Expanded(child: Divider(thickness: 1, color: isDarkMode ? Colors.white10 : Colors.grey[300])),
+                      Expanded(
+                        child: Divider(
+                          thickness: 1,
+                          color: isDarkMode ? Colors.white10 : Colors.grey[300],
+                        ),
+                      ),
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 8.0),
-                        child: Text("or sign in with", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                        child: Text(
+                          "or sign in with",
+                          style: TextStyle(fontSize: 14, color: Colors.grey),
+                        ),
                       ),
-                      Expanded(child: Divider(thickness: 1, color: isDarkMode ? Colors.white10 : Colors.grey[300])),
+                      Expanded(
+                        child: Divider(
+                          thickness: 1,
+                          color: isDarkMode ? Colors.white10 : Colors.grey[300],
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildSocialTile('assets/google.png', "Google", isDarkMode),
+                      _buildSocialTile(
+                        'assets/google.png',
+                        "Google",
+                        isDarkMode,
+                      ),
                       const SizedBox(width: 20),
-                      _buildSocialTile('assets/facebook.png', "Facebook", isDarkMode),
+                      _buildSocialTile(
+                        'assets/facebook.png',
+                        "Facebook",
+                        isDarkMode,
+                      ),
                     ],
                   ),
                 ],
@@ -175,12 +243,21 @@ class LoginScreenState extends State<LoginScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Image.asset(asset, width: 25, height: 25, 
-            errorBuilder: (context, error, stackTrace) => const Icon(Icons.login, size: 25)),
+          Image.asset(
+            asset,
+            width: 25,
+            height: 25,
+            errorBuilder: (context, error, stackTrace) =>
+                const Icon(Icons.login, size: 25),
+          ),
           const SizedBox(width: 12),
           Text(
             label,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: isDark ? Colors.white : Colors.black),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.white : Colors.black,
+            ),
           ),
         ],
       ),
