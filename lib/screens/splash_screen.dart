@@ -3,7 +3,10 @@ import 'package:lottie/lottie.dart';
 import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  // 1. Define the parameter to receive the function from main.dart
+  final VoidCallback onThemeToggle; 
+  
+  const SplashScreen({super.key, required this.onThemeToggle});
 
   @override
   SplashScreenState createState() => SplashScreenState();
@@ -23,7 +26,7 @@ class SplashScreenState extends State<SplashScreen>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 3), // fallback duration
+      duration: const Duration(seconds: 3),
     );
 
     _loadApp();
@@ -48,9 +51,12 @@ class SplashScreenState extends State<SplashScreen>
 
     _navigated = true;
 
+    // 2. Pass the function to the LoginScreen so it can eventually reach the Dashboard
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      MaterialPageRoute(
+        builder: (_) => LoginScreen(onThemeToggle: widget.onThemeToggle),
+      ),
     );
   }
 
@@ -62,6 +68,7 @@ class SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    // This part is great! It already detects theme for the Lottie file
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final animationPath = isDarkMode
