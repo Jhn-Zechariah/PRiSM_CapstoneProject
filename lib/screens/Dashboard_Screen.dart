@@ -480,7 +480,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark
-            ? const Color(0xFF2C2C2C)
+            ? const Color.fromRGBO(248, 222, 34, 0.2)
             : const Color.fromRGBO(248, 222, 34, 0.4),
         borderRadius: BorderRadius.circular(16),
       ),
