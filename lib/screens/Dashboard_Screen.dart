@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'login_screen.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
+import 'app_top_bar.dart';
+import 'package:material_symbols_icons/symbols.dart';
 //import 'package:google_nav_bar/google_nav_bar.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -19,11 +21,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   //list of icons for the bottom navigation bar
   final List<Widget> _navItems = const [
-    Icon(Icons.pets, size: 30, color: Colors.white),
-    Icon(Icons.thermostat, size: 30, color: Colors.white),
-    Icon(Icons.home, size: 30, color: Colors.white),
-    Icon(Icons.track_changes, size: 30, color: Colors.white),
-    Icon(Icons.monetization_on_outlined, size: 30, color: Colors.white),
+    Icon(Symbols.savings, size: 30, color: Colors.white),
+    Icon(Symbols.thermostat, size: 30, color: Colors.white),
+    Icon(Symbols.home, size: 30, color: Colors.white),
+    Icon(Symbols.yoshoku, size: 30, color: Colors.white),
+    Icon(Symbols.mixture_med, size: 30, color: Colors.white),
   ];
 
   @override
@@ -33,7 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     //list of screens for the bottom navigation bar
     final List<Widget> screens = [
-      const PigProfiles(), // Index 0
+      PigProfiles(onThemeToggle: widget.onThemeToggle), // Index 0
       const Center(child: Text("IoT Control")),
       _buildDashboardHome(isDarkMode), // Index 2: THE MAIN DASHBOARD
       const Center(child: Text("Track Changes")), // Index 3
@@ -41,18 +43,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ];
 
     return Scaffold(
-      // Dynamic background color
       backgroundColor: isDarkMode ? const Color(0xFF121212) : Colors.grey[100],
       drawer: _buildCustomDrawer(isDarkMode),
 
-      body: SafeArea(child: screens[selectedIndex]),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: screens[selectedIndex],
+        ),
+      ),
+
       bottomNavigationBar: _buildBottomNav(isDarkMode),
     );
   }
 
   Widget _buildDashboardHome(bool isDark) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -65,6 +71,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildTemperatureGraph(isDark),
           const SizedBox(height: 16),
           _buildBottomStatsRow(isDark),
+          const SizedBox(height: 16),
+          _buildRecommendationCard(isDark),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -75,38 +84,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Builder(
-              builder: (context) => IconButton(
-                icon: Icon(
-                  Icons.menu,
-                  color: isDark ? Colors.white : Colors.black,
-                  size: 28,
-                ),
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
-            ),
-            // UPDATED LOGIC HERE
-            Image.asset(
-              isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png',
-              height: 40,
-              errorBuilder: (context, error, stackTrace) => Icon(
-                Icons.business,
-                size: 40,
-                color: isDark ? Colors.white24 : Colors.grey,
-              ),
-            ),
-          ],
-        ),
+        AppTopBar(isDark: isDark),
         const SizedBox(height: 12),
         Row(
           children: [
-            const CircleAvatar(
+            CircleAvatar(
               radius: 24,
-              backgroundColor: Colors.black12,
-              child: Icon(Icons.person, color: Colors.blue),
+              backgroundColor: Colors.transparent,
+              child: Icon(
+                Symbols.account_circle,
+                size: 50,
+                color: isDark
+                    ? Color.fromARGB(255, 255, 255, 255)
+                    : const Color.fromARGB(255, 0, 0, 0),
+              ),
             ),
             const SizedBox(width: 12),
             Column(
@@ -278,19 +269,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(
       children: [
         Expanded(
-          child: _buildInfoCard(isDark, Icons.bar_chart, "Quick Stats", const [
-            "Max Temp: ",
-            "Sprinkler: ",
-            "Pig Status: ",
-          ]),
+          child: _buildInfoCard(
+            isDark,
+            Icons.bar_chart,
+            "Quick Stats",
+            const ["Max Temp: ", "Sprinkler: ", "Pig Status: "],
+            Colors.green.withValues(alpha: 0.2),
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _buildInfoCard(isDark, Icons.water_outlined, "Control", const [
-            "Status: ",
-            "Last: ",
-            "Mode: ",
-          ]),
+          child: _buildInfoCard(
+            isDark,
+            Icons.water_outlined,
+            "Control",
+            const ["Status: ", "Last: ", "Mode: "],
+            Colors.blue.withValues(alpha: 0.2),
+          ),
         ),
       ],
     );
@@ -301,11 +296,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     IconData icon,
     String title,
     List<String> items,
+    Color? backgroundColor,
   ) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+        color:
+            backgroundColor ??
+            (isDark ? const Color(0xFF2C2C2C) : Colors.white),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -334,7 +332,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Text(
                 e,
                 style: TextStyle(
-                  color: isDark ? Colors.white60 : Colors.grey,
+                  color: isDark
+                      ? Colors.white60
+                      : const Color.fromARGB(255, 112, 112, 112),
                   fontSize: 12,
                 ),
               ),
@@ -360,7 +360,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.bar_chart, color: isDark ? Colors.blue : Colors.white),
+              Icon(
+                Icons.bar_chart,
+                color: isDark
+                    ? Colors.blue
+                    : const Color.fromARGB(255, 0, 0, 0),
+              ),
               const SizedBox(width: 8),
               Text(
                 "Temperature Graph (last 24 hrs)",
@@ -407,13 +412,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // --- BOTTOM STATS ---
   Widget _buildBottomStatsRow(bool isDark) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
+        Flexible(
+          flex: 1,
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+              color: isDark
+                  ? const Color(0xFF2C2C2C)
+                  : const Color.fromRGBO(247, 127, 0, 0.2),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
@@ -428,7 +435,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      "Monthly Expense",
+                      "Vaccine Schedule",
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -438,22 +445,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                ...["Feeds:", "Vaccines:", "Vitamins:", "Labor:"].map(
+                ...["Vax name:", "Date:"].map(
                   (e) => Text(
                     e,
                     style: TextStyle(
-                      color: isDark ? Colors.white60 : Colors.grey,
+                      color: isDark
+                          ? Colors.white60
+                          : const Color.fromARGB(255, 112, 112, 112),
                       fontSize: 12,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "₱15,000",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: isDark ? Colors.greenAccent : Colors.black,
                   ),
                 ),
               ],
@@ -461,23 +461,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         const SizedBox(width: 12),
-        Column(
-          children: [
-            _buildStatCard(isDark, "Sales", "₱20,000"),
-            const SizedBox(height: 12),
-            _buildStatCard(isDark, "Net Profit", "₱5,000"),
-          ],
+        Flexible(
+          flex: 1,
+          child: _buildStatCard(
+            isDark,
+            "Feeding Schedule",
+            "10:00 AM",
+            "5:00 PM",
+          ),
         ),
+        // Empty space to balance the row
       ],
     );
   }
 
-  Widget _buildStatCard(bool isDark, String label, String value) {
+  Widget _buildRecommendationCard(bool isDark) {
     return Container(
-      width: 130,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF2C2C2C)
+            : const Color.fromRGBO(248, 222, 34, 0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.light_mode, size: 16, color: Colors.blue),
+              const SizedBox(width: 6),
+              Text(
+                "Recommendations",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Based on current conditions, we recommend activating the sprinkler system for 15 minutes to maintain optimal humidity levels.",
+            style: TextStyle(
+              color: isDark
+                  ? Colors.white60
+                  : const Color.fromARGB(255, 112, 112, 112),
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(
+    bool isDark,
+    String label,
+    String value1,
+    String value2,
+  ) {
+    return Container(
+      width: 150,
+      height: 85,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF2C2C2C) : Colors.grey[200],
+        color: isDark
+            ? const Color(0xFF2C2C2C)
+            : const Color.fromRGBO(0, 48, 73, 0.2),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -486,17 +538,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Text(
             label,
             style: TextStyle(
-              color: isDark ? Colors.white60 : Colors.grey,
-              fontSize: 12,
+              color: isDark
+                  ? const Color.fromARGB(255, 255, 255, 255)
+                  : const Color.fromARGB(255, 0, 0, 0),
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 6),
+          // morning time
           Text(
-            value,
+            value1,
             style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-              color: isDark ? Colors.white : Colors.black,
+              fontSize: 12,
+              color: isDark
+                  ? Colors.white60
+                  : const Color.fromARGB(255, 112, 112, 112),
+            ),
+          ),
+          // evening time
+          Text(
+            value2,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark
+                  ? Colors.white60
+                  : const Color.fromARGB(255, 112, 112, 112),
             ),
           ),
         ],
@@ -508,7 +575,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return CurvedNavigationBar(
       backgroundColor: Colors.transparent,
       color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-      buttonBackgroundColor: isDark ? Colors.blue : Colors.white,
+      buttonBackgroundColor: isDark ? Colors.blue : Colors.blue,
 
       height: 70,
       index: selectedIndex,
