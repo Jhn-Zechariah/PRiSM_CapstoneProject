@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
-import 'login_screen.dart';
+import '../features/auth/presentation/pages/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   // 1. Define the parameter to receive the function from main.dart

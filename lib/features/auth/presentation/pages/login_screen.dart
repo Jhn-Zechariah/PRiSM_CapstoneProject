@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'signup_screen.dart';
-import 'Dashboard_Screen.dart'; // Ensure this filename matches exactly (case-sensitive)
+import '../../../../screens/signup_screen.dart';
+import '../../../../screens/Dashboard_Screen.dart';
+import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
+import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
+
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -19,11 +22,7 @@ class LoginScreenState extends State<LoginScreen> {
 
   // --- MODIFIED LOGIN FOR TESTING ---
   void _login() {
-    // For direct testing: We skip the if(_formKey.currentState!.validate()) check
-    // so you can enter the app immediately upon clicking the button.
-
     debugPrint("Testing Mode: Navigating directly to Dashboard...");
-
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -40,7 +39,6 @@ class LoginScreenState extends State<LoginScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // Set background color based on theme
       backgroundColor: isDarkMode ? const Color(0xFF121212) : Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
@@ -53,9 +51,7 @@ class LoginScreenState extends State<LoginScreen> {
                 children: [
                   const SizedBox(height: 60),
                   Image.asset(
-                    isDarkMode
-                        ? 'assets/logo_dark.png'
-                        : 'assets/logo_light.png',
+                    isDarkMode ? 'assets/logo_dark.png' : 'assets/logo_light.png',
                     width: 200,
                     errorBuilder: (context, error, stackTrace) => Icon(
                       Icons.business,
@@ -63,7 +59,6 @@ class LoginScreenState extends State<LoginScreen> {
                       color: isDarkMode ? Colors.white24 : Colors.grey,
                     ),
                   ),
-
                   Text(
                     "Welcome Back!",
                     style: TextStyle(
@@ -101,87 +96,41 @@ class LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  TextFormField(
+
+                  //Email
+                  CustomTextField(
                     controller: emailController,
-                    style: TextStyle(
-                      color: isDarkMode ? Colors.white : Colors.black,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: "Email",
-                      labelStyle: TextStyle(
-                        color: isDarkMode ? Colors.white60 : Colors.black54,
-                      ),
-                      prefixIcon: Icon(
-                        Icons.email_outlined,
-                        color: isDarkMode ? Colors.white60 : Colors.black54,
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide(
-                          color: isDarkMode ? Colors.white24 : Colors.black12,
-                        ),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
+                    labelText: "Email",
+                    prefixIcon: Icons.email_outlined,
                   ),
+
                   const SizedBox(height: fieldSpacing),
-                  TextFormField(
+
+                  //Password
+                  CustomTextField(
                     controller: passwordController,
+                    labelText: "Password",
+                    prefixIcon: Icons.lock_outlined,
                     obscureText: _obscurePassword,
-                    style: TextStyle(
-                      color: isDarkMode ? Colors.white : Colors.black,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: "Password",
-                      labelStyle: TextStyle(
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
                         color: isDarkMode ? Colors.white60 : Colors.black54,
                       ),
-                      prefixIcon: Icon(
-                        Icons.lock_outlined,
-                        color: isDarkMode ? Colors.white60 : Colors.black54,
-                      ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () => setState(
-                          () => _obscurePassword = !_obscurePassword,
-                        ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide(
-                          color: isDarkMode ? Colors.white24 : Colors.black12,
-                        ),
-                      ),
-                      border: const OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(30)),
+                      onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
                       ),
                     ),
                   ),
+
                   const SizedBox(height: fieldSpacing),
-                  ElevatedButton(
-                    onPressed: _login, // Triggers the direct navigation
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      backgroundColor: isDarkMode ? Colors.white : Colors.blue,
-                      foregroundColor: isDarkMode ? Colors.black : Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                    child: const Text(
-                      "Sign In",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+
+                  // Sign in button
+                  CustomButton(
+                    text: "Sign In",
+                    onPressed: _login,
                   ),
+
                   const SizedBox(height: fieldSpacing),
                   Row(
                     children: [
@@ -210,17 +159,9 @@ class LoginScreenState extends State<LoginScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildSocialTile(
-                        'assets/google.png',
-                        "Google",
-                        isDarkMode,
-                      ),
+                      _buildSocialTile('assets/google.png', "Google", isDarkMode),
                       const SizedBox(width: 20),
-                      _buildSocialTile(
-                        'assets/facebook.png',
-                        "Facebook",
-                        isDarkMode,
-                      ),
+                      _buildSocialTile('assets/facebook.png', "Facebook", isDarkMode),
                     ],
                   ),
                 ],
@@ -248,7 +189,7 @@ class LoginScreenState extends State<LoginScreen> {
             width: 25,
             height: 25,
             errorBuilder: (context, error, stackTrace) =>
-                const Icon(Icons.login, size: 25),
+            const Icon(Icons.login, size: 25),
           ),
           const SizedBox(width: 12),
           Text(

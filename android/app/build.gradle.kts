@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.prism_app"
+    namespace = "com.codeVibers.prism_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

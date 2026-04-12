@@ -1,6 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'login_screen.dart';
+import '../features/auth/presentation/pages/login_screen.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
 import 'app_top_bar.dart';
