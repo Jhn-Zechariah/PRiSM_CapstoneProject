@@ -1,15 +1,21 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:prism_app/features/auth/data/firebase_auth_repo.dart';
+import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
+import 'package:prism_app/features/auth/presentation/cubits/auth_states.dart';
+import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import 'package:prism_app/firebase_options.dart';
+import 'package:prism_app/screens/Dashboard_Screen.dart';
 import 'package:prism_app/screens/splash_screen.dart';
 import 'package:prism_app/themes/app_theme.dart';
 
 void main() async {
-  //firebase setup
+  // firebase setup
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  //run app
+  // run app
   runApp(const MyApp());
 }
 
@@ -23,6 +29,9 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   ThemeMode _themeMode = ThemeMode.system;
 
+  //auth repo
+  final firebaseAuthRepo = FirebaseAuthRepo();
+
   void toggleTheme() {
     setState(() {
       _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
@@ -31,15 +40,24 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-
-      // 👇 Use the extracted themes here
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-
-      themeMode: _themeMode,
-      home: SplashScreen(onThemeToggle: toggleTheme),
+    return MultiBlocProvider(
+      providers: [
+        //auth cubit
+        BlocProvider<AuthCubit>(create: (context) => AuthCubit(authRepo: firebaseAuthRepo)..checkAuth(),
+        ),
+      ],
+      //app
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        // Use the extracted themes here
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: _themeMode,
+        /*
+        Bloc consumer - Auth
+         */
+        home: SplashScreen(onThemeToggle: toggleTheme)
+      )
     );
   }
 }
