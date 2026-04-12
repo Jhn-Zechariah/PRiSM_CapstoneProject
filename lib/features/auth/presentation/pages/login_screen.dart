@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import '../../../../screens/signup_screen.dart';
 import '../../../../screens/Dashboard_Screen.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
 
 
 class LoginScreen extends StatefulWidget {
+  final void Function()? togglePages;
   final VoidCallback onThemeToggle;
 
-  const LoginScreen({super.key, required this.onThemeToggle});
+  const LoginScreen({super.key, required this.togglePages,required this.onThemeToggle});
 
   @override
   LoginScreenState createState() => LoginScreenState();
@@ -77,22 +77,13 @@ class LoginScreenState extends State<LoginScreen> {
                           color: isDarkMode ? Colors.white70 : Colors.black54,
                         ),
                       ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => SignupScreen(
-                                onThemeToggle: widget.onThemeToggle,
-                              ),
-                            ),
-                          );
-                        },
-                        child: const Text(
-                          "Sign Up",
-                          style: TextStyle(fontSize: 14, color: Colors.blue),
-                        ),
-                      ),
+                     GestureDetector(
+                       onTap: widget.togglePages,
+                       child: Text(
+                            " Sign Up",
+                            style: TextStyle(fontSize: 14, color: Colors.blue),
+                          ),
+                     ),
                     ],
                   ),
                   const SizedBox(height: 10),

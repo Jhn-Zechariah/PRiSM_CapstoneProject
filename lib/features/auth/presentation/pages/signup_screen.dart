@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import '../features/auth/presentation/pages/login_screen.dart';
+import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
 
 class SignupScreen extends StatefulWidget {
+  final void Function()? togglePages;
   final VoidCallback onThemeToggle;
-  const SignupScreen({super.key, required this.onThemeToggle});
+
+  const SignupScreen({super.key, required this.togglePages,required this.onThemeToggle});
 
   @override
   State<SignupScreen> createState() => _SignupScreenState();
@@ -31,7 +33,7 @@ class _SignupScreenState extends State<SignupScreen> {
         context,
         MaterialPageRoute(
           builder: (context) =>
-              LoginScreen(onThemeToggle: widget.onThemeToggle),
+              AuthPage(onThemeToggle: widget.onThemeToggle),
         ),
       );
     }
@@ -84,24 +86,16 @@ class _SignupScreenState extends State<SignupScreen> {
                           color: isDarkMode ? Colors.white70 : Colors.black54,
                         ),
                       ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => LoginScreen(
-                                onThemeToggle: widget.onThemeToggle,
-                              ),
-                            ),
-                          );
-                        },
-                        child: const Text(
-                          "Log in",
-                          style: TextStyle(fontSize: 14, color: Colors.blue),
-                        ),
-                      ),
+                    GestureDetector(
+                      onTap: widget.togglePages,
+                      child: Text(
+                            " Log in",
+                            style: TextStyle(fontSize: 14, color: Colors.blue),
+                          ),
+                    ),
                     ],
                   ),
+                  const SizedBox(height: 10),
 
                   // Email Field
                   CustomTextField(
