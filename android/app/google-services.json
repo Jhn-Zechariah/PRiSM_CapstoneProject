@@ -12,7 +12,12 @@
           "package_name": "com.codeVibers.prism_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "927396793814-lk8afrpcps26anskvdor11dlccnl4sfi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDLYSz028qrQIC85Z5h42mksJC9lvE5f2I"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "927396793814-lk8afrpcps26anskvdor11dlccnl4sfi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

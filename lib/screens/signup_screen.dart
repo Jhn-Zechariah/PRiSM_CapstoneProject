@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'login_screen.dart';
+import '../features/auth/presentation/pages/login_screen.dart';
+import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
+import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
 
 class SignupScreen extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -13,8 +15,8 @@ class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmpasswordController =
-      TextEditingController();
+  final TextEditingController confirmpasswordController = TextEditingController();
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
@@ -42,6 +44,7 @@ class _SignupScreenState extends State<SignupScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
+      backgroundColor: isDarkMode ? const Color(0xFF121212) : Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
@@ -83,7 +86,6 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       TextButton(
                         onPressed: () {
-                          // UPDATED: Pass the toggle function back to LoginScreen
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(
@@ -101,74 +103,57 @@ class _SignupScreenState extends State<SignupScreen> {
                     ],
                   ),
 
-                  // Email field
-                  TextFormField(
+                  // Email Field
+                  CustomTextField(
                     controller: emailController,
-                    decoration: const InputDecoration(
-                      labelText: "Email",
-                      prefixIcon: Icon(Icons.email_outlined),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(30)),
-                      ),
-                    ),
+                    labelText: "Email",
+                    prefixIcon: Icons.email_outlined,
                     validator: (value) =>
-                        value!.isEmpty ? "Please enter your email" : null,
+                    value == null || value.isEmpty ? "Please enter your email" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
-                  // Password field
-                  TextFormField(
+                  // Password Field
+                  CustomTextField(
                     controller: passwordController,
+                    labelText: "Password",
+                    prefixIcon: Icons.lock_outlined,
                     obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      labelText: "Password",
-                      prefixIcon: const Icon(Icons.lock_outlined),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        color: isDarkMode ? Colors.white60 : Colors.black54,
                       ),
-                      border: const OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(30)),
-                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
                     ),
                     validator: (value) =>
-                        value!.isEmpty ? "Please enter your password" : null,
+                    value == null || value.isEmpty ? "Please enter your password" : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
-                  // Confirm Password field
-                  TextFormField(
+                  // Confirm Password Field
+                  CustomTextField(
                     controller: confirmpasswordController,
+                    labelText: "Confirm Password",
+                    prefixIcon: Icons.lock_outlined,
                     obscureText: _obscureConfirmPassword,
-                    decoration: InputDecoration(
-                      labelText: "Confirm Password",
-                      prefixIcon: const Icon(Icons.lock_outlined),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureConfirmPassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureConfirmPassword = !_obscureConfirmPassword;
-                          });
-                        },
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+                        color: isDarkMode ? Colors.white60 : Colors.black54,
                       ),
-                      border: const OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(30)),
-                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscureConfirmPassword = !_obscureConfirmPassword;
+                        });
+                      },
                     ),
                     validator: (value) {
-                      if (value!.isEmpty) return "Please confirm your password";
+                      if (value == null || value.isEmpty) return "Please confirm your password";
                       if (value != passwordController.text) {
                         return "Passwords do not match";
                       }
@@ -177,31 +162,24 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: fieldSpacing),
 
-                  // Signup button
-                  ElevatedButton(
+                  // Signup Button
+                  CustomButton(
+                    text: "Sign Up",
                     onPressed: _signup,
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      backgroundColor: isDarkMode ? Colors.white : Colors.blue,
-                      foregroundColor: isDarkMode ? Colors.black : Colors.white,
-                    ),
-                    child: const Text(
-                      "Sign Up",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
                   ),
+
                   const SizedBox(height: fieldSpacing),
 
                   // or sign up with separator
-                  const Row(
+                  Row(
                     children: [
                       Expanded(
-                        child: Divider(thickness: 1, color: Colors.grey),
+                        child: Divider(
+                            thickness: 1,
+                            color: isDarkMode ? Colors.white10 : Colors.grey[300]
+                        ),
                       ),
-                      Padding(
+                      const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 8.0),
                         child: Text(
                           "or sign up with",
@@ -209,7 +187,10 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       Expanded(
-                        child: Divider(thickness: 1, color: Colors.grey),
+                        child: Divider(
+                            thickness: 1,
+                            color: isDarkMode ? Colors.white10 : Colors.grey[300]
+                        ),
                       ),
                     ],
                   ),
@@ -241,7 +222,6 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  // Helper method for social tiles to keep build method clean
   Widget _buildSocialTile(String asset, String label, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
@@ -258,7 +238,7 @@ class _SignupScreenState extends State<SignupScreen> {
             width: 25,
             height: 25,
             errorBuilder: (context, error, stackTrace) =>
-                const Icon(Icons.login, size: 25),
+            const Icon(Icons.login, size: 25),
           ),
           const SizedBox(width: 12),
           Text(
