@@ -1,7 +1,6 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
