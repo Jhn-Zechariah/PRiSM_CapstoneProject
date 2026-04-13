@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
@@ -15,28 +17,46 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
-  final TextEditingController confirmpasswordController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
+  //sign uo botton pressed
   void _signup() {
+    //prepare info
+    final String email = emailController.text;
+    final String password = passwordController.text;
+
+    //auth cubit
+    final authCubit = context.read<AuthCubit>();
+
     if (_formKey.currentState!.validate()) {
       debugPrint("Email: ${emailController.text}");
       debugPrint("Password: ${passwordController.text}");
-      debugPrint("Confirm Password: ${confirmpasswordController.text}");
+      debugPrint("Confirm Password: ${confirmPasswordController.text}");
+
+      authCubit.register(email, email, password);
 
       // After signup, take them back to Login
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) =>
-              AuthPage(onThemeToggle: widget.onThemeToggle),
-        ),
-      );
+      // Navigator.pushReplacement(
+      //   context,
+      //   MaterialPageRoute(
+      //     builder: (context) =>
+      //         AuthPage(onThemeToggle: widget.onThemeToggle),
+      //   ),
+      // );
     }
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    confirmPasswordController.dispose();
+    super.dispose();
   }
 
   static const double fieldSpacing = 20.0;
@@ -131,7 +151,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                   // Confirm Password Field
                   CustomTextField(
-                    controller: confirmpasswordController,
+                    controller: confirmPasswordController,
                     labelText: "Confirm Password",
                     prefixIcon: Icons.lock_outlined,
                     obscureText: _obscureConfirmPassword,
