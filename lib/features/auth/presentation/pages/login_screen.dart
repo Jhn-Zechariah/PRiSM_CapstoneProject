@@ -21,14 +21,16 @@ class LoginScreenState extends State<LoginScreen> {
   final TextEditingController passwordController = TextEditingController();
   bool _obscurePassword = true;
 
+  //auth cubit
+  late final authCubit = context.read<AuthCubit>();
+
   //login button press
   void _login() {
     //prepare email & pass
     final String email = emailController.text;
     final String password = passwordController.text;
 
-    //auth cubit
-    final authCubit = context.read<AuthCubit>();
+
 
     //validate fields
     if (_formKey.currentState!.validate()) {
@@ -38,6 +40,51 @@ class LoginScreenState extends State<LoginScreen> {
       //log in
       authCubit.login(email, password);
     }
+  }
+
+  //forgot password
+  void openForgotPasswordBox(String? email){
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Forgot Password"),
+
+        content: CustomTextField(
+          text: email,
+          controller: emailController,
+          labelText: "Email",
+          prefixIcon: Icons.email_outlined,
+        ),
+        actions: [
+
+          //cancel
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              emailController.clear();
+              },
+            child: const Text("Cancel"),
+          ),
+
+          //reset
+          TextButton(
+            onPressed: () async {
+              String message = await authCubit.forgotPassword(emailController.text);
+
+              if (!context.mounted) return;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(message)),
+              );
+              Navigator.pop(context);
+              emailController.clear();
+            },
+            child: const Text("Reset"),
+          ),
+        ],
+      )
+    );
   }
 
   static const double fieldSpacing = 20.0;
@@ -126,6 +173,22 @@ class LoginScreenState extends State<LoginScreen> {
                     value == null || value.isEmpty ? "Please enter your password" : null,
                   ),
 
+                  const SizedBox(height: 10),
+
+                  //forgot password
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      GestureDetector(
+                        onTap: () => openForgotPasswordBox(emailController.text),
+                        child: const Text(
+                          "forgot password?",
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
+                        ),
+                      ),
+                    ],
+                  ),
+
                   const SizedBox(height: fieldSpacing),
 
                   // Sign in button
@@ -135,6 +198,7 @@ class LoginScreenState extends State<LoginScreen> {
                   ),
 
                   const SizedBox(height: fieldSpacing),
+
                   Row(
                     children: [
                       Expanded(
