@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lottie/lottie.dart';
 import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 
+import '../features/auth/presentation/components/loading.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
 import '../features/auth/presentation/cubits/auth_states.dart';
 import 'Dashboard_Screen.dart';
@@ -74,9 +75,7 @@ class SplashScreenState extends State<SplashScreen>
             }
             //loading...
             else{
-              return Center(
-                child: CircularProgressIndicator(),
-              );
+              return LoadingScreen();
             }
           },
           listener: (context, state){

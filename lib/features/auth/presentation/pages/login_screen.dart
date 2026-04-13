@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import '../../../../screens/Dashboard_Screen.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
@@ -20,16 +22,23 @@ class LoginScreenState extends State<LoginScreen> {
   final TextEditingController passwordController = TextEditingController();
   bool _obscurePassword = true;
 
-  // --- MODIFIED LOGIN FOR TESTING ---
+  //login button press
   void _login() {
-    debugPrint("Testing Mode: Navigating directly to Dashboard...");
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            DashboardScreen(onThemeToggle: widget.onThemeToggle),
-      ),
-    );
+    //prepare email & pass
+    final String email = emailController.text;
+    final String password = passwordController.text;
+
+    //auth cubit
+    final authCubit = context.read<AuthCubit>();
+
+    //validate fields
+    if (_formKey.currentState!.validate()) {
+      debugPrint("Email: ${emailController.text}");
+      debugPrint("Password: ${passwordController.text}");
+
+      //log in
+      authCubit.login(email, password);
+    }
   }
 
   static const double fieldSpacing = 20.0;
@@ -93,6 +102,8 @@ class LoginScreenState extends State<LoginScreen> {
                     controller: emailController,
                     labelText: "Email",
                     prefixIcon: Icons.email_outlined,
+                    validator: (value) =>
+                    value == null || value.isEmpty ? "Please enter your email" : null,
                   ),
 
                   const SizedBox(height: fieldSpacing),
@@ -112,6 +123,8 @@ class LoginScreenState extends State<LoginScreen> {
                             () => _obscurePassword = !_obscurePassword,
                       ),
                     ),
+                    validator: (value) =>
+                    value == null || value.isEmpty ? "Please enter your password" : null,
                   ),
 
                   const SizedBox(height: fieldSpacing),

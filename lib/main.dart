@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/data/firebase_auth_repo.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
-import 'package:prism_app/features/auth/presentation/cubits/auth_states.dart';
-import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import 'package:prism_app/firebase_options.dart';
-import 'package:prism_app/screens/Dashboard_Screen.dart';
 import 'package:prism_app/screens/splash_screen.dart';
 import 'package:prism_app/themes/app_theme.dart';
 

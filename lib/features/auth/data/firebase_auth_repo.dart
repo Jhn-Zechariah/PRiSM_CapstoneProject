@@ -34,7 +34,7 @@ class FirebaseAuthRepo implements AuthRepo {
 
   //REGISTER WITH EMAIL AND PASS
   @override
-  Future<AppUser?> registerWithEmailPassword(String name, String email, String password) async {
+  Future<AppUser?> registerWithEmailPassword(String? name, String email, String password) async {
     try{
       //attempt sign up
       UserCredential userCredential = await firebaseAuth
@@ -102,6 +102,6 @@ class FirebaseAuthRepo implements AuthRepo {
     }
     catch (e) {
       return 'An error occurred: $e';
-    };
+    }
   }
 }

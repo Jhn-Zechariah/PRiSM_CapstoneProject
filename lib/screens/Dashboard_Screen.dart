@@ -1,9 +1,10 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
-import '../features/auth/presentation/pages/login_screen.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
+import '../features/auth/presentation/cubits/auth_cubit.dart';
 import 'app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 //import 'package:google_nav_bar/google_nav_bar.dart';
@@ -190,15 +191,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const Spacer(),
             const Divider(color: Colors.white24),
             _drawerTile(Icons.logout, "Log Out", () {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                      AuthPage(onThemeToggle: widget.onThemeToggle),
-                ),
-                (route) => false,
-              );
+              // 1. Close the drawer first so it doesn't stay open in the background
+              Navigator.pop(context);
+
+              // 2. Tell Firebase and your BLoC to log the user out!
+             final authCubit = context.read<AuthCubit>();
+             authCubit.logout();
             }),
+            const SizedBox(height: 20),
             const SizedBox(height: 20),
           ],
         ),
