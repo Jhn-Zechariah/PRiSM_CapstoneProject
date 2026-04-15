@@ -6,6 +6,7 @@ import 'package:prism_app/features/auth/presentation/components/custom_button.da
 
 
 class LoginScreen extends StatefulWidget {
+
   final void Function()? togglePages;
   final VoidCallback onThemeToggle;
 

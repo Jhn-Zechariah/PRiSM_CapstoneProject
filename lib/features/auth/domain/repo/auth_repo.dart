@@ -1,6 +1,6 @@
 /*
 
-AUTH REPOSITORY -Outlines the possible auth operation to this app
+AUTH REPOSITORY - Outlines the possible auth operation to this app
 
 */
 

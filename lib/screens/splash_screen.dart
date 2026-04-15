@@ -7,6 +7,7 @@ import '../features/auth/presentation/components/loading.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
 import '../features/auth/presentation/cubits/auth_states.dart';
 import 'Dashboard_Screen.dart';
+import 'bottom_nav.dart';
 
 
 class SplashScreen extends StatefulWidget {
@@ -71,7 +72,7 @@ class SplashScreenState extends State<SplashScreen>
 
             //authenticated -> homepage/dashboard
             if (state is Authenticated) {
-              return DashboardScreen(onThemeToggle: widget.onThemeToggle);
+              return AppNav(onThemeToggle: widget.onThemeToggle);
             }
             //loading...
             else{
@@ -96,7 +97,7 @@ class SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    // This part is great! It already detects theme for the Lottie file
+    // This part  detects theme for the Lottie file
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final animationPath = isDarkMode
