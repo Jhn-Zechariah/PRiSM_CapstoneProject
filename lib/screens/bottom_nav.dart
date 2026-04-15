@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
-import '../features/auth/presentation/components/app_top_bar_fIxed.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
 import 'Pig_profiles.dart';
-import '../features/auth/presentation/components/app_top_bar.dart';
 
 
 class AppNav extends StatefulWidget {
