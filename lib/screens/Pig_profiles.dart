@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'app_top_bar.dart';
+import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 class PigProfiles extends StatefulWidget {
@@ -16,27 +16,29 @@ class _PigProfilesState extends State<PigProfiles> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AppTopBar(isDark: isDarkMode),
-        const SizedBox(height: 12),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppTopBar(),
+          const SizedBox(height: 12),
 
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeaderRow(isDarkMode),
-              const SizedBox(height: 12),
-              Expanded(child: _buildPigList(isDarkMode)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeaderRow(isDarkMode),
+                const SizedBox(height: 12),
+                Expanded(child: _buildPigList(isDarkMode)),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  //build header row; title and icon
   Widget _buildHeaderRow(bool isDark) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -70,7 +72,6 @@ class _PigProfilesState extends State<PigProfiles> {
     );
   }
 
-  //build list of pigs
   Widget _buildPigList(bool isDark) {
     final pigs = [
       {"name": "Pig 1", "color": const Color.fromRGBO(214, 40, 40, 1)},
@@ -91,7 +92,6 @@ class _PigProfilesState extends State<PigProfiles> {
     );
   }
 
-  //pig card widget
   Widget _buildPigCard({
     required String name,
     required Color color,
@@ -105,7 +105,6 @@ class _PigProfilesState extends State<PigProfiles> {
       ),
       child: Row(
         children: [
-          // LEFT COLOR BAR
           Container(
             width: 10,
             height: 140,
@@ -117,15 +116,12 @@ class _PigProfilesState extends State<PigProfiles> {
               ),
             ),
           ),
-
-          // CONTENT
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // TITLE ROW
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -140,10 +136,7 @@ class _PigProfilesState extends State<PigProfiles> {
                       const Icon(Icons.more_vert, size: 18),
                     ],
                   ),
-
                   const SizedBox(height: 6),
-
-                  // DETAILS
                   Text(
                     "Breed:",
                     style: TextStyle(
@@ -172,10 +165,7 @@ class _PigProfilesState extends State<PigProfiles> {
                       color: isDark ? Colors.white60 : Colors.grey,
                     ),
                   ),
-
                   const SizedBox(height: 8),
-
-                  // NOTE BOX
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(8),

@@ -4,6 +4,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/data/firebase_auth_repo.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/firebase_options.dart';
+import 'package:prism_app/screens/Dashboard_Screen.dart';
+import 'package:prism_app/screens/bottom_nav.dart';
 import 'package:prism_app/screens/splash_screen.dart';
 import 'package:prism_app/themes/app_theme.dart';
 
@@ -37,6 +39,8 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+
+
     return MultiBlocProvider(
       providers: [
         //auth cubit
@@ -56,5 +60,6 @@ class _MyAppState extends State<MyApp> {
         home: SplashScreen(onThemeToggle: toggleTheme)
       )
     );
+
   }
 }
