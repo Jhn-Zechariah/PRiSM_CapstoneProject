@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "927396793814-g328p3v80mvb2dv915ul68hc7uehlafh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.codeVibers.prism_app",
+            "certificate_hash": "ad0428b2d5d8e21228776ca57ce878347dd0192c"
+          }
+        },
+        {
+          "client_id": "927396793814-iontadevhtpfs98ucokag05hr4tdmgmt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.codeVibers.prism_app",
+            "certificate_hash": "b9e43d03c327e124ca50b9b4874127e59808ccd9"
+          }
+        },
+        {
           "client_id": "927396793814-lk8afrpcps26anskvdor11dlccnl4sfi.apps.googleusercontent.com",
           "client_type": 3
         }
