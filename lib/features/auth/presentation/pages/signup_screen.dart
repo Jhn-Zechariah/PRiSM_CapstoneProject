@@ -16,6 +16,7 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
+  final usernameController = TextEditingController();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
@@ -26,6 +27,7 @@ class _SignupScreenState extends State<SignupScreen> {
   //sign uo botton pressed
   void _signup() {
     //prepare info
+    final String username = usernameController.text;
     final String email = emailController.text;
     final String password = passwordController.text;
 
@@ -33,11 +35,12 @@ class _SignupScreenState extends State<SignupScreen> {
     final authCubit = context.read<AuthCubit>();
 
     if (_formKey.currentState!.validate()) {
+      debugPrint("Username: ${usernameController.text}");
       debugPrint("Email: ${emailController.text}");
       debugPrint("Password: ${passwordController.text}");
       debugPrint("Confirm Password: ${confirmPasswordController.text}");
 
-      authCubit.register(email, email, password);
+      authCubit.register(username, email, password);
 
       // After signup, take them back to Login
       // Navigator.pushReplacement(
@@ -52,6 +55,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
+    usernameController.dispose();
     emailController.dispose();
     passwordController.dispose();
     confirmPasswordController.dispose();
@@ -115,6 +119,16 @@ class _SignupScreenState extends State<SignupScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
+
+                  // Username Field
+                  CustomTextField(
+                    controller: usernameController,
+                    labelText: "Username:",
+                    prefixIcon: Icons.account_circle_outlined,
+                    validator: (value) =>
+                    value == null || value.isEmpty ? "Please enter your username" : null,
+                  ),
+                  const SizedBox(height: fieldSpacing),
 
                   // Email Field
                   CustomTextField(
