@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 class AppTopBarF extends StatelessWidget {
   final String? title;
+  final bool showBackButton; // New parameter
 
-  const AppTopBarF({super.key, this.title});
+  const AppTopBarF({super.key, this.title, this.showBackButton = false,});
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +20,13 @@ class AppTopBarF extends StatelessWidget {
               color: isDarkMode ? Colors.white : Colors.black,
               size: 28,
             ),
-            onPressed: () => Scaffold.of(context).openDrawer(),
+            onPressed: () {
+              if (showBackButton) {
+                Navigator.of(context).pop();
+              } else {
+                Scaffold.of(context).openDrawer();
+              }
+            }
           ),
         ),
         Expanded(
