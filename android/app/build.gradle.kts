@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.prism_app"
+    namespace = "com.codeVibers.prism_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -17,7 +17,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+//        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -46,7 +46,7 @@ flutter {
 
 dependencies {
     // Import the Firebase BoM
-    implementation(platform("com.google.firebase:firebase-bom:34.10.0"))
+    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
 
 
     // TODO: Add the dependencies for Firebase products you want to use

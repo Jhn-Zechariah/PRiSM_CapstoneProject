@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:prism_app/screens/add_pig.dart';
-import 'app_top_bar.dart';
+import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 class PigProfiles extends StatefulWidget {
@@ -17,27 +16,29 @@ class _PigProfilesState extends State<PigProfiles> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AppTopBar(isDark: isDarkMode),
-        const SizedBox(height: 12),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppTopBar(),
+          const SizedBox(height: 12),
 
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeaderRow(isDarkMode),
-              const SizedBox(height: 12),
-              Expanded(child: _buildPigList(isDarkMode)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeaderRow(isDarkMode),
+                const SizedBox(height: 12),
+                Expanded(child: _buildPigList(isDarkMode)),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  //build header row; title and icon
   Widget _buildHeaderRow(bool isDark) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -65,20 +66,12 @@ class _PigProfilesState extends State<PigProfiles> {
           color: isDark ? Colors.white : Colors.black,
           onPressed: () {
             // add pig logic here
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) =>
-                    AddPig(onThemeToggle: widget.onThemeToggle),
-              ),
-            );
           },
         ),
       ],
     );
   }
 
-  //build list of pigs/cards
   Widget _buildPigList(bool isDark) {
     final pigs = [
       {"name": "Pig 1", "color": const Color.fromRGBO(214, 40, 40, 1)},
@@ -99,106 +92,100 @@ class _PigProfilesState extends State<PigProfiles> {
     );
   }
 
-  //pig card widget
   Widget _buildPigCard({
     required String name,
     required Color color,
     required bool isDark,
   }) {
-    return IntrinsicHeight(
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          // This is the key: it forces the children (the color bar)
-          // to stretch to the height of the tallest child (the content Column).
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // --- LEFT COLOR BAR ---
-            Container(
-              width: 10,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(12),
-                  bottomLeft: Radius.circular(12),
-                ),
-              ),
-            ),
-
-            // --- CONTENT SECTION ---
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // TITLE & MENU ICON
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          name,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: isDark ? Colors.white : Colors.black,
-                          ),
-                        ),
-                        Icon(
-                          Icons.more_vert,
-                          size: 18,
-                          color: isDark ? Colors.white70 : Colors.black54,
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    // PIG DETAILS
-                    _buildDetailText("Breed:", isDark),
-                    _buildDetailText("Sex:", isDark),
-                    _buildDetailText("Age:", isDark),
-                    _buildDetailText("Current weight:", isDark),
-
-                    const SizedBox(height: 8),
-
-                    // NOTE BOX (This determines the overall card height)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isDark ? Colors.grey[800] : Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        "NOTE: ",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white70 : Colors.black87,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
       ),
-    );
-  }
-
-  // Helper widget to keep the main card code clean
-  Widget _buildDetailText(String label, bool isDark) {
-    return Text(
-      label,
-      style: TextStyle(
-        fontSize: 12,
-        color: isDark ? Colors.white60 : Colors.grey,
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 140,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                bottomLeft: Radius.circular(12),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: isDark ? Colors.white : Colors.black,
+                        ),
+                      ),
+                      const Icon(Icons.more_vert, size: 18),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Breed:",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
+                  Text(
+                    "Sex:",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
+                  Text(
+                    "Age:",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
+                  Text(
+                    "Current weight:",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.grey[800] : Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      "NOTE:",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
