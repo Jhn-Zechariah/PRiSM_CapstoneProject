@@ -2,24 +2,38 @@ import 'package:flutter/material.dart';
 
 class AppTopBar extends StatelessWidget {
   final bool isDark;
+  final bool showBackButton; // New parameter
 
-  const AppTopBar({super.key, required this.isDark});
+  const AppTopBar({
+    super.key,
+    required this.isDark,
+    this.showBackButton = false, // Default is the Menu icon
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
+        // DYNAMIC ICON LOGIC
         Builder(
           builder: (context) => IconButton(
             icon: Icon(
-              Icons.menu,
+              showBackButton ? Icons.arrow_back : Icons.menu,
               color: isDark ? Colors.white : Colors.black,
               size: 28,
             ),
-            onPressed: () => Scaffold.of(context).openDrawer(),
+            onPressed: () {
+              if (showBackButton) {
+                Navigator.of(context).pop();
+              } else {
+                Scaffold.of(context).openDrawer();
+              }
+            },
           ),
         ),
+
+        // LOGO
         Image.asset(
           isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png',
           height: 40,
