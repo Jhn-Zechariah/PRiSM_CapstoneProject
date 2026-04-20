@@ -4,6 +4,8 @@ import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
 
+import '../components/social_logins.dart';
+
 class SignupScreen extends StatefulWidget {
   final void Function()? togglePages;
   final VoidCallback onThemeToggle;
@@ -21,6 +23,9 @@ class _SignupScreenState extends State<SignupScreen> {
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
 
+  //auth cubit
+  late final authCubit = context.read<AuthCubit>();
+
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
@@ -31,8 +36,6 @@ class _SignupScreenState extends State<SignupScreen> {
     final String email = emailController.text;
     final String password = passwordController.text;
 
-    //auth cubit
-    final authCubit = context.read<AuthCubit>();
 
     if (_formKey.currentState!.validate()) {
       debugPrint("Username: ${usernameController.text}");
@@ -41,15 +44,6 @@ class _SignupScreenState extends State<SignupScreen> {
       debugPrint("Confirm Password: ${confirmPasswordController.text}");
 
       authCubit.register(username, email, password);
-
-      // After signup, take them back to Login
-      // Navigator.pushReplacement(
-      //   context,
-      //   MaterialPageRoute(
-      //     builder: (context) =>
-      //         AuthPage(onThemeToggle: widget.onThemeToggle),
-      //   ),
-      // );
     }
   }
 
@@ -227,17 +221,24 @@ class _SignupScreenState extends State<SignupScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildSocialTile(
-                        'assets/google.png',
-                        "Google",
-                        isDarkMode,
+                      SocialLoginButton(
+                        asset: 'assets/google.png',
+                        label: "Google",
+                        isDarkMode: isDarkMode,
+                        onTap: () async {
+                          //Google Sign-In function here
+                          authCubit.googleSignIn();
+                        },
                       ),
                       const SizedBox(width: 20),
-                      _buildSocialTile(
-                        'assets/facebook.png',
-                        "Facebook",
-                        isDarkMode,
-                      ),
+                      SocialLoginButton(
+                        asset: 'assets/facebook.png',
+                        label: "Facebook",
+                        isDarkMode: isDarkMode,
+                        onTap: () {
+                          //Facebook Sign-In logic here
+                        },
+                      )
                     ],
                   ),
                 ],
@@ -249,35 +250,4 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  Widget _buildSocialTile(String asset, String label, bool isDark) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-      decoration: BoxDecoration(
-        border: Border.all(color: isDark ? Colors.white24 : Colors.black12),
-        borderRadius: BorderRadius.circular(20),
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset(
-            asset,
-            width: 25,
-            height: 25,
-            errorBuilder: (context, error, stackTrace) =>
-            const Icon(Icons.login, size: 25),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
