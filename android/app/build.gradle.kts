@@ -17,7 +17,11 @@ android {
     }
 
     kotlinOptions {
-//        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
+
+    kotlin {
+        jvmToolchain(17) // Or 21, just ensure both match your project requirements
     }
 
     defaultConfig {
@@ -57,3 +61,4 @@ dependencies {
     // Add the dependencies for any other desired Firebase products
     // https://firebase.google.com/docs/android/setup#available-libraries
 }
+

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
+import '../features/auth/presentation/components/adminDisplaydrawer.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
 import 'Pig_profiles.dart';
 
@@ -105,25 +106,7 @@ class _AppNavState extends State<AppNav> {
                     ),
                   ),
                   const SizedBox(width: 15),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Zechariah",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          "paradojhonzechariah@gmail.com",
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
+                    const AdminInfoWidget(),
                 ],
               ),
             ),
