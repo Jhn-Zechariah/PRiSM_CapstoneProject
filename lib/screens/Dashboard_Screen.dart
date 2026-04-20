@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../features/auth/presentation/components/custom_text.dart';
+
 class DashboardScreen extends StatefulWidget {
 
   final VoidCallback onThemeToggle;
@@ -72,14 +74,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Hello, John",
-                  style: TextStyle(
+                  const CustomText(
+                    type: TextType.username,
+                    prefix: 'Hello, ',
                     fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black,
                   ),
-                ),
                 Text(
                   "What do you want today?",
                   style: TextStyle(
