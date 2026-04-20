@@ -1,5 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:prism_app/screens/IoTControlsDialog.dart';
+import 'package:prism_app/screens/NotificationControlsDialog.dart';
 import 'login_screen.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
@@ -36,7 +38,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     //list of screens for the bottom navigation bar
     final List<Widget> screens = [
       PigProfiles(onThemeToggle: widget.onThemeToggle), // Index 0
-      const Center(child: Text("IoT Control")),
+      const Center(child: Text("Temperature Monitoring")),
       _buildDashboardHome(isDarkMode), // Index 2: THE MAIN DASHBOARD
       const Center(child: Text("Track Changes")), // Index 3
       const Center(child: Text("Monetization")), // Index 4
@@ -177,8 +179,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               endIndent: 20,
             ),
             _drawerTile(Icons.person_outline, "My Profile", () {}),
-            _drawerTile(Icons.sensors, "IoT Control", () {}),
-            _drawerTile(Icons.notifications, "Notification", () {}),
+            _drawerTile(Icons.sensors, "IoT Control", () {
+              Navigator.pop(context);
+
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return const IoTControlsDialog();
+                },
+              );
+            }),
+            _drawerTile(Icons.notifications, "Notification", () {
+              Navigator.pop(context);
+
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return const NotificationControlsDialog();
+                },
+              );
+            }),
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
