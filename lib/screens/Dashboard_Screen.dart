@@ -125,7 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- DRAWER SECTION ---
+  // --- DRAWER SECTION/ SIDE BAR ---
   Widget _buildCustomDrawer(bool isDark) {
     return Drawer(
       child: Container(
@@ -178,6 +178,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             _drawerTile(Icons.person_outline, "My Profile", () {}),
             _drawerTile(Icons.sensors, "IoT Control", () {}),
+            _drawerTile(Icons.notifications, "Notification", () {}),
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
