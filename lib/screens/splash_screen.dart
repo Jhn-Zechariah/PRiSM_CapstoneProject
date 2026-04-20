@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lottie/lottie.dart';
-import 'login_screen.dart';
+import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
+
+import '../features/auth/presentation/components/loading.dart';
+import '../features/auth/presentation/cubits/auth_cubit.dart';
+import '../features/auth/presentation/cubits/auth_states.dart';
+import 'bottom_nav.dart';
+
 
 class SplashScreen extends StatefulWidget {
   // 1. Define the parameter to receive the function from main.dart
-  final VoidCallback onThemeToggle; 
-  
+  final VoidCallback onThemeToggle;
+
   const SplashScreen({super.key, required this.onThemeToggle});
 
   @override
@@ -55,7 +62,28 @@ class SplashScreenState extends State<SplashScreen>
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => LoginScreen(onThemeToggle: widget.onThemeToggle),
+        builder: (_) =>  BlocConsumer<AuthCubit, AuthState>(
+          builder: (context, state) {
+            // unauthenticated -> auth page (login/register)
+            if (state is Unauthenticated) {
+              return AuthPage(onThemeToggle: widget.onThemeToggle);
+            }
+
+            //authenticated -> homepage/dashboard
+            if (state is Authenticated) {
+              return AppNav(onThemeToggle: widget.onThemeToggle);
+            }
+            //loading...
+            else{
+              return LoadingScreen();
+            }
+          },
+          listener: (context, state){
+            if (state is AuthError) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
+            }
+          },
+        ),
       ),
     );
   }
@@ -68,7 +96,7 @@ class SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    // This part is great! It already detects theme for the Lottie file
+    // This part  detects theme for the Lottie file
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final animationPath = isDarkMode

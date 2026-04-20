@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'app_top_bar.dart';
-import 'package:material_symbols_icons/symbols.dart';
+import '../features/auth/presentation/components/app_top_bar.dart';
 
 class AddPig extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -24,7 +23,7 @@ class _AddPigState extends State<AddPig> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppTopBar(isDark: isDarkMode, showBackButton: true),
+              AppTopBar(showBackButton: true),
               const SizedBox(height: 12),
             ],
           ),
