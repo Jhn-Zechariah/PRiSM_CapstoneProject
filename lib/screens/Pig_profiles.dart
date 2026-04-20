@@ -78,7 +78,7 @@ class _PigProfilesState extends State<PigProfiles> {
     );
   }
 
-  //build list of pigs
+  //build list of pigs/cards
   Widget _buildPigList(bool isDark) {
     final pigs = [
       {"name": "Pig 1", "color": const Color.fromRGBO(214, 40, 40, 1)},
