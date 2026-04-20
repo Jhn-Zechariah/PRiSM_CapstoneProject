@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'app_top_bar.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 class AddPig extends StatefulWidget {
   final VoidCallback onThemeToggle;
