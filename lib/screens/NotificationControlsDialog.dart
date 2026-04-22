@@ -253,7 +253,6 @@ class _NotificationControlsDialogState
     required ValueChanged<bool> onChanged,
   }) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Row(
       children: [
