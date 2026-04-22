@@ -6,13 +6,11 @@ import 'package:prism_app/features/auth/presentation/components/custom_button.da
 
 import '../components/social_logins.dart';
 
-
 class LoginScreen extends StatefulWidget {
-
   final void Function()? togglePages;
   final VoidCallback onThemeToggle;
 
-  const LoginScreen({super.key, required this.togglePages,required this.onThemeToggle});
+  const LoginScreen({super.key, this.togglePages, required this.onThemeToggle});
 
   @override
   LoginScreenState createState() => LoginScreenState();
@@ -33,8 +31,6 @@ class LoginScreenState extends State<LoginScreen> {
     final String email = emailController.text;
     final String password = passwordController.text;
 
-
-
     //validate fields
     if (_formKey.currentState!.validate()) {
       debugPrint("Email: ${emailController.text}");
@@ -46,8 +42,7 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   //forgot password
-  void openForgotPasswordBox(String? email){
-
+  void openForgotPasswordBox(String? email) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -60,33 +55,34 @@ class LoginScreenState extends State<LoginScreen> {
           prefixIcon: Icons.email_outlined,
         ),
         actions: [
-
           //cancel
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               emailController.clear();
-              },
+            },
             child: const Text("Cancel"),
           ),
 
           //reset
           TextButton(
             onPressed: () async {
-              String message = await authCubit.forgotPassword(emailController.text);
+              String message = await authCubit.forgotPassword(
+                emailController.text,
+              );
 
               if (!context.mounted) return;
 
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(message)),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(message)));
               Navigator.pop(context);
               emailController.clear();
             },
             child: const Text("Reset"),
           ),
         ],
-      )
+      ),
     );
   }
 
@@ -109,7 +105,9 @@ class LoginScreenState extends State<LoginScreen> {
                 children: [
                   const SizedBox(height: 60),
                   Image.asset(
-                    isDarkMode ? 'assets/logo_dark.png' : 'assets/logo_light.png',
+                    isDarkMode
+                        ? 'assets/logo_dark.png'
+                        : 'assets/logo_light.png',
                     width: 200,
                     errorBuilder: (context, error, stackTrace) => Icon(
                       Icons.business,
@@ -135,13 +133,13 @@ class LoginScreenState extends State<LoginScreen> {
                           color: isDarkMode ? Colors.white70 : Colors.black54,
                         ),
                       ),
-                     GestureDetector(
-                       onTap: widget.togglePages,
-                       child: Text(
-                            " Sign Up",
-                            style: TextStyle(fontSize: 14, color: Colors.blue),
-                          ),
-                     ),
+                      GestureDetector(
+                        onTap: widget.togglePages ?? () {},
+                        child: Text(
+                          " Sign Up",
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -151,8 +149,9 @@ class LoginScreenState extends State<LoginScreen> {
                     controller: emailController,
                     labelText: "Email",
                     prefixIcon: Icons.email_outlined,
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Please enter your email" : null,
+                    validator: (value) => value == null || value.isEmpty
+                        ? "Please enter your email"
+                        : null,
                   ),
 
                   const SizedBox(height: fieldSpacing),
@@ -165,15 +164,17 @@ class LoginScreenState extends State<LoginScreen> {
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
                         color: isDarkMode ? Colors.white60 : Colors.black54,
                       ),
-                      onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword,
-                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Please enter your password" : null,
+                    validator: (value) => value == null || value.isEmpty
+                        ? "Please enter your password"
+                        : null,
                   ),
 
                   const SizedBox(height: 10),
@@ -183,7 +184,8 @@ class LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       GestureDetector(
-                        onTap: () => openForgotPasswordBox(emailController.text),
+                        onTap: () =>
+                            openForgotPasswordBox(emailController.text),
                         child: const Text(
                           "forgot password?",
                           style: TextStyle(fontSize: 14, color: Colors.blue),
@@ -195,10 +197,7 @@ class LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: fieldSpacing),
 
                   // Sign in button
-                  CustomButton(
-                    text: "Sign In",
-                    onPressed: _login,
-                  ),
+                  CustomButton(text: "Sign In", onPressed: _login),
 
                   const SizedBox(height: fieldSpacing),
 
@@ -246,7 +245,7 @@ class LoginScreenState extends State<LoginScreen> {
                         onTap: () {
                           //Facebook Sign-In logic here
                         },
-                      )
+                      ),
                     ],
                   ),
                 ],
@@ -257,5 +256,4 @@ class LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-
 }
