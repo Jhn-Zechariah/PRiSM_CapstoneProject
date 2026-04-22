@@ -1,7 +1,12 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:prism_app/screens/splash_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp();
+
   runApp(const MyApp());
 }
 
@@ -31,7 +36,7 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      
+
       // Light Theme Definition
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -52,7 +57,7 @@ class _MyAppState extends State<MyApp> {
 
       // 3. Use the variable here instead of a hardcoded mode
       themeMode: _themeMode,
-      
+
       // 4. Pass the toggle function down so Dashboard can use it
       home: SplashScreen(onThemeToggle: toggleTheme),
     );
