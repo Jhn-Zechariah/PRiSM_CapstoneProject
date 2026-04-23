@@ -131,9 +131,6 @@ class _NotificationControlsDialogState
               onChanged: (val) {
                 setState(() {
                   isSoundOn = val;
-                  if (!val) {
-                    isVibrateOn = false;
-                  }
                 });
               },
               isEnabled: isNotifEnabled,
@@ -148,9 +145,6 @@ class _NotificationControlsDialogState
               onChanged: (val) {
                 setState(() {
                   isVibrateOn = val;
-                  if (val) {
-                    isSoundOn = true;
-                  }
                 });
               },
               isEnabled: isNotifEnabled,
