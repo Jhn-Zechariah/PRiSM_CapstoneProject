@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class NotificationControlsDialog extends StatefulWidget {
-  const NotificationControlsDialog({Key? key}) : super(key: key);
+  const NotificationControlsDialog({super.key});
 
   @override
   State<NotificationControlsDialog> createState() =>

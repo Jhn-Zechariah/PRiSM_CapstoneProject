@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class IoTControlsDialog extends StatefulWidget {
-  const IoTControlsDialog({Key? key}) : super(key: key);
+  const IoTControlsDialog({super.key});
 
   @override
   State<IoTControlsDialog> createState() => _IoTControlsDialogState();
