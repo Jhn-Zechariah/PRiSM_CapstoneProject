@@ -2,7 +2,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-
 import '../features/auth/presentation/components/custom_text.dart';
 
 class DashboardScreen extends StatefulWidget {
