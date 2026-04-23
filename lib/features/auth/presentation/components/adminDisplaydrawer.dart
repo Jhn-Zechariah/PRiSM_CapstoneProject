@@ -27,10 +27,7 @@ class AdminInfoWidget extends StatelessWidget {
           ),
           Text(
             email,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ],
       ),
