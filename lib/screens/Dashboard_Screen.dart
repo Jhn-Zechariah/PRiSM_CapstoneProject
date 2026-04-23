@@ -4,11 +4,11 @@ import 'package:prism_app/features/auth/presentation/components/app_top_bar.dart
 import 'package:prism_app/screens/IoTControlsDialog.dart';
 import 'package:prism_app/screens/NotificationControlsDialog.dart';
 import 'package:prism_app/features/auth/presentation/pages/login_screen.dart';
-import 'package:curved_navigation_bar/curved_navigation_bar.dart';
-import 'package:prism_app/features/auth/presentation/components/bottom_nav.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
 import 'package:material_symbols_icons/symbols.dart';
 //import 'package:google_nav_bar/google_nav_bar.dart';
+
+import '../features/auth/presentation/components/custom_text.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -21,15 +21,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int selectedIndex = 2; // Default to Home
-
-  //list of icons for the bottom navigation bar
-  final List<Widget> _navItems = const [
-    Icon(Symbols.savings, size: 30, color: Colors.white),
-    Icon(Symbols.thermostat, size: 30, color: Colors.white),
-    Icon(Symbols.home, size: 30, color: Colors.white),
-    Icon(Symbols.yoshoku, size: 30, color: Colors.white),
-    Icon(Symbols.mixture_med, size: 30, color: Colors.white),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -104,13 +95,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "Hello, John",
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
+                const CustomText(
+                  type: TextType.username,
+                  prefix: 'Hello, ',
+                  fontSize: 20,
                 ),
                 Text(
                   "What do you want today?",

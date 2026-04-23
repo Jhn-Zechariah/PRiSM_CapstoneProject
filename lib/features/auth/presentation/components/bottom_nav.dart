@@ -3,10 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
+import '../features/auth/presentation/components/adminDisplaydrawer.dart';
+import '../features/auth/presentation/cubits/auth_cubit.dart';
+import 'Pig_profiles.dart';
+
 import '../cubits/auth_cubit.dart';
 import '../../../../screens/Pig_profiles.dart';
 
 class AppNav extends StatefulWidget {
+
   final VoidCallback onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
@@ -27,6 +32,7 @@ class _AppNavState extends State<AppNav> {
     Icon(Symbols.yoshoku, size: 30, color: Colors.white),
     Icon(Symbols.mixture_med, size: 30, color: Colors.white),
   ];
+
 
   @override
   Widget build(BuildContext context) {
@@ -101,25 +107,7 @@ class _AppNavState extends State<AppNav> {
                     ),
                   ),
                   const SizedBox(width: 15),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Zechariah",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          "paradojhonzechariah@gmail.com",
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
+                    const AdminInfoWidget(),
                 ],
               ),
             ),
@@ -186,4 +174,5 @@ class _AppNavState extends State<AppNav> {
       },
     );
   }
+
 }
