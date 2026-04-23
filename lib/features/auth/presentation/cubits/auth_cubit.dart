@@ -8,7 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/domain/models/app_user.dart';
 import 'package:prism_app/features/auth/domain/repo/auth_repo.dart';
-import 'package:prism_app/features/auth/presentation/cubits/auth_states.dart';
+import 'auth_states.dart';
 
 class AuthCubit extends Cubit<AuthState>{
   final AuthRepo authRepo;
