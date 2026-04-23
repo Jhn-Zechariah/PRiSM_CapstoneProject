@@ -3,15 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
-import '../features/auth/presentation/cubits/auth_cubit.dart';
-import 'Pig_profiles.dart';
-
+import '../cubits/auth_cubit.dart';
+import '../../../../screens/Pig_profiles.dart';
 
 class AppNav extends StatefulWidget {
-
   final VoidCallback onThemeToggle;
 
-  const AppNav({super.key,required this.onThemeToggle});
+  const AppNav({super.key, required this.onThemeToggle});
 
   @override
   State<AppNav> createState() => _AppNavState();
@@ -30,7 +28,6 @@ class _AppNavState extends State<AppNav> {
     Icon(Symbols.mixture_med, size: 30, color: Colors.white),
   ];
 
-
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -39,7 +36,9 @@ class _AppNavState extends State<AppNav> {
     final List<Widget> screens = [
       PigProfiles(onThemeToggle: widget.onThemeToggle), // Index 0
       const Center(child: Text("IoT Control")),
-      DashboardScreen(onThemeToggle: widget.onThemeToggle), // Index 2: THE MAIN DASHBOARD
+      DashboardScreen(
+        onThemeToggle: widget.onThemeToggle,
+      ), // Index 2: THE MAIN DASHBOARD
       const Center(child: Text("Track Changes")), // Index 3
       const Center(child: Text("Monetization")), // Index 4
     ];
@@ -76,12 +75,9 @@ class _AppNavState extends State<AppNav> {
     // SCROLLABLE APPBAR
     return Scaffold(
       drawer: _buildCustomDrawer(isDarkMode),
-      body: SafeArea(
-        child: screens[selectedIndex],
-      ),
+      body: SafeArea(child: screens[selectedIndex]),
       bottomNavigationBar: _buildBottomNav(isDarkMode),
     );
-
   }
 
   Widget _buildCustomDrawer(bool isDark) {
@@ -139,7 +135,7 @@ class _AppNavState extends State<AppNav> {
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                  () {
+              () {
                 Navigator.pop(context);
                 widget.onThemeToggle();
               },
@@ -190,5 +186,4 @@ class _AppNavState extends State<AppNav> {
       },
     );
   }
-
 }
