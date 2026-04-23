@@ -4,7 +4,7 @@ class AppTopBarF extends StatelessWidget {
   final String? title;
   final bool showBackButton; // New parameter
 
-  const AppTopBarF({super.key, this.title, this.showBackButton = false,});
+  const AppTopBarF({super.key, this.title, this.showBackButton = false});
 
   @override
   Widget build(BuildContext context) {
@@ -26,22 +26,22 @@ class AppTopBarF extends StatelessWidget {
               } else {
                 Scaffold.of(context).openDrawer();
               }
-            }
+            },
           ),
         ),
         Expanded(
           child: Center(
             child: title != null
                 ? Text(
-              title!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: isDarkMode ? Colors.white : Colors.black,
-              ),
-            )
+                    title!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
+                  )
                 : const SizedBox.shrink(),
           ),
         ),
