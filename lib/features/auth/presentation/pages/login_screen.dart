@@ -197,7 +197,11 @@ class LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: fieldSpacing),
 
                   // Sign in button
-                  CustomButton(text: "Sign In", onPressed: _login),
+                  CustomButton(
+                    text: "Sign In",
+                    onPressed: _login,
+                    color: Colors.blue,
+                  ),
 
                   const SizedBox(height: fieldSpacing),
 

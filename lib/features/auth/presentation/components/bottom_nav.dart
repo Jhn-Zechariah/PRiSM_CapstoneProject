@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
+import 'package:prism_app/screens/my_profile.dart';
 import '../../../../screens/IoTControlsDialog.dart';
 import '../../../../screens/NotificationControlsDialog.dart';
 import '../cubits/auth_cubit.dart';
@@ -10,7 +11,6 @@ import '../../../../screens/Pig_profiles.dart';
 import 'adminDisplaydrawer.dart';
 
 class AppNav extends StatefulWidget {
-
   final VoidCallback onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
@@ -31,7 +31,6 @@ class _AppNavState extends State<AppNav> {
     Icon(Symbols.yoshoku, size: 30, color: Colors.white),
     Icon(Symbols.mixture_med, size: 30, color: Colors.white),
   ];
-
 
   @override
   Widget build(BuildContext context) {
@@ -106,7 +105,7 @@ class _AppNavState extends State<AppNav> {
                     ),
                   ),
                   const SizedBox(width: 15),
-                    const AdminInfoWidget(),
+                  const AdminInfoWidget(),
                 ],
               ),
             ),
@@ -117,27 +116,32 @@ class _AppNavState extends State<AppNav> {
               indent: 20,
               endIndent: 20,
             ),
-            _drawerTile(Icons.person_outline, "My Profile", () {}),
-          _drawerTile(Icons.sensors, "IoT Control", () {
-            Navigator.pop(context);
+            _drawerTile(Icons.person_outline, "My Profile", () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => MyProfile()),
+              );
+            }),
+            _drawerTile(Icons.sensors, "IoT Control", () {
+              Navigator.pop(context);
 
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return const IoTControlsDialog();
-              },
-            );
-          }),
-          _drawerTile(Icons.notifications, "Notification", () {
-            Navigator.pop(context);
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return const IoTControlsDialog();
+                },
+              );
+            }),
+            _drawerTile(Icons.notifications, "Notification", () {
+              Navigator.pop(context);
 
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return const NotificationControlsDialog();
-              },
-            );
-          }),
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return const NotificationControlsDialog();
+                },
+              );
+            }),
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
@@ -192,5 +196,4 @@ class _AppNavState extends State<AppNav> {
       },
     );
   }
-
 }

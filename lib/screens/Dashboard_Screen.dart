@@ -5,7 +5,6 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../features/auth/presentation/components/custom_text.dart';
 
 class DashboardScreen extends StatefulWidget {
-
   final VoidCallback onThemeToggle;
 
   const DashboardScreen({super.key, required this.onThemeToggle});
@@ -16,7 +15,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int selectedIndex = 2; // Default to Home
-
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +48,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-
   // --- HEADER SECTION (FIXED TO SHOW LOGO_LIGHT) ---
   Widget _buildHeader(bool isDark) {
     return Column(
@@ -73,11 +70,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                  const CustomText(
-                    type: TextType.username,
-                    prefix: 'Hello, ',
-                    fontSize: 20,
-                  ),
+                const CustomText(
+                  type: TextType.username,
+                  prefix: 'Hello, ',
+                  fontSize: 20,
+                ),
                 Text(
                   "What do you want today?",
                   style: TextStyle(
@@ -445,5 +442,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-
 }

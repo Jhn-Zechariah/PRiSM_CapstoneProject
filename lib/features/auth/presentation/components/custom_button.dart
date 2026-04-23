@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class CustomButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
+  final Color? color;
 
   const CustomButton({
     super.key,
     required this.text,
     required this.onPressed,
+    this.color,
   });
 
   @override
@@ -20,16 +22,12 @@ class CustomButton extends StatelessWidget {
         minimumSize: const Size(double.infinity, 50),
         backgroundColor: isDarkMode ? Colors.white : Colors.blue,
         foregroundColor: isDarkMode ? Colors.black : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(30),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        disabledBackgroundColor: Colors.grey[400],
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
       ),
     );
   }

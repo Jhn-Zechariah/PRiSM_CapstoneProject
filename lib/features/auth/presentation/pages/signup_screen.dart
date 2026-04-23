@@ -10,7 +10,11 @@ class SignupScreen extends StatefulWidget {
   final void Function()? togglePages;
   final VoidCallback onThemeToggle;
 
-  const SignupScreen({super.key, required this.togglePages,required this.onThemeToggle});
+  const SignupScreen({
+    super.key,
+    required this.togglePages,
+    required this.onThemeToggle,
+  });
 
   @override
   State<SignupScreen> createState() => _SignupScreenState();
@@ -35,7 +39,6 @@ class _SignupScreenState extends State<SignupScreen> {
     final String username = usernameController.text;
     final String email = emailController.text;
     final String password = passwordController.text;
-
 
     if (_formKey.currentState!.validate()) {
       debugPrint("Username: ${usernameController.text}");
@@ -103,13 +106,13 @@ class _SignupScreenState extends State<SignupScreen> {
                           color: isDarkMode ? Colors.white70 : Colors.black54,
                         ),
                       ),
-                    GestureDetector(
-                      onTap: widget.togglePages,
-                      child: Text(
-                            " Log in",
-                            style: TextStyle(fontSize: 14, color: Colors.blue),
-                          ),
-                    ),
+                      GestureDetector(
+                        onTap: widget.togglePages,
+                        child: Text(
+                          " Log in",
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -119,8 +122,9 @@ class _SignupScreenState extends State<SignupScreen> {
                     controller: usernameController,
                     labelText: "Username:",
                     prefixIcon: Icons.account_circle_outlined,
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Please enter your username" : null,
+                    validator: (value) => value == null || value.isEmpty
+                        ? "Please enter your username"
+                        : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -129,8 +133,9 @@ class _SignupScreenState extends State<SignupScreen> {
                     controller: emailController,
                     labelText: "Email",
                     prefixIcon: Icons.email_outlined,
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Please enter your email" : null,
+                    validator: (value) => value == null || value.isEmpty
+                        ? "Please enter your email"
+                        : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -142,7 +147,9 @@ class _SignupScreenState extends State<SignupScreen> {
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
                         color: isDarkMode ? Colors.white60 : Colors.black54,
                       ),
                       onPressed: () {
@@ -151,8 +158,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         });
                       },
                     ),
-                    validator: (value) =>
-                    value == null || value.isEmpty ? "Please enter your password" : null,
+                    validator: (value) => value == null || value.isEmpty
+                        ? "Please enter your password"
+                        : null,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -164,7 +172,9 @@ class _SignupScreenState extends State<SignupScreen> {
                     obscureText: _obscureConfirmPassword,
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
+                        _obscureConfirmPassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
                         color: isDarkMode ? Colors.white60 : Colors.black54,
                       ),
                       onPressed: () {
@@ -174,7 +184,8 @@ class _SignupScreenState extends State<SignupScreen> {
                       },
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return "Please confirm your password";
+                      if (value == null || value.isEmpty)
+                        return "Please confirm your password";
                       if (value != passwordController.text) {
                         return "Passwords do not match";
                       }
@@ -187,6 +198,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   CustomButton(
                     text: "Sign Up",
                     onPressed: _signup,
+                    color: Colors.blue,
                   ),
 
                   const SizedBox(height: fieldSpacing),
@@ -196,8 +208,8 @@ class _SignupScreenState extends State<SignupScreen> {
                     children: [
                       Expanded(
                         child: Divider(
-                            thickness: 1,
-                            color: isDarkMode ? Colors.white10 : Colors.grey[300]
+                          thickness: 1,
+                          color: isDarkMode ? Colors.white10 : Colors.grey[300],
                         ),
                       ),
                       const Padding(
@@ -209,8 +221,8 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       Expanded(
                         child: Divider(
-                            thickness: 1,
-                            color: isDarkMode ? Colors.white10 : Colors.grey[300]
+                          thickness: 1,
+                          color: isDarkMode ? Colors.white10 : Colors.grey[300],
                         ),
                       ),
                     ],
@@ -238,7 +250,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         onTap: () {
                           //Facebook Sign-In logic here
                         },
-                      )
+                      ),
                     ],
                   ),
                 ],
@@ -249,5 +261,4 @@ class _SignupScreenState extends State<SignupScreen> {
       ),
     );
   }
-
 }
