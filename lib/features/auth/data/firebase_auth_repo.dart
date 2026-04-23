@@ -23,7 +23,7 @@ class FirebaseAuthRepo implements AuthRepo {
     final docSnap = await docRef.get();
 
     if (!docSnap.exists) {
-      // Create new document only once
+      // Create new document (first time)
       await docRef.set({
         'uid': user.uid,
         'username': user.username,
@@ -32,7 +32,7 @@ class FirebaseAuthRepo implements AuthRepo {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } else {
-      // Update other fields only
+      // Update without touching username
       await docRef.update({
         'email': user.email,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -187,6 +187,7 @@ class FirebaseAuthRepo implements AuthRepo {
       //sign in with credential
       UserCredential userCredential = await firebaseAuth.signInWithCredential(credential);
 
+      //firebase user (Removed the '!' right here)
       final firebaseUser = userCredential.user;
       if (firebaseUser == null) return null;
 
@@ -203,8 +204,11 @@ class FirebaseAuthRepo implements AuthRepo {
 
     } catch (e) {
       print("Google Sign-In Error: $e");
+      // Ensure we return null if the try block fails!
       return null;
     }
   }
 
 }
+
+
