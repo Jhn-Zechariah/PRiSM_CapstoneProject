@@ -6,8 +6,7 @@ import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import '../features/auth/presentation/components/loading.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
 import '../features/auth/presentation/cubits/auth_states.dart';
-import 'bottom_nav.dart';
-
+import '../features/auth/presentation/components/bottom_nav.dart';
 
 class SplashScreen extends StatefulWidget {
   // 1. Define the parameter to receive the function from main.dart
@@ -62,7 +61,7 @@ class SplashScreenState extends State<SplashScreen>
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) =>  BlocConsumer<AuthCubit, AuthState>(
+        builder: (_) => BlocConsumer<AuthCubit, AuthState>(
           builder: (context, state) {
             // unauthenticated -> auth page (login/register)
             if (state is Unauthenticated) {
@@ -74,13 +73,15 @@ class SplashScreenState extends State<SplashScreen>
               return AppNav(onThemeToggle: widget.onThemeToggle);
             }
             //loading...
-            else{
+            else {
               return LoadingScreen();
             }
           },
-          listener: (context, state){
+          listener: (context, state) {
             if (state is AuthError) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(state.message)));
             }
           },
         ),
