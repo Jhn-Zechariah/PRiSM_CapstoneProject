@@ -5,6 +5,7 @@ import 'package:prism_app/screens/IoTControlsDialog.dart';
 import 'package:prism_app/screens/NotificationControlsDialog.dart';
 import 'package:prism_app/features/auth/presentation/pages/login_screen.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
+import 'package:prism_app/features/auth/presentation/components/bottom_nav.dart';
 import 'package:prism_app/screens/Pig_profiles.dart';
 import 'package:material_symbols_icons/symbols.dart';
 //import 'package:google_nav_bar/google_nav_bar.dart';
@@ -54,8 +55,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: screens[selectedIndex],
         ),
       ),
-
-      bottomNavigationBar: _buildBottomNav(isDarkMode),
     );
   }
 
@@ -592,7 +591,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildBottomNav(bool isDark) {
+  /* Widget _buildBottomNav(bool isDark) {
     return CurvedNavigationBar(
       backgroundColor: Colors.transparent,
       color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
@@ -608,7 +607,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       },
     );
-  }
+  }*/
 
   /*Widget _buildBottomNav(bool isDark) {
     return Container(
