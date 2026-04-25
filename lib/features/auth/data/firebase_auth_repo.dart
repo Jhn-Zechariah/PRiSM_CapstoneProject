@@ -17,7 +17,6 @@ class FirebaseAuthRepo implements AuthRepo {
 
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
-
   Future<void> createUserDocument(AppUser user) async {
     final docRef = firestore.collection('admins').doc(user.uid);
     final docSnap = await docRef.get();
@@ -255,7 +254,6 @@ class FirebaseAuthRepo implements AuthRepo {
       return null;
     }
   }
-
 }
 
 
