@@ -4,11 +4,13 @@ class CustomButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
   final Color? color;
+  final Color? backgroundColor;
 
   const CustomButton({
     super.key,
     required this.text,
     required this.onPressed,
+    this.backgroundColor,
     this.color,
   });
 
@@ -20,8 +22,8 @@ class CustomButton extends StatelessWidget {
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
         minimumSize: const Size(double.infinity, 50),
-        backgroundColor: isDarkMode ? Colors.white : Colors.blue,
-        foregroundColor: isDarkMode ? Colors.black : Colors.white,
+        backgroundColor: backgroundColor ?? (isDarkMode ? Colors.white : Colors.blue),
+        foregroundColor: color ?? (isDarkMode ? Colors.black : Colors.white),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
         disabledBackgroundColor: Colors.grey[400],
       ),

@@ -49,7 +49,6 @@ class LoginScreenState extends State<LoginScreen> {
         title: const Text("Forgot Password"),
 
         content: CustomTextField(
-          text: email,
           controller: emailController,
           labelText: "Email",
           prefixIcon: Icons.email_outlined,
@@ -200,7 +199,6 @@ class LoginScreenState extends State<LoginScreen> {
                   CustomButton(
                     text: "Sign In",
                     onPressed: _login,
-                    color: Colors.blue,
                   ),
 
                   const SizedBox(height: fieldSpacing),
