@@ -184,11 +184,8 @@ class _SignupScreenState extends State<SignupScreen> {
                       },
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty)
-                        return "Please confirm your password";
-                      if (value != passwordController.text) {
-                        return "Passwords do not match";
-                      }
+                      if (value == null || value.isEmpty) return "Please confirm your password";
+                      if (value != passwordController.text) return "Passwords do not match";
                       return null;
                     },
                   ),
@@ -198,7 +195,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   CustomButton(
                     text: "Sign Up",
                     onPressed: _signup,
-                    color: Colors.blue,
                   ),
 
                   const SizedBox(height: fieldSpacing),

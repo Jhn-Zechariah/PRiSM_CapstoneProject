@@ -8,6 +8,7 @@ import '../../../../screens/IoTControlsDialog.dart';
 import '../../../../screens/NotificationControlsDialog.dart';
 import '../cubits/auth_cubit.dart';
 import '../../../../screens/Pig_profiles.dart';
+import '../cubits/profile_cubit.dart';
 import 'adminDisplaydrawer.dart';
 
 class AppNav extends StatefulWidget {
@@ -119,7 +120,12 @@ class _AppNavState extends State<AppNav> {
             _drawerTile(Icons.person_outline, "My Profile", () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => MyProfile()),
+                MaterialPageRoute(
+                  builder: (context) => BlocProvider(
+                    create: (context) => ProfileCubit(), // Create it here!
+                    child: const MyProfile(),            // Provide it to your UI!
+                  ),
+                ),
               );
             }),
             _drawerTile(Icons.sensors, "IoT Control", () {
