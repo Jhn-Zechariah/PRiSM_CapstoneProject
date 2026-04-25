@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import 'add_pig.dart';
+
 class PigProfiles extends StatefulWidget {
   final VoidCallback onThemeToggle;
 
@@ -66,6 +68,9 @@ class _PigProfilesState extends State<PigProfiles> {
           color: isDark ? Colors.white : Colors.black,
           onPressed: () {
             // add pig logic here
+            Navigator.push(context, MaterialPageRoute(builder: (context) => PigInformationScreen())
+            );
+
           },
         ),
       ],

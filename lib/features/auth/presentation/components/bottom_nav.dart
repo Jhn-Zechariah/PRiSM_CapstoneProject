@@ -142,8 +142,8 @@ class _AppNavState extends State<AppNav> {
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
               () {
-                Navigator.pop(context);
                 widget.onThemeToggle();
+                Navigator.pop(context);
               },
             ),
             const Spacer(),
@@ -179,7 +179,7 @@ class _AppNavState extends State<AppNav> {
     return CurvedNavigationBar(
       backgroundColor: Colors.transparent,
       color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-      buttonBackgroundColor: isDark ? Colors.blue : Colors.blue,
+      buttonBackgroundColor: Colors.blue,
 
       height: 70,
       index: selectedIndex,

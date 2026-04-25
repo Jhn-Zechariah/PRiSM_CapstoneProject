@@ -101,8 +101,23 @@ class FirebaseAuthRepo implements AuthRepo {
       //return user
       return user;
 
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('No account found with this email.');
+        case 'wrong-password':
+          throw Exception('Incorrect password.');
+        case 'invalid-email':
+          throw Exception('Invalid email format.');
+        case 'user-disabled':
+          throw Exception('This account has been disabled.');
+        case 'too-many-requests':
+          throw Exception('Too many attempts. Try again later.');
+        default:
+          throw Exception('Login failed: ${e.message}');
+      }
     } catch (e) {
-      throw Exception('Registration Failed: $e');
+      throw Exception('An unexpected error occurred: $e');
     }
   }
 
@@ -161,6 +176,38 @@ class FirebaseAuthRepo implements AuthRepo {
       return 'Password reset email! Check your email';
     } catch (e) {
       return 'An error occurred: $e';
+    }
+  }
+
+  //UPDATE PASSWORD
+  @override
+  Future<void> reauthAndUpdatePassword(
+      String currentPassword, String newPassword) async {
+    try {
+      final user = firebaseAuth.currentUser;
+      if (user == null || user.email == null) throw Exception('No user logged in.');
+
+      // re-authenticate with current password first
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+
+      // now safe to update
+      await user.updatePassword(newPassword);
+
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'wrong-password':
+          throw Exception('Current password is incorrect.');
+        case 'weak-password':
+          throw Exception('New password is too weak.');
+        case 'requires-recent-login':
+          throw Exception('Session expired. Please log in again.');
+        default:
+          throw Exception('Failed to update password: ${e.message}');
+      }
     }
   }
 

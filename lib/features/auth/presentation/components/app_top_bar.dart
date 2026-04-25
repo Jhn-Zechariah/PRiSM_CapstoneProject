@@ -16,7 +16,7 @@ class AppTopBar extends StatelessWidget {
         Builder(
           builder: (context) => IconButton(
             icon: Icon(
-              Icons.menu,
+             showBackButton ? Icons.arrow_back : Icons.menu,
               color: isDarkMode ? Colors.white : Colors.black,
               size: 28,
             ),
