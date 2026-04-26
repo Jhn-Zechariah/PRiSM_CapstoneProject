@@ -6,6 +6,7 @@ import 'package:prism_app/features/auth/presentation/components/custom_button.da
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import '../features/auth/presentation/cubits/profile_cubit.dart';
 import '../features/auth/presentation/cubits/profile_states.dart';
+import '../features/auth/presentation/cubits/auth_cubit.dart';
 
 
 class MyProfile extends StatefulWidget {
@@ -56,19 +57,110 @@ class _MyProfileState extends State<MyProfile> {
     });
   }
 
-  void _update() {
-    //prepare info
-    // final String username = _usernameController.text;
-    // final String email = _emailController.text;
-    // final String password = _passwordController.text;
-
+  Future<void> _update() async {
+    late final profileCubit = context.read<ProfileCubit>();
     if (_formKey.currentState!.validate()) {
-      debugPrint("Username: ${_usernameController.text}");
-      debugPrint("Email: ${_emailController.text}");
-      debugPrint("Current Password: ${_newPasswordController.text}");
-      debugPrint("Password: ${_passwordController.text}");
-      debugPrint("Confirm Password: ${_confirmPasswordController.text}");
 
+      // 1. Get the original values to compare against
+      final currentState = context.read<ProfileCubit>().state;
+      String originalUsername = "";
+      String originalEmail = "";
+      bool hasPassword = true;
+
+      if (currentState is ProfileLoaded) {
+        originalUsername = currentState.username;
+        originalEmail = currentState.email;
+        hasPassword = currentState.hasPassword; //
+      }
+
+      // 2. Grab the inputs
+      final newUsername = _usernameController.text.trim();
+      final newEmail = _emailController.text.trim();
+      final currentPass = _passwordController.text;
+      final newPass = _newPasswordController.text;
+      final confirmPasword = _confirmPasswordController.text;
+
+
+      // 3. Trigger individual updates based on what actually changed
+
+      // Did they change their username?
+      if (newUsername != originalUsername && newUsername.isNotEmpty) {
+        final success = await profileCubit.updateUsername(newUsername);
+        if (!success) return;
+      }
+
+      // Did they change their email?
+      if (newEmail != originalEmail && newEmail.isNotEmpty) {
+        if (currentPass.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Current password is required to change email address.")),
+          );
+          return; // Stop execution
+        }
+        // Capture the success result from the Cubit
+        final isSuccess = await profileCubit.updateEmail(currentPass, newEmail);
+        if (isSuccess) {
+          // Check if the widget is still mounted before showing UI
+          if (mounted) {
+            // 1. Show the success message
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Verification email sent! Please check your inbox and log in again."),
+                backgroundColor: Colors.green, // Make it look like a success message!
+                duration: Duration(seconds: 3),
+              ),
+            );
+
+            //Clear the navigation stack so the Profile screen goes away!
+            Navigator.of(context).popUntil((route) => route.isFirst);
+
+            // 2. Trigger the AuthCubit to log the user out
+            context.read<AuthCubit>().logout();
+          }
+
+          // 3. Stop running the rest of the update function so we don't try
+          // to update the password right as they are being logged out!
+          return;
+        }
+      }
+
+      // Did they enter a new password?
+      if (newPass.isNotEmpty) {
+
+        // If they already have a password, do the normal update
+        if (hasPassword) {
+          if (currentPass.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Current password is required to change password.")),
+            );
+            return;
+          }
+          final success = await profileCubit.updatePassword(currentPass, newPass, confirmPasword);
+          if (!success) return;
+        }
+        //If they DON'T have a password, set it!
+        else {
+          final success = await profileCubit.setInitialPassword(newPass);
+          if (success && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("Password set successfully! You can now log in with email and password."),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+
+
+      }
+
+      // 4. Close editing mode and clean up
+      setState(() {
+        _isEditing = false;
+        _passwordController.clear();
+        _newPasswordController.clear();
+        _confirmPasswordController.clear();
+      });
     }
   }
 
@@ -95,9 +187,15 @@ class _MyProfileState extends State<MyProfile> {
           }
         },
         builder: (context, state) {
+          bool hasPassword = true;
+
           // Optional: Show a loading spinner while fetching data
           if (state is ProfileLoading) {
             return const Center(child: CircularProgressIndicator());
+          }
+
+          if (state is ProfileLoaded) {
+            hasPassword = state.hasPassword; // Grab the flag from the state!
           }
 
           return SafeArea(
@@ -115,13 +213,16 @@ class _MyProfileState extends State<MyProfile> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        CircleAvatar(
-                          radius: 40,
-                          backgroundColor: isDarkMode ? Colors.white10 : Colors.black12,
-                          child: Icon(
-                            Icons.person_outline,
-                            color: isDarkMode ? Colors.white : Colors.black87,
-                            size: 45,
+                        Padding(
+                          padding: const EdgeInsets.only(left: 10),
+                          child: CircleAvatar(
+                            radius: 50,
+                            backgroundColor: isDarkMode ? Colors.white10 : Colors.black12,
+                            child: Icon(
+                              Icons.person_outline,
+                              color: isDarkMode ? Colors.white : Colors.black87,
+                              size: 55 ,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 15),
@@ -132,7 +233,7 @@ class _MyProfileState extends State<MyProfile> {
                             CustomText(
                               type: TextType.custom,
                               text: state is ProfileLoaded ? state.username : "Loading...",
-                              fontSize: 18,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                             ),
                             CustomText(
@@ -140,9 +241,9 @@ class _MyProfileState extends State<MyProfile> {
                                 text: state is ProfileLoaded ? state.email : "Loading...",
                                 fontSize: 12
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             SizedBox(
-                              width: 150,
+                              width: 140,
                               height: 35,
                               child: CustomButton(
                                 text: _isEditing? "Cancel" : "Edit Profile",
@@ -170,6 +271,7 @@ class _MyProfileState extends State<MyProfile> {
                     // --- Form Fields ---
                     CustomTextField(
                       label: "Email Address",
+                      border: 20,
                       controller: _emailController,
                       prefixIcon: Icons.email_outlined,
                       enabled: _isEditing,
@@ -178,6 +280,7 @@ class _MyProfileState extends State<MyProfile> {
                     const SizedBox(height: 16),
                     CustomTextField(
                       label: "Username",
+                      border: 20,
                       controller: _usernameController,
                       prefixIcon: Icons.person_outline,
                       enabled: _isEditing,
@@ -185,33 +288,38 @@ class _MyProfileState extends State<MyProfile> {
 
                     if (_isEditing) ...[
                       const SizedBox(height: 16),
-                      CustomTextField(
-                        label: "Current Password",
-                        controller: _passwordController,
-                        prefixIcon: Icons.lock_outline,
-                        obscureText: _obscureCurrentPassword,
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscureCurrentPassword
-                                ? Icons.visibility_off
-                                : Icons.visibility,
-                            color: isDarkMode ? Colors.white60 : Colors.black54,
+
+                      if (hasPassword) ...[
+                        CustomTextField(
+                          label: "Current Password",
+                          border: 20,
+                          controller: _passwordController,
+                          prefixIcon: Icons.lock_outline,
+                          obscureText: _obscureCurrentPassword,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureCurrentPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              color: isDarkMode ? Colors.white60 : Colors.black54,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureCurrentPassword = !_obscureCurrentPassword;
+                              });
+                            },
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _obscureCurrentPassword = !_obscureCurrentPassword;
-                            });
+                          validator: (value) {
+                            if (value == null || value.isEmpty && (_newPasswordController.text.isNotEmpty || _confirmPasswordController.text.isNotEmpty)) return "Please enter your current password first";
+                            return null;
                           },
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty && (_newPasswordController.text.isNotEmpty || _confirmPasswordController.text.isNotEmpty)) return "Please enter your current password first";
-                          return null;
-                        },
-                      ),
+                        const SizedBox(height: 16),
+                      ],
 
-                      const SizedBox(height: 16),
                       CustomTextField(
-                        label: "New Password",
+                        label: hasPassword ? "New Password" : "Set Account Password",
+                        border: 20,
                         controller: _newPasswordController,
                         prefixIcon: Icons.lock_outline,
                         obscureText: _obscureNewPassword,
@@ -229,7 +337,7 @@ class _MyProfileState extends State<MyProfile> {
                           },
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty && (_passwordController.text.isNotEmpty || _confirmPasswordController.text.isNotEmpty)) return "Please enter your new password";
+                          if (value == null || value.isEmpty && _confirmPasswordController.text.isNotEmpty) return "Please enter your new password";
                           if (value != _confirmPasswordController.text && _confirmPasswordController.text.isNotEmpty) return "Passwords do not match";
                           return null;
                         },
@@ -238,6 +346,7 @@ class _MyProfileState extends State<MyProfile> {
                       const SizedBox(height: 16),
                       CustomTextField(
                         label: "Confirm Password",
+                        border: 20,
                         controller: _confirmPasswordController,
                         prefixIcon: Icons.lock_outline,
                         obscureText: _obscureConfirmPassword,
@@ -255,7 +364,7 @@ class _MyProfileState extends State<MyProfile> {
                           },
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty && (_newPasswordController.text.isNotEmpty || _passwordController.text.isNotEmpty)) return "Please confirm your password";
+                          if (value == null || value.isEmpty && _newPasswordController.text.isNotEmpty ) return "Please confirm your password";
                           if (value != _newPasswordController.text && _newPasswordController.text.isNotEmpty) return "Passwords do not match";
                           return null;
                         },
