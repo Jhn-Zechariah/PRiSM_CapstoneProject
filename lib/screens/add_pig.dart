@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
+import '../features/auth/presentation/components/custom_button.dart';
+import '../features/auth/presentation/components/custom_textfield.dart';
+import '../features/auth/presentation/components/dropdown.dart';
+
 
 class PigInformationScreen extends StatefulWidget {
   const PigInformationScreen({super.key});
@@ -20,6 +24,12 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
   String? _selectedSex;
   final List<String> _sexOptions = ['Male', 'Female'];
+
+  String? _selectedStage;
+  final List<String> _stageOptions = ['Piglet', 'Weanling', 'Grower', "Barrow"];
+
+  String? _selectedStatus;
+  final List<String> _statusOptions = ['Normal/Healthy', 'Abnormal/Sick', 'Deceased'];
 
   @override
   void dispose() {
@@ -43,6 +53,10 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    // Extracted some reusable styling variables to make the form cleaner
+    final fieldPadding = const EdgeInsets.symmetric(horizontal: 10, vertical: 10);
+    final fillColor = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
+
     return Scaffold(
       backgroundColor: isDarkMode ? const Color(0xFF121212) : Colors.grey[100],
       body: SafeArea(
@@ -51,8 +65,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppTopBar(showBackButton: true),
-              const SizedBox(height: 12),
+              const AppTopBar(showBackButton: true),
+              const SizedBox(height: 17),
               Expanded(
                 child: SingleChildScrollView(
                   child: Form(
@@ -60,9 +74,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const SizedBox(height: 5),
-
-                        // Pig icon — replace with your asset if available
                         SvgPicture.asset(
                           isDarkMode ? 'assets/pig_dark.svg' : 'assets/pig_light.svg',
                           height: 120,
@@ -79,7 +90,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                         ),
                         const SizedBox(height: 20),
 
-                        // Form card
                         Container(
                           width: double.infinity,
                           decoration: BoxDecoration(
@@ -101,21 +111,27 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: _buildLabeledField(
+                                    child: CustomTextField(
                                       label: 'Birth Month:',
-                                      isDarkMode: isDarkMode,
-                                      child: _buildTextField(
-                                        controller: _birthMonthController,
-                                        isDarkMode: isDarkMode,
-                                      ),
+                                      controller: _birthMonthController,
+                                      border: 6,
+                                      contentPadding: fieldPadding,
+                                      filled: true,
+                                      fillColor: fillColor,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    child: _buildLabeledField(
+                                    //CustomDropdown in action!
+                                    child: CustomDropdown(
                                       label: 'Sex:',
-                                      isDarkMode: isDarkMode,
-                                      child: _buildDropdownField(isDarkMode),
+                                      value: _selectedSex,
+                                      items: _sexOptions,
+                                      border: 6,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      filled: true,
+                                      fillColor: fillColor,
+                                      onChanged: (value) => setState(() => _selectedSex = value),
                                     ),
                                   ),
                                 ],
@@ -126,25 +142,25 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                               Row(
                                 children: [
                                   Expanded(
-                                    child: _buildLabeledField(
+                                    child: CustomTextField(
                                       label: 'Breed:',
-                                      isDarkMode: isDarkMode,
-                                      child: _buildTextField(
-                                        controller: _breedController,
-                                        isDarkMode: isDarkMode,
-                                      ),
+                                      controller: _breedController,
+                                      border: 6,
+                                      contentPadding: fieldPadding,
+                                      filled: true,
+                                      fillColor: fillColor,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    child: _buildLabeledField(
+                                    child: CustomTextField(
                                       label: 'Weight:',
-                                      isDarkMode: isDarkMode,
-                                      child: _buildTextField(
-                                        controller: _weightController,
-                                        isDarkMode: isDarkMode,
-                                        keyboardType: TextInputType.number,
-                                      ),
+                                      controller: _weightController,
+                                      border: 6,
+                                      keyboardType: TextInputType.number, // Uses the new parameter!
+                                      contentPadding: fieldPadding,
+                                      filled: true,
+                                      fillColor: fillColor,
                                     ),
                                   ),
                                 ],
@@ -152,50 +168,40 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                               const SizedBox(height: 12),
 
                               // Stage
-                              _buildLabeledField(
+                              CustomDropdown(
                                 label: 'Stage:',
-                                isDarkMode: isDarkMode,
-                                child: _buildTextField(
-                                  controller: _stageController,
-                                  isDarkMode: isDarkMode,
-                                ),
+                                value: _selectedStage,
+                                items: _stageOptions,
+                                border: 6,
+                                contentPadding: fieldPadding,
+                                filled: true,
+                                fillColor: fillColor,
+                                onChanged: (value) => setState(() => _selectedStage = value),
                               ),
                               const SizedBox(height: 12),
 
                               // Status
-                              _buildLabeledField(
+                              CustomDropdown(
                                 label: 'Status:',
-                                isDarkMode: isDarkMode,
-                                child: _buildTextField(
-                                  controller: _statusController,
-                                  isDarkMode: isDarkMode,
-                                ),
+                                value: _selectedStatus,
+                                items: _statusOptions,
+                                border: 6,
+                                contentPadding: fieldPadding,
+                                filled: true,
+                                fillColor: fillColor,
+                                onChanged: (value) => setState(() => _selectedStatus = value),
                               ),
                               const SizedBox(height: 20),
 
                               // Save button
-                              SizedBox(
-                                width: double.infinity,
-                                height: 48,
-                                child: ElevatedButton(
-                                  onPressed: _onSave,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFF5A623),
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    elevation: 0,
-                                  ),
-                                  child: const Text(
-                                    'Save',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
+                              CustomButton(
+                                text: 'Save',
+                                backgroundColor: const Color(0xFFF5A623),
+                                border: 10,
+                                onPressed: _onSave,
+                                color: isDarkMode? Colors.black87 : Colors.black87,
                               ),
+                              const SizedBox(height: 12),
                             ],
                           ),
                         ),
@@ -208,108 +214,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildLabeledField({
-    required String label,
-    required Widget child,
-    required bool isDarkMode,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: isDarkMode ? Colors.white70 : Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 4),
-        child,
-      ],
-    );
-  }
-
-  Widget _buildTextField({
-    required TextEditingController controller,
-    required bool isDarkMode,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      style: TextStyle(
-        fontSize: 14,
-        color: isDarkMode ? Colors.white : Colors.black87,
-      ),
-      decoration: InputDecoration(
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: BorderSide(
-            color: isDarkMode ? Colors.white24 : Colors.black26,
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: BorderSide(
-            color: isDarkMode ? Colors.white24 : Colors.black26,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFFF5A623)),
-        ),
-        filled: true,
-        fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
-      ),
-    );
-  }
-
-  Widget _buildDropdownField(bool isDarkMode) {
-    return DropdownButtonFormField<String>(
-      initialValue: _selectedSex,
-      isDense: true,
-      dropdownColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
-      style: TextStyle(
-        fontSize: 14,
-        color: isDarkMode ? Colors.white : Colors.black87,
-      ),
-      decoration: InputDecoration(
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: BorderSide(
-            color: isDarkMode ? Colors.white24 : Colors.black26,
-          ),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: BorderSide(
-            color: isDarkMode ? Colors.white24 : Colors.black26,
-          ),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFFF5A623)),
-        ),
-        filled: true,
-        fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
-      ),
-      icon: Icon(
-        Icons.arrow_drop_down,
-        size: 20,
-        color: isDarkMode ? Colors.white54 : Colors.black54,
-      ),
-      items: _sexOptions.map((sex) {
-        return DropdownMenuItem(value: sex, child: Text(sex));
-      }).toList(),
-      onChanged: (value) => setState(() => _selectedSex = value),
     );
   }
 }
