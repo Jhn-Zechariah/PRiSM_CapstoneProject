@@ -2,14 +2,20 @@ import 'package:flutter/material.dart';
 
 class CustomTextField extends StatelessWidget {
   final TextEditingController controller;
-  final String? labelText; // The label inside the field
+  final String? labelText;
   final double? border;
   final IconData? prefixIcon;
   final bool obscureText;
   final Widget? suffixIcon;
   final String? Function(String?)? validator;
   final bool enabled;
-  final String? label; // The title above the field
+  final String? label;
+
+  // 👇 1. Add these new optional fields
+  final TextInputType keyboardType;
+  final EdgeInsetsGeometry? contentPadding;
+  final bool filled;
+  final Color? fillColor;
 
   const CustomTextField({
     super.key,
@@ -22,6 +28,11 @@ class CustomTextField extends StatelessWidget {
     this.validator,
     this.enabled = true,
     this.label,
+    // 👇 2. Initialize them
+    this.keyboardType = TextInputType.text,
+    this.contentPadding,
+    this.filled = false,
+    this.fillColor,
   });
 
   @override
@@ -29,36 +40,35 @@ class CustomTextField extends StatelessWidget {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start, // Aligns text to the left
-      mainAxisSize: MainAxisSize.min, // Prevents the column from taking infinite height
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // 👇 Conditionally show the label if it was provided
         if (label != null) ...[
           Padding(
-            padding: const EdgeInsets.only(left: 10, bottom: 4),
+            padding: const EdgeInsets.only(bottom: 4), // adjusted padding slightly
             child: Text(
-              label!, // Use ! because we already checked if it's null
+              label!,
               style: TextStyle(
+                fontSize: 13, // Matches your pig screen label size
                 fontWeight: FontWeight.w500,
-                // Map your _isEditing logic directly to the 'enabled' property
                 color: enabled
-                    ? (isDarkMode ? Colors.white : Colors.black)
+                    ? (isDarkMode ? Colors.white70 : Colors.black87)
                     : (isDarkMode ? Colors.white54 : Colors.grey[600]),
               ),
             ),
           ),
-          // Space between your new label and the text field
         ],
 
-        // 👇 Your existing text field
         TextFormField(
           controller: controller,
           obscureText: obscureText,
           validator: validator,
           enabled: enabled,
+          keyboardType: keyboardType, //Apply the keyboard type
           style: TextStyle(
+            fontSize: 14,
             color: enabled
-                ? (isDarkMode ? Colors.white : Colors.black)
+                ? (isDarkMode ? Colors.white : Colors.black87)
                 : (isDarkMode ? Colors.white54 : Colors.grey[600]),
           ),
           decoration: InputDecoration(
@@ -66,6 +76,11 @@ class CustomTextField extends StatelessWidget {
             labelStyle: TextStyle(
               color: isDarkMode ? Colors.white60 : Colors.black54,
             ),
+            // Apply the new styling fields
+            isDense: contentPadding != null,
+            contentPadding: contentPadding,
+            filled: filled,
+            fillColor: fillColor,
             prefixIcon: prefixIcon != null
                 ? Icon(
               prefixIcon,
@@ -76,8 +91,12 @@ class CustomTextField extends StatelessWidget {
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(border ?? 30),
               borderSide: BorderSide(
-                color: isDarkMode ? Colors.white24 : Colors.black12,
+                color: isDarkMode ? Colors.white24 : Colors.black26,
               ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(border ?? 30),
+              borderSide: const BorderSide(color: Colors.blue), // Added focus color
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(border ?? 30)),
           ),

@@ -40,11 +40,9 @@ class _AppNavState extends State<AppNav> {
 
     // list of screens for the bottom navigation bar
     final List<Widget> screens = [
-      PigProfiles(onThemeToggle: widget.onThemeToggle), // Index 0
+      PigProfilesScreen(), // Index 0
       const Center(child: Text("IoT Control")),
-      DashboardScreen(
-        onThemeToggle: widget.onThemeToggle,
-      ), // Index 2: THE MAIN DASHBOARD
+      DashboardScreen(), // Index 2: THE MAIN DASHBOARD
       const Center(child: Text("Track Changes")), // Index 3
       const Center(child: Text("Monetization")), // Index 4
     ];

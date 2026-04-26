@@ -5,9 +5,8 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../features/auth/presentation/components/custom_text.dart';
 
 class DashboardScreen extends StatefulWidget {
-  final VoidCallback onThemeToggle;
 
-  const DashboardScreen({super.key, required this.onThemeToggle});
+  const DashboardScreen({super.key,});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
