@@ -7,6 +7,7 @@ import 'package:prism_app/firebase_options.dart';
 import 'package:prism_app/screens/splash_screen.dart';
 import 'package:prism_app/themes/app_theme.dart';
 
+import 'features/auth/data/firestore_profile_repo.dart';
 import 'features/auth/presentation/cubits/profile_cubit.dart';
 
 void main() async {
@@ -48,7 +49,7 @@ class _MyAppState extends State<MyApp> {
           create: (context) => AuthCubit(authRepo: firebaseAuthRepo)..checkAuth(),
         ),
         BlocProvider<ProfileCubit>(
-          create: (context) => ProfileCubit(),
+          create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()),
         ),
       ],
       //app

@@ -8,9 +8,11 @@ class ProfileLoading extends ProfileState {}
 class ProfileLoaded extends ProfileState {
   final String username;
   final String email;
+  final bool hasPassword;
 
-  ProfileLoaded({required this.username, required this.email});
+  ProfileLoaded({required this.username, required this.email, required this.hasPassword});
 }
+
 
 class ProfileError extends ProfileState {
   final String message;

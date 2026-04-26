@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
@@ -79,10 +80,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   const SizedBox(height: 60),
 
                   // Dynamically swap the logo
-                  Image.asset(
+                  SvgPicture.asset(
                     isDarkMode
-                        ? 'assets/logo_dark.png'
-                        : 'assets/logo_light.png',
+                        ? 'assets/logo_dark.svg'
+                        : 'assets/logo_light.svg',
                     width: 200,
                   ),
 
@@ -120,7 +121,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   // Username Field
                   CustomTextField(
                     controller: usernameController,
-                    labelText: "Username:",
+                    labelText: "Username",
                     prefixIcon: Icons.account_circle_outlined,
                     validator: (value) => value == null || value.isEmpty
                         ? "Please enter your username"
@@ -230,7 +231,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SocialLoginButton(
-                        asset: 'assets/google.png',
+                        asset: 'assets/google.svg',
                         label: "Google",
                         isDarkMode: isDarkMode,
                         onTap: () async {
@@ -240,7 +241,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                       const SizedBox(width: 20),
                       SocialLoginButton(
-                        asset: 'assets/facebook.png',
+                        asset: 'assets/facebook.svg',
                         label: "Facebook",
                         isDarkMode: isDarkMode,
                         onTap: () {

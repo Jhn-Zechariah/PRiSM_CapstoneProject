@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 
 class PigInformationScreen extends StatefulWidget {
@@ -59,20 +60,14 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 5),
 
                         // Pig icon — replace with your asset if available
-                        Image.asset(
-                          'assets/images/pig_icon.png',
-                          height: 64,
-                          width: 64,
-                          errorBuilder: (_, __, ___) => const Icon(
-                            Icons.savings,
-                            size: 64,
-                            color: Colors.black87,
-                          ),
+                        SvgPicture.asset(
+                          isDarkMode ? 'assets/pig_dark.svg' : 'assets/pig_light.svg',
+                          height: 120,
+                          width: 120,
                         ),
-                        const SizedBox(height: 8),
 
                         Text(
                           'Pig Information',
@@ -277,7 +272,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
   Widget _buildDropdownField(bool isDarkMode) {
     return DropdownButtonFormField<String>(
-      value: _selectedSex,
+      initialValue: _selectedSex,
       isDense: true,
       dropdownColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
       style: TextStyle(

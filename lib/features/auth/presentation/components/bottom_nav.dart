@@ -6,6 +6,7 @@ import 'package:prism_app/screens/Dashboard_Screen.dart';
 import 'package:prism_app/screens/my_profile.dart';
 import '../../../../screens/IoTControlsDialog.dart';
 import '../../../../screens/NotificationControlsDialog.dart';
+import '../../data/firestore_profile_repo.dart';
 import '../cubits/auth_cubit.dart';
 import '../../../../screens/Pig_profiles.dart';
 import '../cubits/profile_cubit.dart';
@@ -122,7 +123,7 @@ class _AppNavState extends State<AppNav> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => BlocProvider(
-                    create: (context) => ProfileCubit(), // Create it here!
+                    create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()), // Create it here!
                     child: const MyProfile(),            // Provide it to your UI!
                   ),
                 ),

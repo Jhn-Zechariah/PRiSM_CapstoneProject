@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 class CustomTextField extends StatelessWidget {
   final TextEditingController controller;
   final String? labelText; // The label inside the field
+  final double? border;
   final IconData? prefixIcon;
   final bool obscureText;
   final Widget? suffixIcon;
@@ -14,6 +15,7 @@ class CustomTextField extends StatelessWidget {
     super.key,
     required this.controller,
     this.labelText,
+    this.border,
     this.prefixIcon,
     this.obscureText = false,
     this.suffixIcon,
@@ -33,7 +35,7 @@ class CustomTextField extends StatelessWidget {
         // 👇 Conditionally show the label if it was provided
         if (label != null) ...[
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 17),
+            padding: const EdgeInsets.only(left: 10, bottom: 4),
             child: Text(
               label!, // Use ! because we already checked if it's null
               style: TextStyle(
@@ -71,14 +73,13 @@ class CustomTextField extends StatelessWidget {
             )
                 : null,
             suffixIcon: suffixIcon,
-
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(30),
+              borderRadius: BorderRadius.circular(border ?? 30),
               borderSide: BorderSide(
                 color: isDarkMode ? Colors.white24 : Colors.black12,
               ),
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(border ?? 30)),
           ),
         ),
       ],

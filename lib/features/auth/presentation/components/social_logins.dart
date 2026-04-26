@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 
 class SocialLoginButton extends StatelessWidget {
   final String asset;
@@ -30,7 +31,7 @@ class SocialLoginButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset(
+            SvgPicture.asset(
               asset,
               width: 25,
               height: 25,
