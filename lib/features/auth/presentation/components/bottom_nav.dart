@@ -12,7 +12,8 @@ import '../../../../screens/Pig_profiles.dart';
 import '../cubits/profile_cubit.dart';
 import 'adminDisplaydrawer.dart';
 import '../../../../screens/feedingrecord.dart';
-
+import '../../../../screens/temperaturemonitoring.dart';
+import '../../../../screens/humiditymonitoring.dart';
 
 class AppNav extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -25,6 +26,7 @@ class AppNav extends StatefulWidget {
 
 class _AppNavState extends State<AppNav> {
   int selectedIndex = 2; // Default to Home
+  bool _showHumidity = false; // Controls Temperature vs Humidity sub-tab
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -39,11 +41,21 @@ class _AppNavState extends State<AppNav> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final List<Widget> screens = [
-      PigProfilesScreen(),                              // Index 0: Pig Profiles
-      const Center(child: Text("IoT Control")),         // Index 1: IoT
-      const DashboardScreen(),                          // Index 2: Home / Dashboard
-      const FeedingRecordsPage(),                       // Index 3: Feeding Records
-      const Center(child: Text("Monetization")),        // Index 4: Monetization
+      PigProfilesScreen(),                        // Index 0: Pig Profiles
+      _showHumidity                               // Index 1: Temperature / Humidity
+          ? HumidityMonitoring(
+              onSwitchToTemperature: () {
+                setState(() => _showHumidity = false);
+              },
+            )
+          : Temperaturemonitoring(
+              onSwitchToHumidity: () {
+                setState(() => _showHumidity = true);
+              },
+            ),
+      const DashboardScreen(),                    // Index 2: Home / Dashboard
+      const FeedingRecordsPage(),                 // Index 3: Feeding Records
+      const Center(child: Text("Monetization")),  // Index 4: Monetization
     ];
 
     return Scaffold(
@@ -90,7 +102,8 @@ class _AppNavState extends State<AppNav> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => BlocProvider(
-                    create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()),
+                    create: (context) =>
+                        ProfileCubit(profileRepo: FirebaseProfileRepo()),
                     child: const MyProfile(),
                   ),
                 ),
@@ -160,6 +173,8 @@ class _AppNavState extends State<AppNav> {
       onTap: (index) {
         setState(() {
           selectedIndex = index;
+          // Reset humidity sub-tab when leaving the thermostat tab
+          if (index != 1) _showHumidity = false;
         });
       },
     );
