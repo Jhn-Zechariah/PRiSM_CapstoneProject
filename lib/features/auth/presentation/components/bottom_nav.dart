@@ -8,6 +8,8 @@ import '../../../../screens/NotificationControlsDialog.dart';
 import '../cubits/auth_cubit.dart';
 import '../../../../screens/Pig_profiles.dart';
 import 'adminDisplaydrawer.dart';
+import '../../../../screens/feedingrecord.dart';
+
 
 class AppNav extends StatefulWidget {
 
@@ -44,7 +46,7 @@ class _AppNavState extends State<AppNav> {
       DashboardScreen(
         onThemeToggle: widget.onThemeToggle,
       ), // Index 2: THE MAIN DASHBOARD
-      const Center(child: Text("Track Changes")), // Index 3
+      const FeedingRecordsPage(),
       const Center(child: Text("Monetization")), // Index 4
     ];
 
