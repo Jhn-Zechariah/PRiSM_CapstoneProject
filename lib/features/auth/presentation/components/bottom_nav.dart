@@ -8,7 +8,7 @@ import '../../../../screens/IoTControlsDialog.dart';
 import '../../../../screens/NotificationControlsDialog.dart';
 import '../../data/firestore_profile_repo.dart';
 import '../cubits/auth_cubit.dart';
-import '../../../../screens/Pig_profiles.dart';
+import '../../../../screens/pig_profiles.dart';
 import '../cubits/profile_cubit.dart';
 import 'adminDisplaydrawer.dart';
 import '../../../../screens/feedingrecord.dart';
