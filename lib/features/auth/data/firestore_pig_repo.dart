@@ -5,40 +5,43 @@ import '../domain/repo/pig_repo.dart';
 
 class FirebasePigRepo implements PigRepo{
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance; // 👇 Get Auth Instance
 
   // Collection Reference
   CollectionReference get _pigsCollection => _firestore.collection('pigs');
 
-  // Helper to get current user ID
-  String? get _currentUserId => _auth.currentUser?.uid;
+  // --- READ ---
+  @override
+  Stream<List<AppPig>> streamPigs(String userId) {
+    return _pigsCollection
+        .where('userId', isEqualTo: userId) // Only fetch this user's pigs
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return AppPig.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+      }).toList();
+    });
+  }
 
-  // --- CREATE ---
+  // --- CREATE/ADD PIG ---
   @override
   Future<void> addPig(AppPig pig) async {
     try {
-      final uid = _currentUserId;
-      if (uid == null) throw Exception("User is not logged in!");
+      //Grab the logged-in user's ID
+      final userId = FirebaseAuth.instance.currentUser?.uid;
 
       final docRef = pig.pigId.isEmpty
           ? _pigsCollection.doc()
           : _pigsCollection.doc(pig.pigId);
 
-      final pigToSave = AppPig(
-        pigId: docRef.id,
-        userId: uid,
-        breed: pig.breed,
-        birthDate: pig.birthDate,
-        sex: pig.sex,
-        currentWeightKg: pig.currentWeightKg,
-        notes: pig.notes,
-        stage: pig.stage,
-        status: pig.status,
-      );
+      // Create a map of the pig data, and inject the userId and pigId!
+      final pigData = pig.toJson();
+      pigData['userId'] = userId;
+      pigData['pigId'] = docRef.id;
 
-      await docRef.set(pigToSave.toJson());
+      await docRef.set(pigData);
 
-      // Also initialize the first weight in the history subcollection
+      //add initial weight upon creation
       await docRef.collection('weight_history').add({
         'weightKg': pig.currentWeightKg,
         'dateRecorded': FieldValue.serverTimestamp(),
@@ -50,33 +53,42 @@ class FirebasePigRepo implements PigRepo{
     }
   }
 
-  // --- READ ---
-  Stream<List<AppPig>> streamPigs() {
-    final uid = _currentUserId;
-    if (uid == null) return Stream.value([]); // Return empty list if not logged in
-    return _pigsCollection
-        .where('userId', isEqualTo: uid) // Only fetch this user's pigs
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        return AppPig.fromJson(doc.data() as Map<String, dynamic>, doc.id);
-      }).toList();
-    });
+  // --- UPDATE PIG PROFILE ---
+  @override
+  Future<void> updatePigProfile(AppPig updatedPig) async {
+    try {
+      // Get a reference to the document
+      final docRef = _pigsCollection.doc(updatedPig.pigId);
+
+      // Update the main document
+      await docRef.update({
+        'breed': updatedPig.breed,
+        'currentWeightKg': updatedPig.currentWeightKg,
+        'birthDate': updatedPig.birthDate,
+        'sex': updatedPig.sex,
+        'notes': updatedPig.notes,
+        'stage': updatedPig.stage,
+        'status': updatedPig.status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      throw Exception("Error updating pig profile: $e");
+    }
   }
 
   // --- UPDATE WEIGHT ---
+  @override
   Future<void> updatePigWeight(String pigId, double newWeight) async {
     try {
       final docRef = _pigsCollection.doc(pigId);
 
-      // 1. Update the main document
+      // Update the main document
       await docRef.update({
         'currentWeightKg': newWeight,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // 2. Add to the weight history subcollection
+      // Add to the weight history subcollection
       await docRef.collection('weight_history').add({
         'weightKg': newWeight,
         'dateRecorded': FieldValue.serverTimestamp(),
@@ -88,6 +100,7 @@ class FirebasePigRepo implements PigRepo{
   }
 
   // --- DELETE ---
+  @override
   Future<void> deletePig(String pigId) async {
     try {
       await _pigsCollection.doc(pigId).delete();

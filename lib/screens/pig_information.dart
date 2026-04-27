@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import '../features/auth/data/firestore_pig_repo.dart';
 import '../features/auth/domain/models/app_pig.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import '../features/auth/presentation/components/custom_button.dart';
-import '../features/auth/presentation/components/custom_textfield.dart';
+import '../features/auth/presentation/components/snackbar.dart';
+import '../features/auth/presentation/components/textfield.dart';
 import '../features/auth/presentation/components/dropdown.dart';
+import '../features/auth/presentation/cubits/pig_cubit.dart';
 
 class PigInformationScreen extends StatefulWidget {
-  const PigInformationScreen({super.key});
+  final AppPig? existingPig;
+  const PigInformationScreen({super.key, this.existingPig});
 
   @override
   State<PigInformationScreen> createState() => _PigInformationScreenState();
@@ -21,14 +25,36 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   final TextEditingController _breedController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
 
+  //dropdown options
   String? _selectedSex;
   final List<String> _sexOptions = ['Male', 'Female'];
-
   String? _selectedStage;
   final List<String> _stageOptions = ['Piglet', 'Weanling', 'Grower', "Barrow"];
-
   String? _selectedStatus;
-  final List<String> _statusOptions = ['Normal/Healthy', 'Abnormal/Sick', 'Deceased'];
+  final List<String> _statusOptions = ['Normal/Healthy', 'Abnormal/Sick', 'Sold' ,'Deceased'];
+
+  @override
+  void initState() {
+    super.initState();
+
+    // 👇 If we passed an existing pig, populate the fields!
+    if (widget.existingPig != null) {
+      final pig = widget.existingPig!;
+      _breedController.text = pig.breed;
+      _weightController.text = pig.currentWeightKg.toString();
+      _birthDateController.text = pig.birthDate.toString().split(' ')[0];
+      if (_sexOptions.contains(pig.sex)) {
+        _selectedSex = pig.sex;
+      }
+      if (_stageOptions.contains(pig.stage)) {
+        _selectedStage = pig.stage;
+      }
+      if(_statusOptions.contains(pig.status)){
+        _selectedStatus = pig.status;
+      }
+      // Set your date, sex, and stage variables here as well
+    }
+  }
 
   @override
   void dispose() {
@@ -41,42 +67,74 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   final pigRepo = FirebasePigRepo();
 
   void _onSave() async {
-    // 👇 1. Check if the form is valid before doing anything
+    // 1. ALWAYS validate the form first, for both Add and Update modes!
     if (!_formKey.currentState!.validate()) {
-      return; // Stops the function here if any field is empty
+      return;
     }
 
-    // 2. Gather data from your controllers
-    final newPig = AppPig(
-      pigId: '',
-      userId: '',
-      breed: _breedController.text,
-      birthDate: DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
-      sex: _selectedSex!,
-      currentWeightKg: double.parse(_weightController.text),
-      notes: 'Pig Registered',
-      stage: _selectedStage!,
-      status: _selectedStatus!,
-    );
+    final pigCubit = context.read<PigCubit>();
 
-    // 3. Save to Firebase
-    try {
-      await pigRepo.addPig(newPig);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pig Profile Saved!')),
+    if (widget.existingPig != null) {
+      // UPDATE MODE
+      final updatedPig = AppPig(
+        pigId: widget.existingPig!.pigId,
+        userId: widget.existingPig!.userId, // KEEP the original user ID!
+        breed: _breedController.text,
+        //Grab the updated date from the controller
+        birthDate: DateTime.tryParse(_birthDateController.text) ?? widget.existingPig!.birthDate,
+        sex: _selectedSex!,
+        stage: _selectedStage!,
+        status: _selectedStatus!,
+        notes: widget.existingPig!.notes, // KEEP the existing notes!
+        currentWeightKg: double.tryParse(_weightController.text) ?? widget.existingPig!.currentWeightKg,
       );
-      Navigator.pop(context); // Go back to the list
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving: $e')),
+
+      pigCubit.updatePigDetails(updatedPig);
+
+      if (!mounted) return;
+      CustomSnackbar.show(
+        context: context,
+        message: "Pig updated successfully!",
       );
+      Navigator.pop(context); // Close the screen after updating!
+
+    } else {
+      // ADD MODE
+      final newPig = AppPig(
+        pigId: '',
+        userId: '', // The Repo will populate this automatically
+        breed: _breedController.text,
+        birthDate: DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
+        sex: _selectedSex!,
+        currentWeightKg: double.parse(_weightController.text),
+        notes: 'Pig Registered',
+        stage: _selectedStage!,
+        status: _selectedStatus!,
+      );
+
+      try {
+        await pigRepo.addPig(newPig);
+
+        if (!mounted) return; // Safety check before showing SnackBar
+        CustomSnackbar.show(
+          context: context,
+          message: "Pig Profile Saved!",
+        );
+        Navigator.pop(context);
+      } catch (e) {
+        if (!mounted) return;
+        CustomSnackbar.show(
+          context: context,
+          isError: true,
+          message: "Error saving: $e",
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
     final fieldPadding = const EdgeInsets.symmetric(horizontal: 10, vertical: 10);
     final fillColor = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
 
@@ -145,7 +203,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       filled: true,
                                       fillColor: fillColor,
                                       onTap: () => _selectDate(context),
-                                      // 👇 Validator added
                                       validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                                     ),
                                   ),
@@ -160,7 +217,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       filled: true,
                                       fillColor: fillColor,
                                       onChanged: (value) => setState(() => _selectedSex = value),
-                                      // 👇 Validator added (Assuming your CustomDropdown accepts one)
                                       validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                                     ),
                                   ),
@@ -194,7 +250,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       contentPadding: fieldPadding,
                                       filled: true,
                                       fillColor: fillColor,
-                                      // 👇 Strict number validator added
                                       validator: (value) {
                                         if (value == null || value.isEmpty) return 'Required';
                                         if (double.tryParse(value) == null) return 'Invalid number';
@@ -216,7 +271,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                 filled: true,
                                 fillColor: fillColor,
                                 onChanged: (value) => setState(() => _selectedStage = value),
-                                // 👇 Validator added
                                 validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                               ),
                               const SizedBox(height: 12),

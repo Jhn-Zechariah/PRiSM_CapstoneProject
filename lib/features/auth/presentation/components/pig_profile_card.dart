@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:prism_app/features/auth/presentation/components/snackbar.dart';
+import '../../../../screens/pig_information.dart';
 import '../../../../screens/update_pig_weight_dialog.dart';
 import '../../domain/models/app_pig.dart';
 import '../cubits/pig_cubit.dart';
@@ -26,20 +28,22 @@ class PigProfileCard extends StatelessWidget {
     return '$months months';
   }
 
-  // 👇 Changed to an async function to handle the dialog cleanly
+  //action menu ng 3 dot sa right side
   void _handleMenuAction(BuildContext context, PigMenuAction action) async {
-    // 1. Safely grab the cubit BEFORE the async gap
+    //get pig cubit
     final pigCubit = context.read<PigCubit>();
 
     switch (action) {
       case PigMenuAction.info:
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Navigating to Info...'))
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PigInformationScreen(existingPig: pig),
+          ),
         );
         break;
 
       case PigMenuAction.updateWeight:
-      // 2. Await the dialog instead of using .then()
         final newWeight = await showDialog<double>(
           context: context,
           builder: (_) => UpdatePigWeightDialog(
@@ -50,18 +54,13 @@ class PigProfileCard extends StatelessWidget {
         );
 
         if (newWeight != null) {
-          // Trigger Cubit to update weight in Firebase
-          // (Make sure this matches the method name in your PigCubit!)
           pigCubit.updateWeight(pig.pigId, newWeight);
 
-          // 👇 3. VERY IMPORTANT: Check if the widget is still on screen!
+          // 3. VERY IMPORTANT: Check if the widget is still on screen!
           if (!context.mounted) return;
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Weight updated to $newWeight kg'),
-              backgroundColor: accentColor,
-            ),
+          CustomSnackbar.show(
+            context: context,
+            message: "Weight updated to $newWeight kg",
           );
         }
         break;
@@ -111,7 +110,7 @@ class PigProfileCard extends StatelessWidget {
                               icon: Icon(Icons.more_vert, color: textColor),
                               onSelected: (action) => _handleMenuAction(context, action),
                               itemBuilder: (BuildContext context) => [
-                                const PopupMenuItem(value: PigMenuAction.info, child: Text('Go to Pig Information')),
+                                const PopupMenuItem(value: PigMenuAction.info, child: Text('Edit Pig Information')),
                                 const PopupMenuItem(value: PigMenuAction.updateWeight, child: Text('Update Pig Weight')),
                               ],
                             ),
