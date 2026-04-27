@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'selectpigfeedpopup.dart';   // Multi-pig feed popup (+ button in header)
-import 'selectpigfeedpopup2.dart';  // Single pig feed popup (+ button in expanded card)
-import 'feedinghistory.dart';        // Feeding history page
-import 'extendedfeedingrecord.dart'; // Expanded preview widget for individual pig cards
+import 'selectpigfeedpopup.dart';
+import 'selectpigfeedpopup2.dart';
+import 'feedinghistory.dart';
+import 'extendedfeedingrecord.dart';
 
 class FeedingRecordsPage extends StatefulWidget {
   const FeedingRecordsPage({super.key});
@@ -14,14 +14,12 @@ class FeedingRecordsPage extends StatefulWidget {
 }
 
 class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
-  // Tracks which pig card is currently expanded; -1 means none are expanded
   int _expandedIndex = -1;
 
-  // List of pigs with their display name and accent color
   final List<Map<String, dynamic>> _pigs = [
-    {"name": "Pig 1", "color": const Color.fromRGBO(214, 40, 40, 1)},  // Red
-    {"name": "Pig 2", "color": const Color.fromRGBO(0, 48, 73, 1)},    // Dark blue
-    {"name": "Pig 3", "color": const Color.fromRGBO(247, 127, 0, 1)},  // Orange
+    {"name": "Pig 1", "color": const Color.fromRGBO(214, 40, 40, 1)},
+    {"name": "Pig 2", "color": const Color.fromRGBO(0, 48, 73, 1)},
+    {"name": "Pig 3", "color": const Color.fromRGBO(247, 127, 0, 1)},
   ];
 
   @override
@@ -33,23 +31,16 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Shared top bar with logo and navigation controls
           AppTopBar(),
           const SizedBox(height: 12),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Page title with icon and the global + button
                 _buildHeaderRow(isDarkMode),
                 const SizedBox(height: 4),
-
-                // "View feeding history" link aligned to the right
                 _buildViewHistoryLink(),
                 const SizedBox(height: 12),
-
-                // Scrollable list of pig feeding record cards
                 Expanded(child: _buildFeedingList(isDarkMode)),
               ],
             ),
@@ -59,33 +50,29 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     );
   }
 
-  /// Builds the page header row containing the title icon, "Feeding Records"
-  /// text, and the global add (+) button that opens [SelectPigFeedPopup]
   Widget _buildHeaderRow(bool isDark) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Left side: food icon + page title
+        // Matches _buildTitle() in Temperaturemonitoring exactly
         Row(
           children: [
             Icon(
               Symbols.yoshoku,
-              size: 28,
+              size: 32,                                     // ← matched to thermostat size: 32
               color: isDark ? Colors.white : Colors.black,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),                      // ← matched to SizedBox(width: 12)
             Text(
               'Feeding Records',
               style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
+                fontSize: 24,                               // ← matched to fontSize: 24
+                fontWeight: FontWeight.w900,                // ← matched to FontWeight.w900
                 color: isDark ? Colors.white : Colors.black,
               ),
             ),
           ],
         ),
-
-        // Right side: global add button — opens multi-pig feed popup
         IconButton(
           icon: const Icon(Icons.add),
           color: isDark ? Colors.white : Colors.black,
@@ -94,7 +81,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
               context: context,
               builder: (_) => SelectPigFeedPopup(
                 pigs: _pigs,
-                // Uses Pig 1's color as the default dialog accent strip
                 pigColor: const Color.fromRGBO(214, 40, 40, 1),
               ),
             );
@@ -104,8 +90,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     );
   }
 
-  /// Builds the "View feeding history" tappable link that navigates
-  /// to [FeedingHistoryPage]
   Widget _buildViewHistoryLink() {
     return Align(
       alignment: Alignment.centerRight,
@@ -130,16 +114,12 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     );
   }
 
-  /// Builds the scrollable ListView of pig feeding record cards
   Widget _buildFeedingList(bool isDark) {
     return ListView.builder(
       itemCount: _pigs.length,
       itemBuilder: (context, index) {
         final pig = _pigs[index];
-
-        // Determine if this card is the currently expanded one
         final isExpanded = _expandedIndex == index;
-
         return _buildFeedingCard(
           index: index,
           name: pig["name"],
@@ -151,9 +131,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     );
   }
 
-  /// Builds a single collapsible feeding record card for a pig.
-  /// Tapping the chevron toggles expansion; when expanded, shows
-  /// [FeedingRecordExpandedPreview] and a per-pig add (+) button.
   Widget _buildFeedingCard({
     required int index,
     required String name,
@@ -174,8 +151,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-
-            // ── Left colored accent strip unique to each pig ──────────────
             Container(
               width: 10,
               decoration: BoxDecoration(
@@ -186,16 +161,12 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                 ),
               ),
             ),
-
-            // ── Main card content ─────────────────────────────────────────
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(14, 14, 4, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-
-                    // ── Card header: pig name + conditional add button ─────
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -207,9 +178,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                             color: isDark ? Colors.white : Colors.black,
                           ),
                         ),
-
-                        // Add button only visible when the card is expanded;
-                        // opens SelectPigFeedPopup2 for this specific pig
                         if (isExpanded)
                           GestureDetector(
                             onTap: () {
@@ -229,9 +197,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                           ),
                       ],
                     ),
-
-                    // ── Expanded preview — only rendered when card is open ─
-                    // Connects to FeedingRecordExpandedPreview in extendedfeedingrecord.dart
                     if (isExpanded) ...[
                       const SizedBox(height: 12),
                       FeedingRecordExpandedPreview(
@@ -243,10 +208,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                 ),
               ),
             ),
-
-            // ── Chevron toggle button ─────────────────────────────────────
-            // Tap toggles expansion: sets _expandedIndex to this index,
-            // or collapses it back to -1 if already expanded
             GestureDetector(
               onTap: () {
                 setState(() {
@@ -255,7 +216,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                // Animates the chevron 180° when the card expands/collapses
                 child: AnimatedRotation(
                   turns: isExpanded ? 0.5 : 0,
                   duration: const Duration(milliseconds: 200),
