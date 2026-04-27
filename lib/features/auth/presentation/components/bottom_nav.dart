@@ -3,16 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
+import 'package:prism_app/screens/my_profile.dart';
 import '../../../../screens/IoTControlsDialog.dart';
 import '../../../../screens/NotificationControlsDialog.dart';
+import '../../data/firestore_profile_repo.dart';
 import '../cubits/auth_cubit.dart';
 import '../../../../screens/Pig_profiles.dart';
+import '../cubits/profile_cubit.dart';
 import 'adminDisplaydrawer.dart';
 import '../../../../screens/feedingrecord.dart';
 
 
 class AppNav extends StatefulWidget {
-
   final VoidCallback onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
@@ -22,10 +24,8 @@ class AppNav extends StatefulWidget {
 }
 
 class _AppNavState extends State<AppNav> {
-  //Selected index
   int selectedIndex = 2; // Default to Home
 
-  //list of icons for the bottom navigation bar
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
     Icon(Symbols.thermostat, size: 30, color: Colors.white),
@@ -34,52 +34,18 @@ class _AppNavState extends State<AppNav> {
     Icon(Symbols.mixture_med, size: 30, color: Colors.white),
   ];
 
-
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    // list of screens for the bottom navigation bar
     final List<Widget> screens = [
-      PigProfiles(onThemeToggle: widget.onThemeToggle), // Index 0
-      const Center(child: Text("IoT Control")),
-      DashboardScreen(
-        onThemeToggle: widget.onThemeToggle,
-      ), // Index 2: THE MAIN DASHBOARD
-      const FeedingRecordsPage(),
-      const Center(child: Text("Monetization")), // Index 4
+      PigProfilesScreen(),                              // Index 0: Pig Profiles
+      const Center(child: Text("IoT Control")),         // Index 1: IoT
+      const DashboardScreen(),                          // Index 2: Home / Dashboard
+      const FeedingRecordsPage(),                       // Index 3: Feeding Records
+      const Center(child: Text("Monetization")),        // Index 4: Monetization
     ];
 
-    //FIXED APPBAR
-    // return Scaffold(
-    //   drawer: _buildCustomDrawer(isDarkMode),
-    //
-    //   body: SafeArea(
-    //     child: Column(
-    //       children: [
-    //         // 🔹 Top Bar (fixed)
-    //         Padding(
-    //           padding: const EdgeInsets.all(16),
-    //           child: AppTopBar(
-    //             // title: 'PRISM' // optional dynamic title
-    //           ),
-    //         ),
-    //
-    //         // 🔹 Screen content (changes when navigating)
-    //         Expanded(
-    //           child: Padding(
-    //             padding: const EdgeInsets.symmetric(horizontal: 16),
-    //             child: screens[selectedIndex],
-    //           ),
-    //         ),
-    //       ],
-    //     ),
-    //   ),
-    //
-    //   bottomNavigationBar: _buildBottomNav(isDarkMode),
-    // );
-
-    // SCROLLABLE APPBAR
     return Scaffold(
       drawer: _buildCustomDrawer(isDarkMode),
       body: SafeArea(child: screens[selectedIndex]),
@@ -108,7 +74,7 @@ class _AppNavState extends State<AppNav> {
                     ),
                   ),
                   const SizedBox(width: 15),
-                    const AdminInfoWidget(),
+                  const AdminInfoWidget(),
                 ],
               ),
             ),
@@ -119,42 +85,47 @@ class _AppNavState extends State<AppNav> {
               indent: 20,
               endIndent: 20,
             ),
-            _drawerTile(Icons.person_outline, "My Profile", () {}),
-          _drawerTile(Icons.sensors, "IoT Control", () {
-            Navigator.pop(context);
-
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return const IoTControlsDialog();
-              },
-            );
-          }),
-          _drawerTile(Icons.notifications, "Notification", () {
-            Navigator.pop(context);
-
-            showDialog(
-              context: context,
-              builder: (BuildContext context) {
-                return const NotificationControlsDialog();
-              },
-            );
-          }),
+            _drawerTile(Icons.person_outline, "My Profile", () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BlocProvider(
+                    create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()),
+                    child: const MyProfile(),
+                  ),
+                ),
+              );
+            }),
+            _drawerTile(Icons.sensors, "IoT Control", () {
+              Navigator.pop(context);
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return const IoTControlsDialog();
+                },
+              );
+            }),
+            _drawerTile(Icons.notifications, "Notification", () {
+              Navigator.pop(context);
+              showDialog(
+                context: context,
+                builder: (BuildContext context) {
+                  return const NotificationControlsDialog();
+                },
+              );
+            }),
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
               () {
-                Navigator.pop(context);
                 widget.onThemeToggle();
+                Navigator.pop(context);
               },
             ),
             const Spacer(),
             const Divider(color: Colors.white24),
             _drawerTile(Icons.logout, "Log Out", () {
-              // Close the drawer first so it doesn't stay open in the background
               Navigator.pop(context);
-
-              // Tell Firebase and your BLoC to log the user out!
               final authCubit = context.read<AuthCubit>();
               authCubit.logout();
             }),
@@ -181,8 +152,7 @@ class _AppNavState extends State<AppNav> {
     return CurvedNavigationBar(
       backgroundColor: Colors.transparent,
       color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-      buttonBackgroundColor: isDark ? Colors.blue : Colors.blue,
-
+      buttonBackgroundColor: Colors.blue,
       height: 70,
       index: selectedIndex,
       items: _navItems,
@@ -194,5 +164,4 @@ class _AppNavState extends State<AppNav> {
       },
     );
   }
-
 }

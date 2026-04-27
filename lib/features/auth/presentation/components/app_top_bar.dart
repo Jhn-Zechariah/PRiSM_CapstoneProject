@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 
 class AppTopBar extends StatelessWidget {
   final String? title;
@@ -16,7 +17,7 @@ class AppTopBar extends StatelessWidget {
         Builder(
           builder: (context) => IconButton(
             icon: Icon(
-              Icons.menu,
+              showBackButton ? Icons.arrow_back : Icons.menu,
               color: isDarkMode ? Colors.white : Colors.black,
               size: 28,
             ),
@@ -45,8 +46,8 @@ class AppTopBar extends StatelessWidget {
                 : const SizedBox.shrink(),
           ),
         ),
-        Image.asset(
-          isDarkMode ? 'assets/logo_dark.png' : 'assets/logo_light.png',
+        SvgPicture.asset(
+          isDarkMode ? 'assets/logo_dark.svg' : 'assets/logo_light.svg',
           height: 40,
           errorBuilder: (context, error, stackTrace) => Icon(
             Icons.business,

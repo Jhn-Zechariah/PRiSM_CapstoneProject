@@ -6,9 +6,7 @@ import '../features/auth/presentation/components/custom_text.dart';
 
 class DashboardScreen extends StatefulWidget {
 
-  final VoidCallback onThemeToggle;
-
-  const DashboardScreen({super.key, required this.onThemeToggle});
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -16,7 +14,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int selectedIndex = 2; // Default to Home
-
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +47,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-
   // --- HEADER SECTION (FIXED TO SHOW LOGO_LIGHT) ---
   Widget _buildHeader(bool isDark) {
     return Column(
@@ -65,7 +61,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Symbols.account_circle,
                 size: 50,
                 color: isDark
-                    ? Color.fromARGB(255, 255, 255, 255)
+                    ? const Color.fromARGB(255, 255, 255, 255)
                     : const Color.fromARGB(255, 0, 0, 0),
               ),
             ),
@@ -73,11 +69,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                  const CustomText(
-                    type: TextType.username,
-                    prefix: 'Hello, ',
-                    fontSize: 20,
-                  ),
+                const CustomText(
+                  type: TextType.username,
+                  prefix: 'Hello, ',
+                  fontSize: 20,
+                ),
                 Text(
                   "What do you want today?",
                   style: TextStyle(
@@ -303,7 +299,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.calendar_month_outlined,
                       size: 16,
                       color: Colors.blue,
@@ -345,7 +341,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             "5:00 PM",
           ),
         ),
-        // Empty space to balance the row
       ],
     );
   }
@@ -364,7 +359,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.light_mode, size: 16, color: Colors.blue),
+              const Icon(Icons.light_mode, size: 16, color: Colors.blue),
               const SizedBox(width: 6),
               Text(
                 "Recommendations",
@@ -421,7 +416,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          // morning time
           Text(
             value1,
             style: TextStyle(
@@ -431,7 +425,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   : const Color.fromARGB(255, 112, 112, 112),
             ),
           ),
-          // evening time
           Text(
             value2,
             style: TextStyle(
@@ -445,5 +438,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-
-} 
+}

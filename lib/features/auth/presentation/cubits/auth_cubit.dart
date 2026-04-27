@@ -80,6 +80,8 @@ class AuthCubit extends Cubit<AuthState>{
     emit(Unauthenticated());
   }
 
+
+
   //Reset pass
   Future<String> forgotPassword(String email) async {
     try{
@@ -91,16 +93,16 @@ class AuthCubit extends Cubit<AuthState>{
   }
 
   //Delete account
-  Future<void> deleteAccount() async {
-    try{
-      emit(AuthLoading());
-      await authRepo.deleteAccount();
-      emit(Unauthenticated());
-    }catch (e) {
-      emit(AuthError(e.toString()));
-      emit(Unauthenticated());
-    }
-  }
+  // Future<void> deleteAccount() async {
+  //   try{
+  //     emit(AuthLoading());
+  //     await authRepo.deleteAccount();
+  //     emit(Unauthenticated());
+  //   }catch (e) {
+  //     emit(AuthError(e.toString()));
+  //     emit(Unauthenticated());
+  //   }
+  // }
 
   //Sign in with google
   Future<void> googleSignIn() async {

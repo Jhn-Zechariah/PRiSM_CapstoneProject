@@ -47,6 +47,7 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_facebook_auth: ^7.1.6
   cloud_firestore: ^6.3.0
+  flutter_svg: ^2.2.4
 
 dev_dependencies:
   flutter_test:
@@ -71,10 +72,12 @@ flutter:
   # the material Icons class.
   uses-material-design: true
   assets: 
-    - assets/logo_light.png
-    - assets/logo_dark.png
-    - assets/google.png
-    - assets/facebook.png
+    - assets/logo_light.svg
+    - assets/logo_dark.svg
+    - assets/google.svg
+    - assets/facebook.svg
+    - assets/pig_light.svg
+    - assets/pig_dark.svg
     - assets/lottie/prism.json
     - assets/lottie/prism_dark.json
     
@@ -113,8 +116,8 @@ flutter:
 flutter_native_splash:
   color: "#ffffff"
   color_dark: "#272727"
-  image: assets/prism_logo.png
-  image_dark: assets/prism_logo_dark.png
+  image: assets/prism_logo.svg
+  image_dark: assets/prism_logo_dark.svg
 
   android: true
   ios: true
