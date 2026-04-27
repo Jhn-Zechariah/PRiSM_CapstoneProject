@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'add_pig.dart';
-
+import 'package:prism_app/screens/update_pig_weight_dialog.dart';
+import 'pig_weight_history.dart';
 
 // // Inside your ListView.builder for the profile cards:
 // final colors = [Colors.red, const Color(0xFF003366), Colors.orange];
@@ -101,7 +102,12 @@ class _PigProfilesScreenState extends State<PigProfilesScreen> {
               IconButton(
                 icon: const Icon(Icons.add, size: 28),
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => PigInformationScreen()));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PigInformationScreen(),
+                    ),
+                  );
                 },
               ),
             ],
@@ -111,7 +117,28 @@ class _PigProfilesScreenState extends State<PigProfilesScreen> {
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => WeightHistoryScreen(
+                      pigs: profiles
+                          .map(
+                            (p) => PigOption(
+                              id: p
+                                  .name, // your pig's database ID; dummying with name for now
+                              name: p.name,
+                              accentColor: p.accentColor,
+                            ),
+                          )
+                          .toList(),
+                      weightRecords:
+                          const [], //empty for now, will be fetched in the WeightHistoryScreen
+                      isLoading: false,
+                    ),
+                  ),
+                );
+              },
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(0, 30),
@@ -119,7 +146,10 @@ class _PigProfilesScreenState extends State<PigProfilesScreen> {
               ),
               child: const Text(
                 'View weight history',
-                style: TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: Color(0xFF3B82F6),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -159,13 +189,33 @@ class PigProfileCard extends StatelessWidget {
   void _handleMenuAction(BuildContext context, PigMenuAction action) {
     switch (action) {
       case PigMenuAction.info:
-      // Navigate to your PigInformationScreen
-      // Navigator.push(context, MaterialPageRoute(builder: (_) => const PigInformationScreen()));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Navigating to Info...')));
+        // Navigate to your PigInformationScreen
+        // Navigator.push(context, MaterialPageRoute(builder: (_) => const PigInformationScreen()));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Navigating to Info...')));
         break;
+
+      //pop up a dialog to update weight
       case PigMenuAction.updateWeight:
-      // Open weight update modal or screen
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Opening weight update...')));
+        // Open weight update modal or screen
+        showDialog<double>(
+          context: context,
+          builder: (_) => UpdatePigWeightDialog(
+            pigLabel: data.name,
+            currentWeight: double.tryParse(data.weight) ?? 0.0,
+            accentColor: data.accentColor, // passes the pig's color
+          ),
+        ).then((newWeight) {
+          if (newWeight != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${data.name} weight updated to $newWeight kg'),
+                backgroundColor: data.accentColor,
+              ),
+            );
+          }
+        });
         break;
     }
   }
@@ -180,11 +230,7 @@ class PigProfileCard extends StatelessWidget {
         color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 6,
-            offset: Offset(0, 3),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
         ],
       ),
       child: ClipRRect(
@@ -194,15 +240,17 @@ class PigProfileCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Left Accent Stripe
-              Container(
-                width: 12,
-                color: data.accentColor,
-              ),
+              Container(width: 12, color: data.accentColor),
 
               // Card Content
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.only(left: 12, top: 12, bottom: 16, right: 4),
+                  padding: const EdgeInsets.only(
+                    left: 12,
+                    top: 12,
+                    bottom: 16,
+                    right: 4,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -212,7 +260,11 @@ class PigProfileCard extends StatelessWidget {
                         children: [
                           Text(
                             data.name,
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
+                            ),
                           ),
                           SizedBox(
                             height: 24,
@@ -220,7 +272,8 @@ class PigProfileCard extends StatelessWidget {
                             child: PopupMenuButton<PigMenuAction>(
                               padding: EdgeInsets.zero,
                               icon: Icon(Icons.more_vert, color: textColor),
-                              onSelected: (action) => _handleMenuAction(context, action),
+                              onSelected: (action) =>
+                                  _handleMenuAction(context, action),
                               itemBuilder: (BuildContext context) => [
                                 const PopupMenuItem(
                                   value: PigMenuAction.info,
@@ -244,9 +297,19 @@ class PigProfileCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildInfoText('Breed:', data.breed, labelColor, textColor),
+                                _buildInfoText(
+                                  'Breed:',
+                                  data.breed,
+                                  labelColor,
+                                  textColor,
+                                ),
                                 const SizedBox(height: 4),
-                                _buildInfoText('Sex:', data.sex, labelColor, textColor),
+                                _buildInfoText(
+                                  'Sex:',
+                                  data.sex,
+                                  labelColor,
+                                  textColor,
+                                ),
                               ],
                             ),
                           ),
@@ -254,9 +317,19 @@ class PigProfileCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _buildInfoText('Age:', data.age, labelColor, textColor),
+                                _buildInfoText(
+                                  'Age:',
+                                  data.age,
+                                  labelColor,
+                                  textColor,
+                                ),
                                 const SizedBox(height: 4),
-                                _buildInfoText('Current weight:', data.weight, labelColor, textColor),
+                                _buildInfoText(
+                                  'Current weight:',
+                                  data.weight,
+                                  labelColor,
+                                  textColor,
+                                ),
                               ],
                             ),
                           ),
@@ -271,7 +344,11 @@ class PigProfileCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Text(
                             'NOTE:',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
+                            ),
                           ),
                         ],
                       ),
@@ -281,7 +358,9 @@ class PigProfileCard extends StatelessWidget {
                         height: 40,
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: isDarkMode ? const Color(0xFF2A2A2A) : const Color(0xFFE0E0E0),
+                          color: isDarkMode
+                              ? const Color(0xFF2A2A2A)
+                              : const Color(0xFFE0E0E0),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: Colors.black12),
                         ),
@@ -289,7 +368,7 @@ class PigProfileCard extends StatelessWidget {
                           data.note,
                           style: TextStyle(fontSize: 13, color: textColor),
                         ),
-                      )
+                      ),
                     ],
                   ),
                 ),
@@ -302,12 +381,27 @@ class PigProfileCard extends StatelessWidget {
   }
 
   // Helper method to build the label/value text pairs
-  Widget _buildInfoText(String label, String value, Color labelColor, Color textColor) {
+  Widget _buildInfoText(
+    String label,
+    String value,
+    Color labelColor,
+    Color textColor,
+  ) {
     return RichText(
       text: TextSpan(
         children: [
-          TextSpan(text: '$label ', style: TextStyle(fontSize: 12, color: labelColor)),
-          TextSpan(text: value, style: TextStyle(fontSize: 12, color: textColor, fontWeight: FontWeight.w500)),
+          TextSpan(
+            text: '$label ',
+            style: TextStyle(fontSize: 12, color: labelColor),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              fontSize: 12,
+              color: textColor,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );
