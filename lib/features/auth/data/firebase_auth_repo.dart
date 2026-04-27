@@ -14,10 +14,10 @@ class FirebaseAuthRepo implements AuthRepo {
 
   //access to firebase
   final FirebaseAuth firebaseAuth = FirebaseAuth.instance;
-
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
 
+  //saved user data
   Future<void> createUserDocument(AppUser user) async {
     final docRef = firestore.collection('admins').doc(user.uid);
     final docSnap = await docRef.get();
@@ -101,34 +101,34 @@ class FirebaseAuthRepo implements AuthRepo {
       //return user
       return user;
 
-    } catch (e) {
-      throw Exception('Registration Failed: $e');
+    }  catch (e) {
+      throw Exception('An unexpected error occurred: $e');
     }
   }
 
   //DELETE ACCOUNT
-  @override
-  Future<void> deleteAccount() async {
-    try {
-      //get current user
-      final user = firebaseAuth.currentUser;
-
-      //check if theres a user logged in
-      if (user == null) throw Exception('No user logged in..');
-
-      //delete firestore data
-      await firestore.collection('admins').doc(user.uid).delete();
-
-      //delete account
-      await user.delete();
-
-      //log out
-      await logout();
-
-    } catch (e) {
-      throw Exception('Failed to delete account: $e');
-    }
-  }
+  // @override
+  // Future<void> deleteAccount() async {
+  //   try {
+  //     //get current user
+  //     final user = firebaseAuth.currentUser;
+  //
+  //     //check if theres a user logged in
+  //     if (user == null) throw Exception('No user logged in..');
+  //
+  //     //delete firestore data
+  //     await firestore.collection('admins').doc(user.uid).delete();
+  //
+  //     //delete account
+  //     await user.delete();
+  //
+  //     //log out
+  //     await logout();
+  //
+  //   } catch (e) {
+  //     throw Exception('Failed to delete account: $e');
+  //   }
+  // }
 
   //GET CURRENT USER
   @override
@@ -150,7 +150,11 @@ class FirebaseAuthRepo implements AuthRepo {
   //LOG OUT
   @override
   Future<void> logout() async {
+    // 1. Sign out of Firebase
     await firebaseAuth.signOut();
+
+    // 2. Sign out of Google
+    await GoogleSignIn.instance.signOut();
   }
 
   //RESET PASSWORD
@@ -163,6 +167,41 @@ class FirebaseAuthRepo implements AuthRepo {
       return 'An error occurred: $e';
     }
   }
+
+  //UPDATE PASSWORD
+  // @override
+  // Future<void> reauthAndUpdatePassword(
+  //     String currentPassword, String newPassword, String confirmPassword) async {
+  //   try {
+  //     final user = firebaseAuth.currentUser;
+  //     if (user == null || user.email == null) throw Exception('No user logged in.');
+  //
+  //     // re-authenticate with current password first
+  //     final credential = EmailAuthProvider.credential(
+  //       email: user.email!,
+  //       password: currentPassword,
+  //     );
+  //     await user.reauthenticateWithCredential(credential);
+  //
+  //     // now safe to update
+  //     if(newPassword == confirmPassword){
+  //       await user.updatePassword(newPassword);
+  //     }
+  //
+  //
+  //   } on FirebaseAuthException catch (e) {
+  //     switch (e.code) {
+  //       case 'wrong-password':
+  //         throw Exception('Current password is incorrect.');
+  //       case 'weak-password':
+  //         throw Exception('New password is too weak.');
+  //       case 'requires-recent-login':
+  //         throw Exception('Session expired. Please log in again.');
+  //       default:
+  //         throw Exception('Failed to update password: ${e.message}');
+  //     }
+  //   }
+  // }
 
   //GOOGLE SIGN IN
   @override
@@ -208,7 +247,6 @@ class FirebaseAuthRepo implements AuthRepo {
       return null;
     }
   }
-
 }
 
 

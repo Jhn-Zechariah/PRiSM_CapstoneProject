@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 
 class SocialLoginButton extends StatelessWidget {
   final String asset;
@@ -21,19 +22,21 @@ class SocialLoginButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
         decoration: BoxDecoration(
-          border: Border.all(color: isDarkMode ? Colors.white24 : Colors.black12),
+          border: Border.all(
+            color: isDarkMode ? Colors.white24 : Colors.black12,
+          ),
           borderRadius: BorderRadius.circular(20),
           color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset(
+            SvgPicture.asset(
               asset,
               width: 25,
               height: 25,
               errorBuilder: (context, error, stackTrace) =>
-              const Icon(Icons.login, size: 25),
+                  const Icon(Icons.login, size: 25),
             ),
             const SizedBox(width: 12),
             Text(
