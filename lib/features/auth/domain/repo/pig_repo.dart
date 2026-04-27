@@ -4,8 +4,11 @@ abstract class PigRepo {
   // Adds a new pig profile and initializes weight history
   Future<void> addPig(AppPig pig);
 
+  //update pig
+  Future<void> updatePigProfile(AppPig updatedPig);
+
   // Gets a real-time stream of all pigs
-  Stream<List<AppPig>> streamPigs();
+  Stream<List<AppPig>> streamPigs(String userId);
 
   // Updates the pig's current weight and adds a history record
   Future<void> updatePigWeight(String pigId, double newWeight);

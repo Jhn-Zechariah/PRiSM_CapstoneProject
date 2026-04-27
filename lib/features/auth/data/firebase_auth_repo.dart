@@ -210,13 +210,10 @@ class FirebaseAuthRepo implements AuthRepo {
       await GoogleSignIn.instance.initialize();
 
       //begin sign-in process
-      final GoogleSignInAccount? gUser = await GoogleSignIn.instance.authenticate();
-
-      //user cancelled sign in
-      if (gUser == null) return null;
+      final GoogleSignInAccount gUser = await GoogleSignIn.instance.authenticate();
 
       //obtain details from req
-      final GoogleSignInAuthentication gAuth = await gUser.authentication;
+      final GoogleSignInAuthentication gAuth = gUser.authentication;
 
       //create credential for user
       final credential = GoogleAuthProvider.credential(
@@ -226,7 +223,7 @@ class FirebaseAuthRepo implements AuthRepo {
       //sign in with credential
       UserCredential userCredential = await firebaseAuth.signInWithCredential(credential);
 
-      //firebase user (Removed the '!' right here)
+      //firebase user
       final firebaseUser = userCredential.user;
       if (firebaseUser == null) return null;
 
@@ -242,7 +239,6 @@ class FirebaseAuthRepo implements AuthRepo {
       return user;
 
     } catch (e) {
-      print("Google Sign-In Error: $e");
       // Ensure we return null if the try block fails!
       return null;
     }

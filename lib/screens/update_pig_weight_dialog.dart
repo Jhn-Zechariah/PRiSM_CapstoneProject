@@ -148,6 +148,8 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                           height: 48,
                           child:  CustomButton(
                             text: 'Update',
+                            backgroundColor: Colors.amber,
+                            color: Colors.black87,
                             border: 10,
                             onPressed: _submit,
                           ),
