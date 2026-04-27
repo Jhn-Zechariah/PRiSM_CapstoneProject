@@ -6,31 +6,36 @@ class AdminInfoWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Get current Firebase user
-    final user = FirebaseAuth.instance.currentUser;
 
-    // Fallback values if null
-    final username = user?.displayName ?? "Admin";
-    final email = user?.email ?? "No email";
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.userChanges(),
+      builder: (context, snapshot) {
+        // Grab the latest user data from the stream
+        final user = snapshot.data;
 
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            username,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+        // Fallback values if null (e.g., while loading or if signed out)
+        final username = user?.displayName ?? "Admin";
+        final email = user?.email ?? "No email";
+        return Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                username,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                email,
+                style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
+            ],
           ),
-          Text(
-            email,
-            style: const TextStyle(color: Colors.white70, fontSize: 11),
-          ),
-        ],
-      ),
+        );
+      }
     );
   }
 }
