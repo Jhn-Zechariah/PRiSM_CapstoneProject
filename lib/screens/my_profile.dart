@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/presentation/components/app_top_bar.dart';
-import 'package:prism_app/features/auth/presentation/components/custom_text.dart';
+import 'package:prism_app/features/auth/presentation/components/text.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
-import 'package:prism_app/features/auth/presentation/components/custom_textfield.dart';
+import 'package:prism_app/features/auth/presentation/components/textfield.dart';
+import '../features/auth/presentation/components/snackbar.dart';
 import '../features/auth/presentation/cubits/profile_cubit.dart';
 import '../features/auth/presentation/cubits/profile_states.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
@@ -86,14 +87,24 @@ class _MyProfileState extends State<MyProfile> {
       // Did they change their username?
       if (newUsername != originalUsername && newUsername.isNotEmpty) {
         final success = await profileCubit.updateUsername(newUsername);
-        if (!success) return;
+
+        // Stop if the update failed and make sure the screen hasn't been closed during the await
+        if (!success || !mounted) return;
+
+        // Since we didn't return, success is true! Show the snackbar.
+        CustomSnackbar.show(
+          context: context,
+          message: "Username updated successfully!",
+        );
       }
 
       // Did they change their email?
       if (newEmail != originalEmail && newEmail.isNotEmpty) {
         if (currentPass.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Current password is required to change email address.")),
+          CustomSnackbar.show(
+            context: context,
+            isError: true,
+            message: "Current password is required to change email address!",
           );
           return; // Stop execution
         }
@@ -103,12 +114,9 @@ class _MyProfileState extends State<MyProfile> {
           // Check if the widget is still mounted before showing UI
           if (mounted) {
             // 1. Show the success message
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Verification email sent! Please check your inbox and log in again."),
-                backgroundColor: Colors.green, // Make it look like a success message!
-                duration: Duration(seconds: 3),
-              ),
+            CustomSnackbar.show(
+              context: context,
+              message: "Verification email sent! Please check your inbox and log in again.",
             );
 
             //Clear the navigation stack so the Profile screen goes away!
@@ -129,28 +137,23 @@ class _MyProfileState extends State<MyProfile> {
 
         // If they already have a password, do the normal update
         if (hasPassword) {
-          if (currentPass.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Current password is required to change password.")),
-            );
-            return;
-          }
           final success = await profileCubit.updatePassword(currentPass, newPass, confirmPasword);
-          if (!success) return;
+          if (!success || !mounted) return;
+          CustomSnackbar.show(
+            context: context,
+            message: "Password updated successfully!",
+          );
         }
         //If they DON'T have a password, set it!
         else {
           final success = await profileCubit.setInitialPassword(newPass);
           if (success && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("Password set successfully! You can now log in with email and password."),
-                backgroundColor: Colors.green,
-              ),
+            CustomSnackbar.show(
+              context: context,
+              message: "Password set successfully! You can now log in with email and password",
             );
           }
         }
-
 
       }
 
