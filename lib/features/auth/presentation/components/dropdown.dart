@@ -11,6 +11,9 @@ class CustomDropdown extends StatelessWidget {
   final Color? fillColor;
   final String? labelText; // The label inside the field (optional)
 
+  // 👇 1. Add the validator property
+  final String? Function(String?)? validator;
+
   const CustomDropdown({
     super.key,
     this.label,
@@ -22,6 +25,8 @@ class CustomDropdown extends StatelessWidget {
     this.filled = false,
     this.fillColor,
     this.labelText,
+    // 👇 2. Add it to the constructor
+    this.validator,
   });
 
   @override
@@ -32,7 +37,7 @@ class CustomDropdown extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 👇 Conditionally show the label above the field
+        // Conditionally show the label above the field
         if (label != null) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
@@ -47,10 +52,12 @@ class CustomDropdown extends StatelessWidget {
           ),
         ],
 
-        // 👇 The actual Dropdown field
+        // The actual Dropdown field
         DropdownButtonFormField<String>(
           initialValue: value,
           isDense: true,
+          // 👇 3. Pass the validator to the DropdownButtonFormField
+          validator: validator,
           dropdownColor: fillColor ?? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.white),
           style: TextStyle(
             fontSize: 14,

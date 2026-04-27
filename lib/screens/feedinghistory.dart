@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:prism_app/features/auth/presentation/components/app_top_bar.dart';
 
 class FeedingHistoryPage extends StatefulWidget {
   const FeedingHistoryPage({super.key});
@@ -57,45 +58,7 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── TopBar: back arrow + centered title + logo ────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Back navigation button
-                  IconButton(
-                    icon: Icon(
-                      Icons.arrow_back,
-                      color: isDark ? Colors.white : Colors.black,
-                      size: 28,
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                  // Page title centered between the back button and logo
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        'Feeding History',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white : Colors.black,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // App logo — switches asset based on theme
-                  Image.asset(
-                    isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png',
-                    height: 40,
-                    // Fallback icon if the asset is missing
-                    errorBuilder: (context, error, stackTrace) => Icon(
-                      Icons.business,
-                      size: 40,
-                      color: isDark ? Colors.white24 : Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
+              AppTopBar(showBackButton: true, title: 'Feeding History'),
               const SizedBox(height: 12),
 
               // ── Dropdown filter aligned to the right ──────────────────

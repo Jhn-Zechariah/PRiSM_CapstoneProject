@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../features/auth/presentation/components/custom_button.dart';
+
 class UpdatePigWeightDialog extends StatefulWidget {
   final String pigLabel;
   final double currentWeight;
@@ -144,23 +146,10 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                         SizedBox(
                           width: double.infinity,
                           height: 48,
-                          child: ElevatedButton(
+                          child:  CustomButton(
+                            text: 'Update',
+                            border: 10,
                             onPressed: _submit,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.amber,
-                              foregroundColor: Colors.black,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            child: const Text(
-                              'Update',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
                           ),
                         ),
                       ],

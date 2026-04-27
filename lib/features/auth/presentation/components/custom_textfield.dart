@@ -10,6 +10,8 @@ class CustomTextField extends StatelessWidget {
   final String? Function(String?)? validator;
   final bool enabled;
   final String? label;
+  final bool readonly;
+  final VoidCallback? onTap;
 
   // 👇 1. Add these new optional fields
   final TextInputType keyboardType;
@@ -28,11 +30,13 @@ class CustomTextField extends StatelessWidget {
     this.validator,
     this.enabled = true,
     this.label,
+    this.onTap,
     // 👇 2. Initialize them
     this.keyboardType = TextInputType.text,
     this.contentPadding,
     this.filled = false,
     this.fillColor,
+    this.readonly = false,
   });
 
   @override
@@ -62,6 +66,8 @@ class CustomTextField extends StatelessWidget {
         TextFormField(
           controller: controller,
           obscureText: obscureText,
+          readOnly: readonly,
+          onTap: onTap,
           validator: validator,
           enabled: enabled,
           keyboardType: keyboardType, //Apply the keyboard type

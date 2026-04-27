@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
+import '../features/auth/data/firestore_pig_repo.dart';
+import '../features/auth/domain/models/app_pig.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import '../features/auth/presentation/components/custom_button.dart';
 import '../features/auth/presentation/components/custom_textfield.dart';
 import '../features/auth/presentation/components/dropdown.dart';
-
 
 class PigInformationScreen extends StatefulWidget {
   const PigInformationScreen({super.key});
@@ -16,11 +17,9 @@ class PigInformationScreen extends StatefulWidget {
 class _PigInformationScreenState extends State<PigInformationScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final TextEditingController _birthMonthController = TextEditingController();
+  final TextEditingController _birthDateController = TextEditingController();
   final TextEditingController _breedController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
-  final TextEditingController _stageController = TextEditingController();
-  final TextEditingController _statusController = TextEditingController();
 
   String? _selectedSex;
   final List<String> _sexOptions = ['Male', 'Female'];
@@ -33,18 +32,43 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
   @override
   void dispose() {
-    _birthMonthController.dispose();
+    _birthDateController.dispose();
     _breedController.dispose();
     _weightController.dispose();
-    _stageController.dispose();
-    _statusController.dispose();
     super.dispose();
   }
 
-  void _onSave() {
-    if (_formKey.currentState?.validate() ?? false) {
+  final pigRepo = FirebasePigRepo();
+
+  void _onSave() async {
+    // 👇 1. Check if the form is valid before doing anything
+    if (!_formKey.currentState!.validate()) {
+      return; // Stops the function here if any field is empty
+    }
+
+    // 2. Gather data from your controllers
+    final newPig = AppPig(
+      pigId: '',
+      userId: '',
+      breed: _breedController.text,
+      birthDate: DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
+      sex: _selectedSex!,
+      currentWeightKg: double.parse(_weightController.text),
+      notes: 'Pig Registered',
+      stage: _selectedStage!,
+      status: _selectedStatus!,
+    );
+
+    // 3. Save to Firebase
+    try {
+      await pigRepo.addPig(newPig);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pig information saved!')),
+        const SnackBar(content: Text('Pig Profile Saved!')),
+      );
+      Navigator.pop(context); // Go back to the list
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving: $e')),
       );
     }
   }
@@ -53,7 +77,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    // Extracted some reusable styling variables to make the form cleaner
     final fieldPadding = const EdgeInsets.symmetric(horizontal: 10, vertical: 10);
     final fillColor = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
 
@@ -109,20 +132,25 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                             children: [
                               // Row 1: Birth Month + Sex
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start, // Helps align if error text shows
                                 children: [
                                   Expanded(
                                     child: CustomTextField(
-                                      label: 'Birth Month:',
-                                      controller: _birthMonthController,
+                                      label: 'Birth Date:',
+                                      readonly: true,
+                                      prefixIcon: Icons.calendar_month,
+                                      controller: _birthDateController,
                                       border: 6,
                                       contentPadding: fieldPadding,
                                       filled: true,
                                       fillColor: fillColor,
+                                      onTap: () => _selectDate(context),
+                                      // 👇 Validator added
+                                      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    //CustomDropdown in action!
                                     child: CustomDropdown(
                                       label: 'Sex:',
                                       value: _selectedSex,
@@ -132,6 +160,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       filled: true,
                                       fillColor: fillColor,
                                       onChanged: (value) => setState(() => _selectedSex = value),
+                                      // 👇 Validator added (Assuming your CustomDropdown accepts one)
+                                      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                                     ),
                                   ),
                                 ],
@@ -140,6 +170,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
                               // Row 2: Breed + Weight
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(
                                     child: CustomTextField(
@@ -149,6 +180,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       contentPadding: fieldPadding,
                                       filled: true,
                                       fillColor: fillColor,
+                                      // 👇 Validator added
+                                      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -157,10 +190,16 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       label: 'Weight:',
                                       controller: _weightController,
                                       border: 6,
-                                      keyboardType: TextInputType.number, // Uses the new parameter!
+                                      keyboardType: TextInputType.number,
                                       contentPadding: fieldPadding,
                                       filled: true,
                                       fillColor: fillColor,
+                                      // 👇 Strict number validator added
+                                      validator: (value) {
+                                        if (value == null || value.isEmpty) return 'Required';
+                                        if (double.tryParse(value) == null) return 'Invalid number';
+                                        return null;
+                                      },
                                     ),
                                   ),
                                 ],
@@ -177,6 +216,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                 filled: true,
                                 fillColor: fillColor,
                                 onChanged: (value) => setState(() => _selectedStage = value),
+                                // 👇 Validator added
+                                validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                               ),
                               const SizedBox(height: 12),
 
@@ -190,16 +231,17 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                 filled: true,
                                 fillColor: fillColor,
                                 onChanged: (value) => setState(() => _selectedStatus = value),
+                                // 👇 Validator added
+                                validator: (value) => value == null || value.isEmpty ? 'Required' : null,
                               ),
                               const SizedBox(height: 20),
 
                               // Save button
                               CustomButton(
                                 text: 'Save',
-                                backgroundColor: const Color(0xFFF5A623),
                                 border: 10,
                                 onPressed: _onSave,
-                                color: isDarkMode? Colors.black87 : Colors.black87,
+                                color: isDarkMode ? Colors.black87 : Colors.black87,
                               ),
                               const SizedBox(height: 12),
                             ],
@@ -215,5 +257,20 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2090),
+    );
+
+    if (picked != null) {
+      setState(() {
+        _birthDateController.text = picked.toString().split(' ')[0];
+      });
+    }
   }
 }
