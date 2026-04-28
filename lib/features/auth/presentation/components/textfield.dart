@@ -13,7 +13,7 @@ class CustomTextField extends StatelessWidget {
   final bool readonly;
   final VoidCallback? onTap;
 
-  // 👇 1. Add these new optional fields
+  // 1. Add these new optional fields
   final TextInputType keyboardType;
   final EdgeInsetsGeometry? contentPadding;
   final bool filled;
@@ -31,7 +31,7 @@ class CustomTextField extends StatelessWidget {
     this.enabled = true,
     this.label,
     this.onTap,
-    // 👇 2. Initialize them
+    // 2. Initialize them
     this.keyboardType = TextInputType.text,
     this.contentPadding,
     this.filled = false,
@@ -49,7 +49,9 @@ class CustomTextField extends StatelessWidget {
       children: [
         if (label != null) ...[
           Padding(
-            padding: const EdgeInsets.only(bottom: 4), // adjusted padding slightly
+            padding: const EdgeInsets.only(
+              bottom: 4,
+            ), // adjusted padding slightly
             child: Text(
               label!,
               style: TextStyle(
@@ -89,9 +91,9 @@ class CustomTextField extends StatelessWidget {
             fillColor: fillColor,
             prefixIcon: prefixIcon != null
                 ? Icon(
-              prefixIcon,
-              color: isDarkMode ? Colors.white60 : Colors.black54,
-            )
+                    prefixIcon,
+                    color: isDarkMode ? Colors.white60 : Colors.black54,
+                  )
                 : null,
             suffixIcon: suffixIcon,
             enabledBorder: OutlineInputBorder(
@@ -102,9 +104,13 @@ class CustomTextField extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(border ?? 30),
-              borderSide: const BorderSide(color: Colors.blue), // Added focus color
+              borderSide: const BorderSide(
+                color: Colors.blue,
+              ), // Added focus color
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(border ?? 30)),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(border ?? 30),
+            ),
           ),
         ),
       ],
