@@ -7,6 +7,7 @@ import '../features/auth/presentation/components/pig_profile_card.dart';
 import '../features/auth/presentation/cubits/pig_cubit.dart';
 import 'pig_information.dart';
 import '../features/auth/presentation/cubits/pig_states.dart';
+import 'pig_weight_history.dart';
 
 class PigProfilesScreen extends StatelessWidget {
   const PigProfilesScreen({super.key});
@@ -39,7 +40,9 @@ class PigProfilesScreen extends StatelessWidget {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const PigInformationScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const PigInformationScreen(),
+                    ),
                   );
                 },
               ),
@@ -47,11 +50,40 @@ class PigProfilesScreen extends StatelessWidget {
           ),
 
           // View Weight History Link
+          // View Weight History Link
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(
               onPressed: () {
-                // TODO: Navigate to Weight History
+                final state = context.read<PigCubit>().state;
+
+                if (state is PigLoaded) {
+                  final colors = [
+                    Colors.red,
+                    const Color(0xFF003366),
+                    Colors.orange,
+                  ];
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => WeightHistoryScreen(
+                        pigs: state.pigs.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final pig = entry.value;
+                          return PigOption(
+                            id: pig.pigId, // your pig model's id field
+                            // your pig model's name field
+                            accentColor: colors[index % colors.length],
+                          );
+                        }).toList(),
+                        weightRecords:
+                            const [], // replace with real records later
+                        isLoading: false,
+                      ),
+                    ),
+                  );
+                }
               },
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
@@ -60,7 +92,10 @@ class PigProfilesScreen extends StatelessWidget {
               ),
               child: const Text(
                 'View weight history',
-                style: TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: Color(0xFF3B82F6),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -100,7 +135,8 @@ class PigProfilesScreen extends StatelessWidget {
 
                   return ListView.separated(
                     itemCount: pigs.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 16),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 16),
                     itemBuilder: (context, index) {
                       // Looping color logic for the left accent stripe
                       final colors = [

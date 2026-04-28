@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../features/auth/presentation/components/app_top_bar_fixed.dart';
+import '../features/auth/presentation/components/build_tab_bar.dart';
 
 class HumidityMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToTemperature;
@@ -15,7 +16,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   int _selectedTimeRange = 3;
   bool _isActivated = false;
 
-  final List<String> _timeRanges = ['All Time', 'This Month', 'This Week', 'Today'];
+  final List<String> _timeRanges = [
+    'All Time',
+    'This Month',
+    'This Week',
+    'Today',
+  ];
 
   final List<Map<String, double>> _chartData = [
     {'hour': 7.0, 'humidity': 10.0},
@@ -48,7 +54,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               children: [
                 _buildTitle(),
                 const SizedBox(height: 16),
-                _buildTabBar(),
+                CustomTabBar(
+                  selectedIndex: _selectedTab,
+                  tabs: const ['Temperature', 'Humidity'],
+                  onTabSelected: (index) {
+                    setState(() {
+                      _selectedTab = index;
+                    });
+
+                    if (index == 0) {
+                      widget.onSwitchToTemperature?.call();
+                    }
+                  },
+                ),
                 const SizedBox(height: 16),
                 _buildStatusCard(),
                 const SizedBox(height: 12),
@@ -72,10 +90,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
-        Icon(Icons.water_drop_outlined, size: 32,
-            color: isDarkMode ? Colors.white : Colors.black),
+        Icon(
+          Icons.water_drop_outlined,
+          size: 32,
+          color: isDarkMode ? Colors.white : Colors.black,
+        ),
         const SizedBox(width: 12),
-        Text('Humidity',
+        Text(
+          'Humidity',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w900,
@@ -84,49 +106,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         ),
         const Spacer(),
       ],
-    );
-  }
-
-  Widget _buildTabBar() {
-    return Row(
-      children: [
-        _buildTab('Temperature', 0),
-        const SizedBox(width: 8),
-        _buildTab('Humidity', 1),
-      ],
-    );
-  }
-
-  Widget _buildTab(String label, int index) {
-    final isSelected = _selectedTab == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          if (index == 0) {
-            widget.onSwitchToTemperature?.call();
-          }
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          height: 48,
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF1B3A4B) : Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected ? const Color(0xFF1B3A4B) : Colors.grey.shade300,
-              width: 1.5,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(label,
-            style: TextStyle(
-              color: isSelected ? const Color(0xFFD4AF37) : Colors.grey.shade500,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              fontSize: 14,
-            ),
-          ),
-        ),
-      ),
     );
   }
 
@@ -152,10 +131,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Normal',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+              Text(
+                'Normal',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              ),
               const SizedBox(height: 4),
-              const Text('35%',
+              const Text(
+                '35%',
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
@@ -167,24 +149,33 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('Mon 08-30',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+              Text(
+                'Mon 08-30',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+              ),
               const SizedBox(height: 10),
               GestureDetector(
                 onTap: () => setState(() => _isActivated = !_isActivated),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: _isActivated ? Colors.green : const Color(0xFFD32F2F),
+                    color: _isActivated
+                        ? Colors.green
+                        : const Color(0xFFD32F2F),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                          _isActivated ? Icons.check_circle : Icons.shower,
-                          color: Colors.white, size: 18),
+                        _isActivated ? Icons.check_circle : Icons.shower,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         _isActivated ? 'Active' : 'Activate',
@@ -214,17 +205,22 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             onTap: () => setState(() => _selectedTimeRange = index),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              margin: EdgeInsets.only(right: index < _timeRanges.length - 1 ? 6 : 0),
+              margin: EdgeInsets.only(
+                right: index < _timeRanges.length - 1 ? 6 : 0,
+              ),
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
                 color: isSelected ? const Color(0xFFE8622A) : Colors.white,
                 border: Border.all(
-                  color: isSelected ? const Color(0xFFE8622A) : Colors.grey.shade300,
+                  color: isSelected
+                      ? const Color(0xFFE8622A)
+                      : Colors.grey.shade300,
                 ),
                 borderRadius: BorderRadius.circular(20),
               ),
               alignment: Alignment.center,
-              child: Text(_timeRanges[index],
+              child: Text(
+                _timeRanges[index],
                 style: TextStyle(
                   color: isSelected ? Colors.white : Colors.grey.shade600,
                   fontSize: 11,
@@ -268,9 +264,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         children: [
           const Row(
             children: [
-              Icon(Icons.water_drop_outlined, color: Color(0xFF1B3A4B), size: 20),
+              Icon(
+                Icons.water_drop_outlined,
+                color: Color(0xFF1B3A4B),
+                size: 20,
+              ),
               SizedBox(width: 8),
-              Text('Humidity Review',
+              Text(
+                'Humidity Review',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
@@ -300,7 +301,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     return Expanded(
       child: Column(
         children: [
-          Text(label,
+          Text(
+            label,
             style: TextStyle(
               color: valueColor,
               fontSize: 13,
@@ -308,7 +310,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(value,
+          Text(
+            value,
             style: const TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
@@ -335,7 +338,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             children: [
               Icon(Icons.lightbulb_outline, color: Color(0xFFE8A020), size: 20),
               SizedBox(width: 8),
-              Text('Insights:',
+              Text(
+                'Insights:',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
@@ -374,12 +378,16 @@ class HumidityChartPainter extends CustomPainter {
     const yMax = 30.0;
     const yMin = 0.0;
     for (final step in [0, 5, 10, 15, 20, 25, 30]) {
-      final y = topPadding + chartHeight - ((step - yMin) / (yMax - yMin)) * chartHeight;
+      final y =
+          topPadding +
+          chartHeight -
+          ((step - yMin) / (yMax - yMin)) * chartHeight;
       canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
       final tp = TextPainter(
         text: TextSpan(
-            text: '$step° C',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 10)),
+          text: '$step° C',
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
       tp.paint(canvas, Offset(0, y - tp.height / 2));
@@ -391,18 +399,25 @@ class HumidityChartPainter extends CustomPainter {
       final x = leftPadding + ((hour - xMin) / (xMax - xMin)) * chartWidth;
       final tp = TextPainter(
         text: TextSpan(
-            text: '${hour.toInt()}:00 AM',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 9)),
+          text: '${hour.toInt()}:00 AM',
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 9),
+        ),
         textDirection: TextDirection.ltr,
       )..layout();
-      tp.paint(canvas, Offset(x - tp.width / 2, size.height - bottomPadding + 8));
+      tp.paint(
+        canvas,
+        Offset(x - tp.width / 2, size.height - bottomPadding + 8),
+      );
     }
 
     Path fillPath = Path();
     Path linePath = Path();
     for (int i = 0; i < data.length; i++) {
-      final x = leftPadding + ((data[i]['hour']! - xMin) / (xMax - xMin)) * chartWidth;
-      final y = topPadding +
+      final x =
+          leftPadding +
+          ((data[i]['hour']! - xMin) / (xMax - xMin)) * chartWidth;
+      final y =
+          topPadding +
           chartHeight -
           ((data[i]['humidity']! - yMin) / (yMax - yMin)) * chartHeight;
       if (i == 0) {
@@ -411,8 +426,10 @@ class HumidityChartPainter extends CustomPainter {
         linePath.moveTo(x, y);
       } else {
         final prevX =
-            leftPadding + ((data[i - 1]['hour']! - xMin) / (xMax - xMin)) * chartWidth;
-        final prevY = topPadding +
+            leftPadding +
+            ((data[i - 1]['hour']! - xMin) / (xMax - xMin)) * chartWidth;
+        final prevY =
+            topPadding +
             chartHeight -
             ((data[i - 1]['humidity']! - yMin) / (yMax - yMin)) * chartHeight;
         final cpX = (prevX + x) / 2;
@@ -421,40 +438,45 @@ class HumidityChartPainter extends CustomPainter {
       }
     }
     final lastX =
-        leftPadding + ((data.last['hour']! - xMin) / (xMax - xMin)) * chartWidth;
+        leftPadding +
+        ((data.last['hour']! - xMin) / (xMax - xMin)) * chartWidth;
     fillPath.lineTo(lastX, topPadding + chartHeight);
     fillPath.close();
 
     canvas.drawPath(
-        fillPath,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFFEF5350).withValues(alpha: 0.6),
-              const Color(0xFFEF5350).withValues(alpha: 0.05),
-            ],
-          ).createShader(Rect.fromLTWH(0, topPadding, size.width, chartHeight))
-          ..style = PaintingStyle.fill);
+      fillPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFEF5350).withValues(alpha: 0.6),
+            const Color(0xFFEF5350).withValues(alpha: 0.05),
+          ],
+        ).createShader(Rect.fromLTWH(0, topPadding, size.width, chartHeight))
+        ..style = PaintingStyle.fill,
+    );
 
     canvas.drawPath(
-        linePath,
-        Paint()
-          ..color = const Color(0xFFEF5350)
-          ..strokeWidth = 2.5
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round
-          ..strokeJoin = StrokeJoin.round);
+      linePath,
+      Paint()
+        ..color = const Color(0xFFEF5350)
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
 
     canvas.drawLine(
-        Offset(leftPadding, topPadding),
-        Offset(leftPadding, topPadding + chartHeight),
-        axisPaint);
+      Offset(leftPadding, topPadding),
+      Offset(leftPadding, topPadding + chartHeight),
+      axisPaint,
+    );
     canvas.drawLine(
-        Offset(leftPadding, topPadding + chartHeight),
-        Offset(size.width, topPadding + chartHeight),
-        axisPaint);
+      Offset(leftPadding, topPadding + chartHeight),
+      Offset(size.width, topPadding + chartHeight),
+      axisPaint,
+    );
   }
 
   @override
