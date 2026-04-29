@@ -59,15 +59,15 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
           children: [
             Icon(
               Symbols.yoshoku,
-              size: 32,                                     // ← matched to thermostat size: 32
+              size: 32, // ← matched to thermostat size: 32
               color: isDark ? Colors.white : Colors.black,
             ),
-            const SizedBox(width: 12),                      // ← matched to SizedBox(width: 12)
+            const SizedBox(width: 12), // ← matched to SizedBox(width: 12)
             Text(
               'Feeding Records',
               style: TextStyle(
-                fontSize: 24,                               // ← matched to fontSize: 24
-                fontWeight: FontWeight.w900,                // ← matched to FontWeight.w900
+                fontSize: 24, // ← matched to fontSize: 24
+                fontWeight: FontWeight.w900, // ← matched to FontWeight.w900
                 color: isDark ? Colors.white : Colors.black,
               ),
             ),
@@ -97,9 +97,7 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const FeedingHistoryPage(),
-            ),
+            MaterialPageRoute(builder: (_) => const FeedingHistoryPage()),
           );
         },
         child: const Text(

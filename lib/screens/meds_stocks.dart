@@ -2,8 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:prism_app/features/auth/presentation/components/build_tab_bar.dart';
+import 'package:prism_app/features/auth/presentation/components/medicine_card_widget.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import '../features/auth/presentation/components/search_bar.dart';
 
 class meds_Stocks extends StatefulWidget {
   final VoidCallback? onSwitchToPigMeds;
@@ -17,6 +19,37 @@ class meds_Stocks extends StatefulWidget {
 class _meds_StocksState extends State<meds_Stocks> {
   int _selectedTab = 0;
 
+  TextEditingController searchController = TextEditingController();
+
+  List<Map<String, dynamic>> medicines = [];
+  bool isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchMedicines(); // initial load
+  }
+
+  // Replace this with your real DB/API call
+  Future<void> fetchMedicines({String query = ""}) async {
+    setState(() {
+      isLoading = true;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final search = query.toLowerCase();
+
+    List<Map<String, dynamic>> results = medicines.where((med) {
+      return (med["name"] ?? "").toString().toLowerCase().contains(search);
+    }).toList();
+
+    setState(() {
+      medicines = results;
+      isLoading = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -29,6 +62,7 @@ class _meds_StocksState extends State<meds_Stocks> {
           const AppTopBar(),
           const SizedBox(height: 16),
 
+          // 🔹 HEADER
           Row(
             children: [
               const Icon(Symbols.vaccines, size: 32),
@@ -45,6 +79,9 @@ class _meds_StocksState extends State<meds_Stocks> {
             ],
           ),
 
+          const SizedBox(height: 12),
+
+          // CONTENT
           Expanded(
             child: Column(
               children: [
@@ -57,10 +94,47 @@ class _meds_StocksState extends State<meds_Stocks> {
                     });
 
                     if (index == 1) {
-                      // Handle Stock tab selection
                       widget.onSwitchToPigMeds?.call();
                     }
                   },
+                ),
+
+                const SizedBox(height: 12),
+
+                // SEARCH BAR
+                MedicineSearchBar(
+                  controller: searchController,
+                  onChanged: (value) {
+                    fetchMedicines(query: value);
+                  },
+                  onClear: () {
+                    searchController.clear();
+                    fetchMedicines();
+                  },
+                ),
+
+                const SizedBox(height: 12),
+
+                // 📋 MEDICINE LIST
+                Expanded(
+                  child: isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : medicines.isEmpty
+                      ? const Center(child: Text("No medicines found"))
+                      : ListView.builder(
+                          itemCount: medicines.length,
+                          itemBuilder: (context, index) {
+                            final med = medicines[index];
+
+                            return MedicineCard(
+                              name: med["name"],
+                              category: med["category"] ?? "General",
+                              stock: med["stock"],
+                              expiryDate: med["expiry"] ?? "N/A",
+                              status: med["status"] ?? "Low",
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
