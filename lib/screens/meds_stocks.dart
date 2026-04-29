@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:prism_app/features/auth/presentation/components/build_tab_bar.dart';
-import 'package:prism_app/features/auth/presentation/components/medicine_card_widget.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../features/auth/presentation/components/search_bar.dart';
@@ -126,12 +125,12 @@ class _meds_StocksState extends State<meds_Stocks> {
                           itemBuilder: (context, index) {
                             final med = medicines[index];
 
-                            return MedicineCard(
-                              name: med["name"],
-                              category: med["category"] ?? "General",
-                              stock: med["stock"],
-                              expiryDate: med["expiry"] ?? "N/A",
-                              status: med["status"] ?? "Low",
+                            return Card(
+                              child: ListTile(
+                                leading: const Icon(Icons.medication_outlined),
+                                title: Text(med["name"]),
+                                subtitle: Text("Stock: ${med["stock"]}"),
+                              ),
                             );
                           },
                         ),
