@@ -29,7 +29,7 @@ class AppNav extends StatefulWidget {
 class _AppNavState extends State<AppNav> {
   int selectedIndex = 2; // Default to Home
   bool _showHumidity = false; // Controls Temperature vs Humidity sub-tab
-  bool _showStock = false; // Controls Stock vs Pig Meds sub-tab
+  bool _showPigMeds = false; // Controls Stock vs Pig Meds sub-tab
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -58,15 +58,15 @@ class _AppNavState extends State<AppNav> {
             ),
       const DashboardScreen(), // Index 2: Home / Dashboard
       const FeedingRecordsPage(), // Index 3: Feeding Records
-      _showStock // Index 4: Stocks
-          ? meds_Stocks(
-              onSwitchToPigMeds: () {
-                setState(() => _showStock = false);
+      _showPigMeds // Index 4: Pig Meds
+          ? pig_meds(
+              onSwitchToStock: () {
+                setState(() => _showPigMeds = false);
               },
             )
-          : pig_meds(
-              onSwitchToStock: () {
-                setState(() => _showStock = true);
+          : meds_Stocks(
+              onSwitchToPigMeds: () {
+                setState(() => _showPigMeds = true);
               },
             ),
     ];
