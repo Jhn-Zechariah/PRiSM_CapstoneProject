@@ -105,8 +105,6 @@ class _pig_medsState extends State<pig_meds> {
                   ),
                 ),
 
-                const SizedBox(height: 12),
-
                 Expanded(
                   child: BlocBuilder<PigCubit, PigState>(
                     builder: (context, state) {
