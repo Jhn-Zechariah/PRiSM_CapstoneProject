@@ -1,9 +1,14 @@
 // ignore_for_file: camel_case_types
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/presentation/components/build_tab_bar.dart';
+import 'package:prism_app/features/auth/presentation/components/pig_med_card.dart';
+import 'package:prism_app/features/auth/presentation/cubits/pig_cubit.dart';
+import 'package:prism_app/features/auth/presentation/cubits/pig_states.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'meds_intake_history.dart';
 
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
@@ -52,15 +57,114 @@ class _pig_medsState extends State<pig_meds> {
                   selectedIndex: _selectedTab,
                   tabs: const ["Stock", "Pig Medications"],
                   onTabSelected: (index) {
-                    setState(() {
-                      _selectedTab = index;
-                    });
-
-                    if (index == 0) {
-                      // Handle Stock tab selection
-                      widget.onSwitchToStock?.call();
-                    }
+                    setState(() => _selectedTab = index);
+                    if (index == 0) widget.onSwitchToStock?.call();
                   },
+                ),
+                const SizedBox(height: 8),
+
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      final state = context.read<PigCubit>().state;
+                      if (state is PigLoaded) {
+                        final colors = [
+                          Colors.red,
+                          const Color(0xFF003366),
+                          Colors.orange,
+                        ];
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MedsIntakeHistoryScreen(
+                              pigs: state.pigs.asMap().entries.map((entry) {
+                                return PigMedOption(
+                                  id: entry.value.pigId,
+                                  accentColor:
+                                      colors[entry.key % colors.length],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 30),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      'View Medicine history',
+                      style: TextStyle(
+                        color: Color(0xFF3B82F6),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                Expanded(
+                  child: BlocBuilder<PigCubit, PigState>(
+                    builder: (context, state) {
+                      if (state is PigLoading) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      if (state is PigError) {
+                        return Center(
+                          child: Text(
+                            state.message,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        );
+                      }
+
+                      if (state is PigLoaded) {
+                        final pigs = state.pigs;
+
+                        if (pigs.isEmpty) {
+                          return Center(
+                            child: Text(
+                              'No pigs added yet. Click + to add one!',
+                              style: TextStyle(
+                                color: isDarkMode
+                                    ? Colors.white70
+                                    : Colors.black54,
+                                fontSize: 16,
+                              ),
+                            ),
+                          );
+                        }
+
+                        final colors = [
+                          Colors.red,
+                          const Color(0xFF003366),
+                          Colors.orange,
+                        ];
+
+                        return ListView.separated(
+                          itemCount: pigs.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            return PigMedCard(
+                              pig: pigs[index],
+                              accentColor: colors[index % colors.length],
+                              onAdd: () {
+                                // TODO: open add medication dialog
+                              },
+                            );
+                          },
+                        );
+                      }
+
+                      return const SizedBox.shrink();
+                    },
+                  ),
                 ),
               ],
             ),
