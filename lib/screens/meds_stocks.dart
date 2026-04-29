@@ -51,7 +51,6 @@ class _meds_StocksState extends State<meds_Stocks> {
 
   @override
   Widget build(BuildContext context) {
-
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -60,7 +59,7 @@ class _meds_StocksState extends State<meds_Stocks> {
           const AppTopBar(),
           const SizedBox(height: 16),
 
-          // 🔹 HEADER
+          // HEADER
           Row(
             children: [
               const Icon(Symbols.vaccines, size: 32),
@@ -76,8 +75,6 @@ class _meds_StocksState extends State<meds_Stocks> {
               ),
             ],
           ),
-
-          const SizedBox(height: 12),
 
           // CONTENT
           Expanded(
