@@ -54,27 +54,26 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Matches _buildTitle() in Temperaturemonitoring exactly
         Row(
           children: [
             Icon(
               Symbols.yoshoku,
-              size: 32, // ← matched to thermostat size: 32
+              size: 32,
               color: isDark ? Colors.white : Colors.black,
             ),
-            const SizedBox(width: 12), // ← matched to SizedBox(width: 12)
+            const SizedBox(width: 12),
             Text(
               'Feeding Records',
               style: TextStyle(
-                fontSize: 24, // ← matched to fontSize: 24
-                fontWeight: FontWeight.w900, // ← matched to FontWeight.w900
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
                 color: isDark ? Colors.white : Colors.black,
               ),
             ),
           ],
         ),
         IconButton(
-          icon: const Icon(Icons.add),
+          icon: const Icon(Icons.add, size: 28),
           color: isDark ? Colors.white : Colors.black,
           onPressed: () {
             showDialog(
@@ -141,8 +140,9 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
         borderRadius: BorderRadius.circular(12),
+        // Changed border to slightly darker to match your UI image better
         border: Border.all(
-          color: isDark ? Colors.white10 : Colors.grey.shade300,
+          color: isDark ? Colors.white10 : Colors.black54,
         ),
       ),
       child: IntrinsicHeight(
@@ -161,18 +161,20 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 4, 14),
+                // Even padding ensures icons on the right edge align nicely
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // TOP ROW: Title + (+ or down arrow)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           name,
                           style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 18,
                             color: isDark ? Colors.white : Colors.black,
                           ),
                         ),
@@ -189,39 +191,55 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                             },
                             child: Icon(
                               Icons.add,
-                              size: 22,
+                              size: 26,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          )
+                        else
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _expandedIndex = index;
+                              });
+                            },
+                            child: Icon(
+                              Icons.keyboard_arrow_down,
+                              size: 28,
                               color: isDark ? Colors.white : Colors.black,
                             ),
                           ),
                       ],
                     ),
+
+                    // EXPANDED CONTENT: Preview + (up arrow at the bottom right)
                     if (isExpanded) ...[
                       const SizedBox(height: 12),
-                      FeedingRecordExpandedPreview(
-                        pigName: name,
-                        pigColor: color,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: FeedingRecordExpandedPreview(
+                              pigName: name,
+                              pigColor: color,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _expandedIndex = -1;
+                              });
+                            },
+                            child: Icon(
+                              Icons.keyboard_arrow_up,
+                              size: 28,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ],
-                ),
-              ),
-            ),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _expandedIndex = isExpanded ? -1 : index;
-                });
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: AnimatedRotation(
-                  turns: isExpanded ? 0.5 : 0,
-                  duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    Icons.keyboard_arrow_down,
-                    color: isDark ? Colors.white60 : Colors.black54,
-                    size: 24,
-                  ),
                 ),
               ),
             ),
