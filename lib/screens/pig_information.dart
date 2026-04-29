@@ -20,6 +20,7 @@ class PigInformationScreen extends StatefulWidget {
 
 class _PigInformationScreenState extends State<PigInformationScreen> {
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
 
   final TextEditingController _birthDateController = TextEditingController();
   final TextEditingController _breedController = TextEditingController();
@@ -37,7 +38,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   void initState() {
     super.initState();
 
-    // 👇 If we passed an existing pig, populate the fields!
+    // If we passed an existing pig, populate the fields!
     if (widget.existingPig != null) {
       final pig = widget.existingPig!;
       _breedController.text = pig.breed;
@@ -72,6 +73,10 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
       return;
     }
 
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+
     final pigCubit = context.read<PigCubit>();
 
     if (widget.existingPig != null) {
@@ -79,6 +84,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
       final updatedPig = AppPig(
         pigId: widget.existingPig!.pigId,
         userId: widget.existingPig!.userId, // KEEP the original user ID!
+        displayId: widget.existingPig!.displayId, // KEEP the original display ID!
         breed: _breedController.text,
         //Grab the updated date from the controller
         birthDate: DateTime.tryParse(_birthDateController.text) ?? widget.existingPig!.birthDate,
@@ -103,6 +109,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
       final newPig = AppPig(
         pigId: '',
         userId: '', // The Repo will populate this automatically
+        displayId: '', // The Repo will populate this automatically
         breed: _breedController.text,
         birthDate: DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,

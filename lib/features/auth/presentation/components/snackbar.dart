@@ -30,7 +30,7 @@ class CustomSnackbar {
 
     final snackBar = SnackBar(
       behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(top: 16,bottom: 20,left: 16,right: 16),
       elevation: 6,
       backgroundColor: finalBgColor,
       shape: RoundedRectangleBorder(
