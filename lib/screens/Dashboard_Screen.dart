@@ -5,7 +5,6 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../features/auth/presentation/components/text.dart';
 
 class DashboardScreen extends StatefulWidget {
-
   const DashboardScreen({super.key});
 
   @override

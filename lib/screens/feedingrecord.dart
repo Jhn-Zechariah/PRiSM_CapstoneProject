@@ -96,9 +96,7 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const FeedingHistoryPage(),
-            ),
+            MaterialPageRoute(builder: (_) => const FeedingHistoryPage()),
           );
         },
         child: const Text(
