@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/screens/Dashboard_Screen.dart';
 import 'package:prism_app/screens/my_profile.dart';
+import 'package:prism_app/screens/pig_meds.dart';
 import '../../../../screens/IoTControlsDialog.dart';
 import '../../../../screens/NotificationControlsDialog.dart';
 import '../../data/firestore_profile_repo.dart';
@@ -14,6 +15,7 @@ import 'adminDisplaydrawer.dart';
 import '../../../../screens/feedingrecord.dart';
 import '../../../../screens/temperaturemonitoring.dart';
 import '../../../../screens/humiditymonitoring.dart';
+import '../../../../screens/meds_stocks.dart';
 
 class AppNav extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -27,6 +29,7 @@ class AppNav extends StatefulWidget {
 class _AppNavState extends State<AppNav> {
   int selectedIndex = 2; // Default to Home
   bool _showHumidity = false; // Controls Temperature vs Humidity sub-tab
+  bool _showPigMeds = false; // Controls Stock vs Pig Meds sub-tab
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -41,8 +44,8 @@ class _AppNavState extends State<AppNav> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final List<Widget> screens = [
-      PigProfilesScreen(),                        // Index 0: Pig Profiles
-      _showHumidity                               // Index 1: Temperature / Humidity
+      PigProfilesScreen(), // Index 0: Pig Profiles
+      _showHumidity // Index 1: Temperature / Humidity
           ? HumidityMonitoring(
               onSwitchToTemperature: () {
                 setState(() => _showHumidity = false);
@@ -53,9 +56,19 @@ class _AppNavState extends State<AppNav> {
                 setState(() => _showHumidity = true);
               },
             ),
-      const DashboardScreen(),                    // Index 2: Home / Dashboard
-      const FeedingRecordsPage(),                 // Index 3: Feeding Records
-      const Center(child: Text("Monetization")),  // Index 4: Monetization
+      const DashboardScreen(), // Index 2: Home / Dashboard
+      const FeedingRecordsPage(), // Index 3: Feeding Records
+      _showPigMeds // Index 4: Pig Meds
+          ? pig_meds(
+              onSwitchToStock: () {
+                setState(() => _showPigMeds = false);
+              },
+            )
+          : meds_Stocks(
+              onSwitchToPigMeds: () {
+                setState(() => _showPigMeds = true);
+              },
+            ),
     ];
 
     return Scaffold(
