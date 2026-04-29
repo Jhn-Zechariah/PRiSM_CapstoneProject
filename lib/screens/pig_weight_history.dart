@@ -64,7 +64,7 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
         isDense: true,
         items: widget.availablePigs.map((pig) {
           return DropdownMenuItem(
-            value: pig.displayId,
+            value: pig.pigId,
             child: Row(
               children: [
                 Container(
@@ -77,7 +77,7 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
                   ),
                 ),
                 Text(
-                  '${pig.breed} Pig', // Or however you want to display the name
+                  '${pig.breed} | ${pig.displayId}', // Or however you want to display the name
                   style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ],

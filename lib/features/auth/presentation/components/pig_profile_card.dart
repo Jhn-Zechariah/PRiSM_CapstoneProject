@@ -156,7 +156,8 @@ class PigProfileCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Container(
                         width: double.infinity,
-                        height: 40,
+                        constraints: const BoxConstraints(minHeight: 40),
+                        margin: const EdgeInsets.only(right: 12),
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: isDarkMode ? const Color(0xFF2A2A2A) : const Color(0xFFE0E0E0),
@@ -166,8 +167,6 @@ class PigProfileCard extends StatelessWidget {
                         child: Text(
                           pig.notes,
                           style: TextStyle(fontSize: 13, color: textColor),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 2,
                         ),
                       ),
                     ],

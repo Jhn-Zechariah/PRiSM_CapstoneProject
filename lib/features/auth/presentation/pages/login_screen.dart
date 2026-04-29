@@ -5,6 +5,7 @@ import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/components/textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
 
+import '../components/snackbar.dart';
 import '../components/social_logins.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -72,10 +73,12 @@ class LoginScreenState extends State<LoginScreen> {
               );
 
               if (!context.mounted) return;
+              CustomSnackbar.show(
+                context: context,
+                isError: message.contains("error"),
+                message: message,
+              );
 
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(message)));
               Navigator.pop(context);
               emailController.clear();
             },
