@@ -9,7 +9,6 @@ import '../features/auth/presentation/cubits/profile_cubit.dart';
 import '../features/auth/presentation/cubits/profile_states.dart';
 import '../features/auth/presentation/cubits/auth_cubit.dart';
 
-
 class MyProfile extends StatefulWidget {
   const MyProfile({super.key});
 
@@ -29,7 +28,6 @@ class _MyProfileState extends State<MyProfile> {
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
 
-
   @override
   void initState() {
     super.initState();
@@ -39,7 +37,6 @@ class _MyProfileState extends State<MyProfile> {
       // Now this will only run AFTER the BlocConsumer is fully built and listening!
       context.read<ProfileCubit>().loadUserData();
     });
-
   }
 
   @override
@@ -61,7 +58,6 @@ class _MyProfileState extends State<MyProfile> {
   Future<void> _update() async {
     late final profileCubit = context.read<ProfileCubit>();
     if (_formKey.currentState!.validate()) {
-
       // 1. Get the original values to compare against
       final currentState = context.read<ProfileCubit>().state;
       String originalUsername = "";
@@ -80,7 +76,6 @@ class _MyProfileState extends State<MyProfile> {
       final currentPass = _passwordController.text;
       final newPass = _newPasswordController.text;
       final confirmPasword = _confirmPasswordController.text;
-
 
       // 3. Trigger individual updates based on what actually changed
 
@@ -116,7 +111,8 @@ class _MyProfileState extends State<MyProfile> {
             // 1. Show the success message
             CustomSnackbar.show(
               context: context,
-              message: "Verification email sent! Please check your inbox and log in again.",
+              message:
+                  "Verification email sent! Please check your inbox and log in again.",
             );
 
             //Clear the navigation stack so the Profile screen goes away!
@@ -134,10 +130,13 @@ class _MyProfileState extends State<MyProfile> {
 
       // Did they enter a new password?
       if (newPass.isNotEmpty) {
-
         // If they already have a password, do the normal update
         if (hasPassword) {
-          final success = await profileCubit.updatePassword(currentPass, newPass, confirmPasword);
+          final success = await profileCubit.updatePassword(
+            currentPass,
+            newPass,
+            confirmPasword,
+          );
           if (!success || !mounted) return;
           CustomSnackbar.show(
             context: context,
@@ -150,11 +149,11 @@ class _MyProfileState extends State<MyProfile> {
           if (success && mounted) {
             CustomSnackbar.show(
               context: context,
-              message: "Password set successfully! You can now log in with email and password",
+              message:
+                  "Password set successfully! You can now log in with email and password",
             );
           }
         }
-
       }
 
       // 4. Close editing mode and clean up
@@ -184,9 +183,9 @@ class _MyProfileState extends State<MyProfile> {
 
           // Optional: Show an error snackbar if something fails
           if (state is ProfileError) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(state.message)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(state.message)));
           }
         },
         builder: (context, state) {
@@ -220,11 +219,13 @@ class _MyProfileState extends State<MyProfile> {
                           padding: const EdgeInsets.only(left: 10),
                           child: CircleAvatar(
                             radius: 50,
-                            backgroundColor: isDarkMode ? Colors.white10 : Colors.black12,
+                            backgroundColor: isDarkMode
+                                ? Colors.white10
+                                : Colors.black12,
                             child: Icon(
                               Icons.person_outline,
                               color: isDarkMode ? Colors.white : Colors.black87,
-                              size: 55 ,
+                              size: 55,
                             ),
                           ),
                         ),
@@ -235,23 +236,27 @@ class _MyProfileState extends State<MyProfile> {
                           children: [
                             CustomText(
                               type: TextType.custom,
-                              text: state is ProfileLoaded ? state.username : "Loading...",
+                              text: state is ProfileLoaded
+                                  ? state.username
+                                  : "Loading...",
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
                             ),
                             CustomText(
-                                type: TextType.custom,
-                                text: state is ProfileLoaded ? state.email : "Loading...",
-                                fontSize: 12
+                              type: TextType.custom,
+                              text: state is ProfileLoaded
+                                  ? state.email
+                                  : "Loading...",
+                              fontSize: 12,
                             ),
                             const SizedBox(height: 8),
                             SizedBox(
                               width: 140,
                               height: 35,
                               child: CustomButton(
-                                text: _isEditing? "Cancel" : "Edit Profile",
+                                text: _isEditing ? "Cancel" : "Edit Profile",
                                 onPressed: _editProfile,
-                                backgroundColor: _isEditing ?  Colors.red : null,
+                                backgroundColor: _isEditing ? Colors.red : null,
                                 color: _isEditing ? Colors.white : null,
                               ),
                             ),
@@ -266,7 +271,10 @@ class _MyProfileState extends State<MyProfile> {
                       padding: EdgeInsets.symmetric(horizontal: 17),
                       child: Text(
                         "Personal Details",
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -304,16 +312,25 @@ class _MyProfileState extends State<MyProfile> {
                               _obscureCurrentPassword
                                   ? Icons.visibility_off
                                   : Icons.visibility,
-                              color: isDarkMode ? Colors.white60 : Colors.black54,
+                              color: isDarkMode
+                                  ? Colors.white60
+                                  : Colors.black54,
                             ),
                             onPressed: () {
                               setState(() {
-                                _obscureCurrentPassword = !_obscureCurrentPassword;
+                                _obscureCurrentPassword =
+                                    !_obscureCurrentPassword;
                               });
                             },
                           ),
                           validator: (value) {
-                            if (value == null || value.isEmpty && (_newPasswordController.text.isNotEmpty || _confirmPasswordController.text.isNotEmpty)) return "Please enter your current password first";
+                            if (value == null ||
+                                value.isEmpty &&
+                                    (_newPasswordController.text.isNotEmpty ||
+                                        _confirmPasswordController
+                                            .text
+                                            .isNotEmpty))
+                              return "Please enter your current password first";
                             return null;
                           },
                         ),
@@ -321,7 +338,9 @@ class _MyProfileState extends State<MyProfile> {
                       ],
 
                       CustomTextField(
-                        label: hasPassword ? "New Password" : "Set Account Password",
+                        label: hasPassword
+                            ? "New Password"
+                            : "Set Account Password",
                         border: 20,
                         controller: _newPasswordController,
                         prefixIcon: Icons.lock_outline,
@@ -340,8 +359,13 @@ class _MyProfileState extends State<MyProfile> {
                           },
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty && _confirmPasswordController.text.isNotEmpty) return "Please enter your new password";
-                          if (value != _confirmPasswordController.text && _confirmPasswordController.text.isNotEmpty) return "Passwords do not match";
+                          if (value == null ||
+                              value.isEmpty &&
+                                  _confirmPasswordController.text.isNotEmpty)
+                            return "Please enter your new password";
+                          if (value != _confirmPasswordController.text &&
+                              _confirmPasswordController.text.isNotEmpty)
+                            return "Passwords do not match";
                           return null;
                         },
                       ),
@@ -362,13 +386,19 @@ class _MyProfileState extends State<MyProfile> {
                           ),
                           onPressed: () {
                             setState(() {
-                              _obscureConfirmPassword = !_obscureConfirmPassword;
+                              _obscureConfirmPassword =
+                                  !_obscureConfirmPassword;
                             });
                           },
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty && _newPasswordController.text.isNotEmpty ) return "Please confirm your password";
-                          if (value != _newPasswordController.text && _newPasswordController.text.isNotEmpty) return "Passwords do not match";
+                          if (value == null ||
+                              value.isEmpty &&
+                                  _newPasswordController.text.isNotEmpty)
+                            return "Please confirm your password";
+                          if (value != _newPasswordController.text &&
+                              _newPasswordController.text.isNotEmpty)
+                            return "Passwords do not match";
                           return null;
                         },
                       ),
@@ -390,7 +420,6 @@ class _MyProfileState extends State<MyProfile> {
                         ),
                       ),
                     ],
-
                   ],
                 ),
               ),
