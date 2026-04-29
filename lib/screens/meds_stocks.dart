@@ -78,8 +78,6 @@ class _meds_StocksState extends State<meds_Stocks> {
             ],
           ),
 
-          const SizedBox(height: 12),
-
           // CONTENT
           Expanded(
             child: Column(
