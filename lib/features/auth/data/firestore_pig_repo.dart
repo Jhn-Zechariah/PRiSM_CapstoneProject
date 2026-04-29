@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../domain/models/app_pig.dart';
+import '../domain/models/app_weight_history.dart';
 import '../domain/repo/pig_repo.dart';
 
 class FirebasePigRepo implements PigRepo{
@@ -30,14 +31,25 @@ class FirebasePigRepo implements PigRepo{
       //Grab the logged-in user's ID
       final userId = FirebaseAuth.instance.currentUser?.uid;
 
-      final docRef = pig.pigId.isEmpty
-          ? _pigsCollection.doc()
-          : _pigsCollection.doc(pig.pigId);
+      final docRef = _pigsCollection.doc();
 
       // Create a map of the pig data, and inject the userId and pigId!
       final pigData = pig.toJson();
       pigData['userId'] = userId;
       pigData['pigId'] = docRef.id;
+
+      // --- ID GENERATOR LOGIC ---
+      // Count existing pigs belonging to this specific user
+      final snapshot = await _pigsCollection
+          .where('userId', isEqualTo: userId)
+          .count()
+          .get();
+
+      final int currentTotal = snapshot.count ?? 0;
+      final int nextNumber = currentTotal + 1;
+
+      // Format the ID (e.g., P-001) and inject it
+      pigData['displayId'] = 'P-${nextNumber.toString().padLeft(3, '0')}';
 
       await docRef.set(pigData);
 
@@ -60,8 +72,20 @@ class FirebasePigRepo implements PigRepo{
       // Get a reference to the document
       final docRef = _pigsCollection.doc(updatedPig.pigId);
 
-      // Update the main document
-      await docRef.update({
+      // Fetch the current data from Firestore to see what the old weight was
+      final snapshot = await docRef.get();
+      if (!snapshot.exists) throw Exception("Pig profile not found");
+
+      // Explicitly cast the data to a Map so Dart knows how to read it
+      final data = snapshot.data() as Map<String, dynamic>?;
+
+      final oldWeight = (data?['currentWeightKg'] ?? 0).toDouble();
+
+      //Create a batch to execute multiple writes simultaneously
+      final batch = FirebaseFirestore.instance.batch();
+
+      // Queue the main profile update
+      batch.update(docRef, {
         'breed': updatedPig.breed,
         'currentWeightKg': updatedPig.currentWeightKg,
         'birthDate': updatedPig.birthDate,
@@ -71,6 +95,19 @@ class FirebasePigRepo implements PigRepo{
         'status': updatedPig.status,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      // If the weight changed, queue a new document in the weight_history subcollection
+      if (oldWeight != updatedPig.currentWeightKg) {
+        final historyRef = docRef.collection('weight_history').doc();
+        batch.set(historyRef, {
+          'weightKg': updatedPig.currentWeightKg,
+          'dateRecorded': FieldValue.serverTimestamp(),
+          'notes': 'Updated via Profile Edit', // Helps you identify where the change came from
+        });
+      }
+
+      // 6. Commit the batch to Firebase
+      await batch.commit();
     } catch (e) {
       throw Exception("Error updating pig profile: $e");
     }
@@ -97,6 +134,20 @@ class FirebasePigRepo implements PigRepo{
     } catch (e) {
       throw Exception("Error updating weight: $e");
     }
+  }
+
+  @override
+  Stream<List<AppWeightRecord>> streamWeightHistory(String pigId) {
+    return _pigsCollection
+        .doc(pigId)
+        .collection('weight_history')
+        .orderBy('dateRecorded', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return AppWeightRecord.fromJson(doc.data(), doc.id);
+      }).toList();
+    });
   }
 
   // --- DELETE ---

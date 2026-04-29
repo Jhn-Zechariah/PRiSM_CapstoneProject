@@ -47,7 +47,7 @@ class PigProfileCard extends StatelessWidget {
         final newWeight = await showDialog<double>(
           context: context,
           builder: (_) => UpdatePigWeightDialog(
-            pigLabel: '${pig.breed} Pig',
+            pigLabel:   '${pig.breed} | ${pig.displayId}',
             currentWeight: pig.currentWeightKg,
             accentColor: accentColor,
           ),
@@ -99,7 +99,7 @@ class PigProfileCard extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            '${pig.breed} Pig',
+                            '${pig.breed} | ${pig.displayId}',
                             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
                           ),
                           SizedBox(

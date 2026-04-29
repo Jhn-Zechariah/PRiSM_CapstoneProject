@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 // Adjust these imports based on your exact folder structure
+import '../features/auth/data/firestore_pig_repo.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import '../features/auth/presentation/components/pig_profile_card.dart';
 import '../features/auth/presentation/cubits/pig_cubit.dart';
+import '../features/auth/presentation/cubits/weight_history_cubit.dart';
 import 'pig_information.dart';
 import '../features/auth/presentation/cubits/pig_states.dart';
 import 'pig_weight_history.dart';
@@ -50,7 +52,6 @@ class PigProfilesScreen extends StatelessWidget {
           ),
 
           // View Weight History Link
-          // View Weight History Link
           Align(
             alignment: Alignment.centerRight,
             child: TextButton(
@@ -58,28 +59,19 @@ class PigProfilesScreen extends StatelessWidget {
                 final state = context.read<PigCubit>().state;
 
                 if (state is PigLoaded) {
-                  final colors = [
-                    Colors.red,
-                    const Color(0xFF003366),
-                    Colors.orange,
-                  ];
 
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => WeightHistoryScreen(
-                        pigs: state.pigs.asMap().entries.map((entry) {
-                          final index = entry.key;
-                          final pig = entry.value;
-                          return PigOption(
-                            id: pig.pigId, // your pig model's id field
-                            // your pig model's name field
-                            accentColor: colors[index % colors.length],
-                          );
-                        }).toList(),
-                        weightRecords:
-                            const [], // replace with real records later
-                        isLoading: false,
+                      builder: (context) => BlocProvider(
+                        // 1. Inject the Cubit and pass it your Repo
+                        create: (context) => WeightHistoryCubit(
+                          pigRepo: FirebasePigRepo(), // Make sure to import your repo!
+                        ),
+                        // 2. Pass your list of AppPig objects directly to the screen
+                        child: WeightHistoryScreen(
+                          availablePigs: state.pigs,
+                        ),
                       ),
                     ),
                   );
