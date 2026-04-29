@@ -51,7 +51,6 @@ class _meds_StocksState extends State<meds_Stocks> {
 
   @override
   Widget build(BuildContext context) {
-
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
