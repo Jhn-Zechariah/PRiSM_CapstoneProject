@@ -51,7 +51,6 @@ class _meds_StocksState extends State<meds_Stocks> {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.all(16.0),

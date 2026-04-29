@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AppPig {
   final String pigId;
+  final String displayId;
   final String userId;
   final String breed;
   final DateTime birthDate;
@@ -15,6 +16,7 @@ class AppPig {
 
   AppPig({
     required this.pigId,
+    required this.displayId,
     required this.userId,
     required this.breed,
     required this.birthDate,
@@ -31,6 +33,7 @@ class AppPig {
   Map<String, dynamic> toJson() {
     return {
       'pigId': pigId,
+      'displayId': displayId,
       'userId': userId,
       'breed': breed,
       'birthDate': Timestamp.fromDate(birthDate),
@@ -49,6 +52,7 @@ class AppPig {
     return AppPig(
       pigId: documentId, // Use the actual document ID
       userId: json['userId'] ?? '',
+      displayId: json['displayId'] as String? ?? '',
       breed: json['breed'] as String? ?? 'Unknown',
       birthDate: (json['birthDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       sex: json['sex'] as String? ?? 'Unknown',
