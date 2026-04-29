@@ -32,13 +32,12 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppTopBar(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeaderRow(isDarkMode),
-                const SizedBox(height: 4),
                 _buildViewHistoryLink(),
                 const SizedBox(height: 12),
                 Expanded(child: _buildFeedingList(isDarkMode)),
@@ -92,19 +91,24 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
   Widget _buildViewHistoryLink() {
     return Align(
       alignment: Alignment.centerRight,
-      child: GestureDetector(
-        onTap: () {
+      child: TextButton(
+        onPressed: () {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const FeedingHistoryPage()),
           );
         },
+        style: TextButton.styleFrom(
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(0, 30),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
         child: const Text(
           'View feeding history',
           style: TextStyle(
-            color: Color(0xFF2563EB),
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
+            color: Color(0xFF3B82F6), // Matches the blue in your reference
+            fontSize: 14,
+            fontWeight: FontWeight.w600, // Matches the semi-bold look
           ),
         ),
       ),
@@ -141,9 +145,7 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
         color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
         borderRadius: BorderRadius.circular(12),
         // Changed border to slightly darker to match your UI image better
-        border: Border.all(
-          color: isDark ? Colors.white10 : Colors.black54,
-        ),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black54),
       ),
       child: IntrinsicHeight(
         child: Row(
