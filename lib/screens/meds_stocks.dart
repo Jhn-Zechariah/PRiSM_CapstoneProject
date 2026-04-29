@@ -59,7 +59,7 @@ class _meds_StocksState extends State<meds_Stocks> {
           const AppTopBar(),
           const SizedBox(height: 16),
 
-          // 🔹 HEADER
+          // HEADER
           Row(
             children: [
               const Icon(Symbols.vaccines, size: 32),
