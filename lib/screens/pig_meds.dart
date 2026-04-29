@@ -148,7 +148,7 @@ class _pig_medsState extends State<pig_meds> {
 
                         return ListView.separated(
                           itemCount: pigs.length,
-                          separatorBuilder: (_, __) =>
+                          separatorBuilder: (_, _) =>
                               const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             return PigMedCard(
