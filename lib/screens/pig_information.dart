@@ -114,7 +114,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         birthDate: DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,
         currentWeightKg: double.parse(_weightController.text),
-        notes: 'Pig Registered',
+        notes: 'Pig Registered ',
         stage: _selectedStage!,
         status: _selectedStatus!,
       );
@@ -300,6 +300,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                               // Save button
                               CustomButton(
                                 text: 'Save',
+                                backgroundColor: Colors.amber,
                                 border: 10,
                                 onPressed: _onSave,
                                 color: isDarkMode ? Colors.black87 : Colors.black87,
