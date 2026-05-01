@@ -12,12 +12,10 @@ class CustomTextField extends StatelessWidget {
   final String? label;
   final bool readonly;
   final VoidCallback? onTap;
-
-  // 1. Add these new optional fields
   final TextInputType keyboardType;
   final EdgeInsetsGeometry? contentPadding;
-  final bool filled;
   final Color? fillColor;
+  final Color? borderColor;
 
   const CustomTextField({
     super.key,
@@ -31,11 +29,10 @@ class CustomTextField extends StatelessWidget {
     this.enabled = true,
     this.label,
     this.onTap,
-    // 2. Initialize them
     this.keyboardType = TextInputType.text,
     this.contentPadding,
-    this.filled = false,
     this.fillColor,
+    this.borderColor,
     this.readonly = false,
   });
 
@@ -43,73 +40,95 @@ class CustomTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    // 'readonly' will ONLY block the keyboard, it won't change the colors.
+    final bool isDisabled = !enabled;
+
+    // Colors are now driven strictly by the isDisabled flag
+    final resolvedTextColor = isDisabled
+        ? (isDarkMode ? Colors.white54 : Colors.grey[500])
+        : (isDarkMode ? Colors.white : Colors.black87);
+
+    final resolvedFillColor = fillColor ?? (isDisabled
+        ? (isDarkMode ? const Color(0xFF1E1E1E) : Colors.grey[200])
+        : (isDarkMode ? const Color(0xFF2A2A2A) : Colors.white));
+
+    final resolvedBorderColor = borderColor ?? (isDisabled
+        ? (isDarkMode ? Colors.white12 : Colors.grey[300]!)
+        : (isDarkMode ? Colors.white24 : Colors.black26));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (label != null) ...[
           Padding(
-            padding: const EdgeInsets.only(
-              bottom: 4,
-            ), // adjusted padding slightly
+            padding: const EdgeInsets.only(bottom: 4),
             child: Text(
               label!,
               style: TextStyle(
-                fontSize: 13, // Matches your pig screen label size
+                fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: enabled
-                    ? (isDarkMode ? Colors.white70 : Colors.black87)
-                    : (isDarkMode ? Colors.white54 : Colors.grey[600]),
+                color: isDisabled
+                    ? (isDarkMode ? Colors.white54 : Colors.grey[600])
+                    : (isDarkMode ? Colors.white70 : Colors.black87),
               ),
             ),
           ),
         ],
 
-        TextFormField(
-          controller: controller,
-          obscureText: obscureText,
-          readOnly: readonly,
-          onTap: onTap,
-          validator: validator,
-          enabled: enabled,
-          keyboardType: keyboardType, //Apply the keyboard type
-          style: TextStyle(
-            fontSize: 14,
-            color: enabled
-                ? (isDarkMode ? Colors.white : Colors.black87)
-                : (isDarkMode ? Colors.white54 : Colors.grey[600]),
-          ),
-          decoration: InputDecoration(
-            labelText: labelText,
-            labelStyle: TextStyle(
-              color: isDarkMode ? Colors.white60 : Colors.black54,
+        Material(
+          elevation: isDisabled ? 2 : 5,
+          color: Colors.transparent,
+          shadowColor: Colors.grey,
+          borderRadius: BorderRadius.circular(border ?? 30),
+          child: TextFormField(
+            controller: controller,
+            obscureText: obscureText,
+            // Native readOnly still blocks the keyboard beautifully
+            readOnly: readonly,
+            onTap: onTap,
+            validator: validator,
+            enabled: enabled,
+            keyboardType: keyboardType,
+            style: TextStyle(
+              fontSize: 14,
+              color: resolvedTextColor,
             ),
-            // Apply the new styling fields
-            isDense: contentPadding != null,
-            contentPadding: contentPadding,
-            filled: filled,
-            fillColor: fillColor,
-            prefixIcon: prefixIcon != null
-                ? Icon(
-                    prefixIcon,
-                    color: isDarkMode ? Colors.white60 : Colors.black54,
-                  )
-                : null,
-            suffixIcon: suffixIcon,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(border ?? 30),
-              borderSide: BorderSide(
-                color: isDarkMode ? Colors.white24 : Colors.black26,
+            decoration: InputDecoration(
+              labelText: labelText,
+              labelStyle: TextStyle(
+                color: isDarkMode ? Colors.white60 : Colors.black54,
               ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(border ?? 30),
-              borderSide: const BorderSide(
-                color: Colors.blue,
-              ), // Added focus color
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(border ?? 30),
+              isDense: contentPadding != null,
+              contentPadding: contentPadding,
+              filled: true,
+              fillColor: resolvedFillColor,
+              prefixIcon: prefixIcon != null
+                  ? Icon(
+                prefixIcon,
+                color: isDisabled
+                    ? (isDarkMode ? Colors.white30 : Colors.grey[400])
+                    : (isDarkMode ? Colors.white60 : Colors.black54),
+              )
+                  : null,
+              suffixIcon: suffixIcon,
+              disabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(border ?? 30),
+                borderSide: BorderSide(color: resolvedBorderColor),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(border ?? 30),
+                borderSide: BorderSide(color: resolvedBorderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(border ?? 30),
+                borderSide: BorderSide(
+                  color: isDisabled ? resolvedBorderColor : Colors.blue,
+                ),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(border ?? 30),
+              ),
             ),
           ),
         ),

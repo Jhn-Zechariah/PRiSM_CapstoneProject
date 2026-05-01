@@ -17,6 +17,36 @@ class PigCubit extends Cubit<PigState> {
     _listenToAuthChanges();
   }
 
+  // 👇 2. Method for the UI to call when the dropdown changes
+  void changeFilter(String newFilter) {
+    if (state is PigLoaded) {
+      final currentState = state as PigLoaded;
+
+      // Calculate the new filtered list
+      final newFilteredPigs = _applyFilter(currentState.allPigs, newFilter);
+
+      // Emit the updated state
+      emit(PigLoaded(
+        allPigs: currentState.allPigs,
+        filteredPigs: newFilteredPigs,
+        currentFilter: newFilter,
+      ));
+    }
+  }
+
+  // 👇 3. Make sure to apply the filter when new data arrives from Firebase!
+  // (Wherever you listen to your stream in the Cubit, update it like this)
+  void _onPigsUpdated(List<AppPig> newPigs) {
+    final currentFilter = state is PigLoaded ? (state as PigLoaded).currentFilter : 'Active';
+    final filtered = _applyFilter(newPigs, currentFilter);
+
+    emit(PigLoaded(
+      allPigs: newPigs,
+      filteredPigs: filtered,
+      currentFilter: currentFilter,
+    ));
+  }
+
   void _listenToAuthChanges() {
     _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
       if (user != null) {
@@ -30,6 +60,15 @@ class PigCubit extends Cubit<PigState> {
     });
   }
 
+  // 👇 1. Helper logic to filter the list
+  List<AppPig> _applyFilter(List<AppPig> pigs, String filter) {
+    return pigs.where((pig) {
+      final statusLower = pig.status.toLowerCase();
+      final isInactive = statusLower == 'sold' || statusLower == 'deceased';
+      return filter == 'Inactive' ? isInactive : !isInactive;
+    }).toList();
+  }
+
   void _loadPigs(String uid) {
     // CRITICAL: Cancel the old stream if someone else was logged in previously!
     _pigSubscription?.cancel();
@@ -39,7 +78,8 @@ class PigCubit extends Cubit<PigState> {
     // Listen to the stream from your repo
     _pigSubscription = _pigRepo.streamPigs(uid).listen(
           (pigs) {
-        emit(PigLoaded(pigs));
+        // 👇 INSTANT FIX: Pass the new pigs to our helper method!
+        _onPigsUpdated(pigs);
       },
       onError: (error) {
         emit(PigError("Failed to load pigs: $error"));

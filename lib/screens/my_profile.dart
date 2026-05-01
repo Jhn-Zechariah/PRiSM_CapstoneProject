@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/presentation/components/app_top_bar.dart';
 import 'package:prism_app/features/auth/presentation/components/text.dart';
-import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
+import 'package:prism_app/features/auth/presentation/components/button.dart';
 import 'package:prism_app/features/auth/presentation/components/textfield.dart';
 import '../features/auth/presentation/components/snackbar.dart';
 import '../features/auth/presentation/cubits/profile_cubit.dart';
@@ -230,37 +230,39 @@ class _MyProfileState extends State<MyProfile> {
                           ),
                         ),
                         const SizedBox(width: 15),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CustomText(
-                              type: TextType.custom,
-                              text: state is ProfileLoaded
-                                  ? state.username
-                                  : "Loading...",
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            CustomText(
-                              type: TextType.custom,
-                              text: state is ProfileLoaded
-                                  ? state.email
-                                  : "Loading...",
-                              fontSize: 12,
-                            ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: 140,
-                              height: 35,
-                              child: CustomButton(
-                                text: _isEditing ? "Cancel" : "Edit Profile",
-                                onPressed: _editProfile,
-                                backgroundColor: _isEditing ? Colors.red : null,
-                                color: _isEditing ? Colors.white : null,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CustomText(
+                                type: TextType.custom,
+                                text: state is ProfileLoaded
+                                    ? state.username
+                                    : "Loading...",
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
                               ),
-                            ),
-                          ],
+                              CustomText(
+                                type: TextType.custom,
+                                text: state is ProfileLoaded
+                                    ? state.email
+                                    : "Loading...",
+                                fontSize: 12,
+                              ),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: 140,
+                                height: 35,
+                                child: CustomButton(
+                                  text: _isEditing ? "Cancel" : "Edit Profile",
+                                  onPressed: _editProfile,
+                                  backgroundColor: _isEditing ? Colors.red : null,
+                                  color: _isEditing ? Colors.white : null,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),

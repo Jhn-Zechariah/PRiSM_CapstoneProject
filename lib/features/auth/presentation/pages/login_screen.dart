@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/components/textfield.dart';
-import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
+import 'package:prism_app/features/auth/presentation/components/button.dart';
 
 import '../components/snackbar.dart';
 import '../components/social_logins.dart';
@@ -145,7 +145,7 @@ class LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 15),
 
                   //Email
                   CustomTextField(
@@ -202,9 +202,10 @@ class LoginScreenState extends State<LoginScreen> {
                   // Sign in button
                   CustomButton(
                     text: "Sign In",
+                    borderColor: false,
                     onPressed: _login,
                     backgroundColor: Colors.blue,
-                    color: isDarkMode ? Colors.white : Colors.black,
+                    color: Colors.white,
                   ),
 
                   const SizedBox(height: fieldSpacing),

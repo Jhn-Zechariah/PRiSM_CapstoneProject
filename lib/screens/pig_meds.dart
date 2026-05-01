@@ -78,7 +78,7 @@ class _pig_medsState extends State<pig_meds> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => MedsIntakeHistoryScreen(
-                              pigs: state.pigs.asMap().entries.map((entry) {
+                              pigs: state.allPigs.asMap().entries.map((entry) {
                                 return PigMedOption(
                                   id: entry.value.pigId,
                                   accentColor:
@@ -122,7 +122,7 @@ class _pig_medsState extends State<pig_meds> {
                       }
 
                       if (state is PigLoaded) {
-                        final pigs = state.pigs;
+                        final pigs = state.allPigs;
 
                         if (pigs.isEmpty) {
                           return Center(

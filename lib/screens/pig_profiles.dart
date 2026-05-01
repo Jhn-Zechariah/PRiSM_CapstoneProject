@@ -50,50 +50,9 @@ class PigProfilesScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 5),
 
-          // View Weight History Link
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                final state = context.read<PigCubit>().state;
-
-                if (state is PigLoaded) {
-
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => BlocProvider(
-                        // 1. Inject the Cubit and pass it your Repo
-                        create: (context) => WeightHistoryCubit(
-                          pigRepo: FirebasePigRepo(), // Make sure to import your repo!
-                        ),
-                        // 2. Pass your list of AppPig objects directly to the screen
-                        child: WeightHistoryScreen(
-                          availablePigs: state.pigs,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-              },
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 30),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: const Text(
-                'View weight history',
-                style: TextStyle(
-                  color: Color(0xFF3B82F6),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // List of Profile Cards using BlocBuilder
+          //Wrap the Rest in BlocBuilder so the whole section reacts to the Cubit!
           Expanded(
             child: BlocBuilder<PigCubit, PigState>(
               builder: (context, state) {
@@ -111,39 +70,111 @@ class PigProfilesScreen extends StatelessWidget {
                 }
 
                 if (state is PigLoaded) {
-                  final pigs = state.pigs;
+                  // Use the filtered list from your Cubit
+                  final displayPigs = state.filteredPigs;
 
-                  if (pigs.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'No pigs added yet. Click + to add one!',
-                        style: TextStyle(
-                          color: isDarkMode ? Colors.white70 : Colors.black54,
-                          fontSize: 16,
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Dropdown & Weight History Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // LEFT SIDE: Active/Inactive Dropdown
+                          DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: state.currentFilter, // Read from state!
+                              icon: Icon(Icons.filter_list, size: 18, color: isDarkMode ? Colors.white : Colors.black87),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: isDarkMode ? Colors.white : Colors.black87,
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
+                                DropdownMenuItem(value: 'Inactive', child: Text('Inactive Pigs')),
+                              ],
+                              onChanged: (value) {
+                                if (value != null) {
+                                  // Tell Cubit to change the filter!
+                                  context.read<PigCubit>().changeFilter(value);
+                                }
+                              },
+                            ),
+                          ),
+
+                          // RIGHT SIDE: View Weight History Link
+                          TextButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => BlocProvider(
+                                    create: (context) => WeightHistoryCubit(
+                                      pigRepo: FirebasePigRepo(),
+                                    ),
+                                    child: WeightHistoryScreen(
+                                      // Pass ALL pigs to history so it can show everything
+                                      availablePigs: state.allPigs,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(0, 30),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'View weight history',
+                              style: TextStyle(
+                                color: Color(0xFF3B82F6),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      //The List of Filtered Pig Cards
+                      Expanded(
+                        child: displayPigs.isEmpty
+                            ? Center(
+                          child: Text(
+                            state.currentFilter == 'Active'
+                                ? 'No active pigs added yet. Click + to add one!'
+                                : 'No inactive pigs found.',
+                            style: TextStyle(
+                              color: isDarkMode ? Colors.white70 : Colors.black54,
+                              fontSize: 16,
+                            ),
+                          ),
+                        )
+                            : ListView.separated(
+                          // Added your 100px padding to clear the BottomNav!
+                          padding: const EdgeInsets.only(bottom: 100),
+                          itemCount: displayPigs.length,
+                          separatorBuilder: (context, index) =>
+                          const SizedBox(height: 16),
+                          itemBuilder: (context, index) {
+                            final colors = [
+                              Colors.red,
+                              const Color(0xFF003366),
+                              Colors.orange,
+                            ];
+                            final assignedColor = colors[index % colors.length];
+
+                            return PigProfileCard(
+                              pig: displayPigs[index], // Use the filtered pigs array here
+                              accentColor: assignedColor,
+                              isDarkMode: isDarkMode,
+                            );
+                          },
                         ),
                       ),
-                    );
-                  }
-
-                  return ListView.separated(
-                    itemCount: pigs.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 16),
-                    itemBuilder: (context, index) {
-                      // Looping color logic for the left accent stripe
-                      final colors = [
-                        Colors.red,
-                        const Color(0xFF003366),
-                        Colors.orange,
-                      ];
-                      final assignedColor = colors[index % colors.length];
-
-                      return PigProfileCard(
-                        pig: pigs[index],
-                        accentColor: assignedColor,
-                        isDarkMode: isDarkMode,
-                      );
-                    },
+                    ],
                   );
                 }
 

@@ -28,9 +28,24 @@ class PigProfileCard extends StatelessWidget {
     return '$months months';
   }
 
-  //action menu ng 3 dot sa right side
+  // 👇 MOVED INSIDE THE CLASS: Helper to determine status color
+  Color _getStatusColor(String status, bool isDarkMode) {
+    final lowerStatus = status.toLowerCase();
+
+    if (lowerStatus == 'normal/healthy' || lowerStatus == 'sold') {
+      return isDarkMode ? Colors.greenAccent : Colors.green.shade700;
+    } else if (lowerStatus == 'abnormal/sick') {
+      return isDarkMode ? Colors.redAccent : Colors.red.shade700;
+    } else if (lowerStatus == 'deceased') {
+      return isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600;
+    }
+
+    // Default color if it doesn't match the above
+    return isDarkMode ? Colors.orangeAccent : Colors.orange.shade800;
+  }
+
+  // Action menu (the 3 dots on the right side)
   void _handleMenuAction(BuildContext context, PigMenuAction action) async {
-    //get pig cubit
     final pigCubit = context.read<PigCubit>();
 
     switch (action) {
@@ -47,7 +62,7 @@ class PigProfileCard extends StatelessWidget {
         final newWeight = await showDialog<double>(
           context: context,
           builder: (_) => UpdatePigWeightDialog(
-            pigLabel:   '${pig.breed} | ${pig.displayId}',
+            pigLabel: '${pig.breed} | ${pig.displayId}',
             currentWeight: pig.currentWeightKg,
             accentColor: accentColor,
           ),
@@ -56,7 +71,7 @@ class PigProfileCard extends StatelessWidget {
         if (newWeight != null) {
           pigCubit.updateWeight(pig.pigId, newWeight);
 
-          // 3. VERY IMPORTANT: Check if the widget is still on screen!
+          // VERY IMPORTANT: Check if the widget is still on screen!
           if (!context.mounted) return;
           CustomSnackbar.show(
             context: context,
@@ -71,6 +86,12 @@ class PigProfileCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
+
+    // Check if the pig is inactive based on status
+    final statusLower = pig.status.toLowerCase();
+    final isInactive = statusLower == 'sold' || statusLower == 'deceased';
+
+    final displayAccentColor = isInactive ? Colors.grey.shade600 : accentColor;
 
     return Container(
       decoration: BoxDecoration(
@@ -87,7 +108,7 @@ class PigProfileCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Dynamic Accent Color Stripe
-              Container(width: 12, color: accentColor),
+              Container(width: 12, color: displayAccentColor),
 
               Expanded(
                 child: Padding(
@@ -109,10 +130,28 @@ class PigProfileCard extends StatelessWidget {
                               padding: EdgeInsets.zero,
                               icon: Icon(Icons.more_vert, color: textColor),
                               onSelected: (action) => _handleMenuAction(context, action),
-                              itemBuilder: (BuildContext context) => [
-                                const PopupMenuItem(value: PigMenuAction.info, child: Text('Edit Pig Information')),
-                                const PopupMenuItem(value: PigMenuAction.updateWeight, child: Text('Update Pig Weight')),
-                              ],
+                              itemBuilder: (BuildContext context) {
+                                if (isInactive) {
+                                  // Show ONLY "View Pig Information" if inactive
+                                  return [
+                                    const PopupMenuItem(
+                                      value: PigMenuAction.info,
+                                      child: Text('View Pig Information'),
+                                    ),
+                                  ];
+                                }
+                                // Show both if active
+                                return [
+                                  const PopupMenuItem(
+                                    value: PigMenuAction.info,
+                                    child: Text('Edit Pig Information'),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: PigMenuAction.updateWeight,
+                                    child: Text('Update Pig Weight'),
+                                  ),
+                                ];
+                              },
                             ),
                           ),
                         ],
@@ -142,18 +181,36 @@ class PigProfileCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 13),
                       Row(
                         children: [
                           Icon(Icons.edit_square, size: 14, color: textColor),
                           const SizedBox(width: 4),
-                          Text(
-                            'NOTE:',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor),
+                          RichText(
+                            text: TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'NOTE:  ',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor, // Keeps standard color
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: pig.status,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: _getStatusColor(pig.status, isDarkMode), // Applies dynamic color!
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 5),
                       Container(
                         width: double.infinity,
                         constraints: const BoxConstraints(minHeight: 40),
