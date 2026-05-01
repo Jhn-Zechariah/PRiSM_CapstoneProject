@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import '../features/auth/presentation/components/app_top_bar_fixed.dart';
+import 'package:prism_app/features/auth/presentation/components/app_top_bar.dart';
 import '../features/auth/presentation/components/build_tab_bar.dart';
 
-class Temperaturemonitoring extends StatefulWidget {
+class TemperatureMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToHumidity;
-  const Temperaturemonitoring({super.key, this.onSwitchToHumidity});
+  const TemperatureMonitoring({super.key, this.onSwitchToHumidity});
 
   @override
-  State<Temperaturemonitoring> createState() => _TemperaturemonitoringState();
+  State<TemperatureMonitoring> createState() => _TemperatureMonitoringState();
 }
 
-class _TemperaturemonitoringState extends State<Temperaturemonitoring> {
+class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   // ignore: prefer_final_fields
   int _selectedTab = 0;
   int _selectedTimeRange = 3;
@@ -38,50 +38,47 @@ class _TemperaturemonitoringState extends State<Temperaturemonitoring> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: AppTopBarF(title: ''),
-          ),
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildTitle(),
-                const SizedBox(height: 16),
-                CustomTabBar(
-                  selectedIndex: _selectedTab,
-                  tabs: const ['Temperature', 'Humidity'],
-                  onTabSelected: (index) {
-                    setState(() {
-                      _selectedTab = index;
-                    });
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppTopBar(),
+            const SizedBox(height: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTitle(),
+                  const SizedBox(height: 16),
+                  CustomTabBar(
+                    selectedIndex: _selectedTab,
+                    tabs: const ['Temperature', 'Humidity'],
+                    onTabSelected: (index) {
+                      setState(() {
+                        _selectedTab = index;
+                      });
 
-                    if (index == 1) {
-                      widget.onSwitchToHumidity?.call();
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                _buildStatusCard(),
-                const SizedBox(height: 12),
-                _buildTimeRangeSelector(),
-                const SizedBox(height: 16),
-                _buildChart(),
-                const SizedBox(height: 16),
-                _buildTemperatureReview(),
-                const SizedBox(height: 16),
-                _buildInsights(),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-        ],
+                      if (index == 1) {
+                        widget.onSwitchToHumidity?.call();
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  _buildStatusCard(),
+                  const SizedBox(height: 12),
+                  _buildTimeRangeSelector(),
+                  const SizedBox(height: 16),
+                  _buildChart(),
+                  const SizedBox(height: 16),
+                  _buildTemperatureReview(),
+                  const SizedBox(height: 16),
+                  _buildInsights(),
+                  const SizedBox(height: 24),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -51,7 +51,7 @@ class _AppNavState extends State<AppNav> {
                 setState(() => _showHumidity = false);
               },
             )
-          : Temperaturemonitoring(
+          : TemperatureMonitoring(
               onSwitchToHumidity: () {
                 setState(() => _showHumidity = true);
               },

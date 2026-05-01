@@ -65,21 +65,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const CustomText(
-                  type: TextType.username,
-                  prefix: 'Hello, ',
-                  fontSize: 20,
-                ),
-                Text(
-                  "What do you want today?",
-                  style: TextStyle(
-                    color: isDark ? Colors.white60 : Colors.grey,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const CustomText(
+                    type: TextType.username,
+                    prefix: 'Hello, ',
+                    fontSize: 20,
                   ),
-                ),
-              ],
+                  Text(
+                    "What do you want today?",
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

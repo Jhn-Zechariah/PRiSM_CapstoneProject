@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../features/auth/presentation/components/app_top_bar_fixed.dart';
+import 'package:prism_app/features/auth/presentation/components/app_top_bar.dart';
 import '../features/auth/presentation/components/build_tab_bar.dart';
 
 class HumidityMonitoring extends StatefulWidget {
@@ -44,7 +44,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: AppTopBarF(title: ''),
+            child: AppTopBar(),
           ),
           const SizedBox(height: 5),
           Padding(

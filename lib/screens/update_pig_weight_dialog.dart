@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:prism_app/features/auth/presentation/components/textfield.dart';
 
-import '../features/auth/presentation/components/custom_button.dart';
+import '../features/auth/presentation/components/button.dart';
 
 class UpdatePigWeightDialog extends StatefulWidget {
   final String pigLabel;
@@ -98,47 +99,13 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                         const SizedBox(height: 6),
 
                         // Text input
-                        TextFormField(
-                          controller: _controller,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: Colors.black26,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: widget.accentColor,
-                                width: 2,
-                              ),
-                            ),
-                            errorBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(color: Colors.red),
-                            ),
-                            focusedErrorBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(color: Colors.red),
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Enter a weight';
-                            }
-                            if (double.tryParse(value) == null) {
-                              return 'Enter a valid number';
-                            }
-                            return null;
-                          },
+                        CustomTextField(
+                            label: 'Enter new weight:',
+                            keyboardType: TextInputType.number,
+                            fillColor: Colors.transparent,
+                            controller: _controller,
+                            border: 10
+
                         ),
                         const SizedBox(height: 20),
 

@@ -6,7 +6,6 @@ import '../features/auth/domain/models/app_pig.dart';
 import '../features/auth/presentation/cubits/weight_history_cubit.dart';
 import '../features/auth/presentation/cubits/weight_history_states.dart';
 
-
 class WeightHistoryScreen extends StatefulWidget {
   final List<AppPig> availablePigs; // Pass your loaded pigs here
 
@@ -18,6 +17,7 @@ class WeightHistoryScreen extends StatefulWidget {
 
 class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
   String? _selectedPigId;
+  String _currentFilter = 'Active'; // Added filter state
 
   // Define the looping accent colors
   final List<Color> _accentColors = const [
@@ -28,19 +28,39 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
     Color(0xFFBA68C8), // Purple
   ];
 
+  // 👇 2. Getter to dynamically filter the pigs
+  List<AppPig> get _filteredPigs {
+    return widget.availablePigs.where((pig) {
+      final statusLower = pig.status.toLowerCase();
+      final isInactive = statusLower == 'sold' || statusLower == 'deceased';
+
+      if (_currentFilter == 'Active') {
+        return !isInactive;
+      } else {
+        return isInactive;
+      }
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
-    if (widget.availablePigs.isNotEmpty) {
-      _selectedPigId = widget.availablePigs.first.pigId;
-      // Trigger the cubit to load the first pig's history
+    _loadInitialPig();
+  }
+
+  void _loadInitialPig() {
+    final pigs = _filteredPigs;
+    if (pigs.isNotEmpty) {
+      _selectedPigId = pigs.first.pigId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         context.read<WeightHistoryCubit>().loadHistoryForPig(_selectedPigId!);
       });
+    } else {
+      _selectedPigId = null;
     }
   }
 
-  // Helper to get color based on the pig's index in the list
+  // Helper to get color based on the pig's index in the ORIGINAL list so colors stay consistent
   Color _getColorForPig(String pigId) {
     final index = widget.availablePigs.indexWhere((p) => p.pigId == pigId);
     if (index == -1) return Colors.grey;
@@ -52,46 +72,79 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
     return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
   }
 
-  Widget _buildDropdownFilter(bool isDark) {
-    if (widget.availablePigs.isEmpty) return const SizedBox.shrink();
+  // Updated this to a Row containing BOTH dropdowns
+  Widget _buildFiltersRow(bool isDark) {
+    final displayPigs = _filteredPigs;
 
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String>(
-        value: _selectedPigId,
-        icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF2563EB)),
-        style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w600),
-        dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
-        isDense: true,
-        items: widget.availablePigs.map((pig) {
-          return DropdownMenuItem(
-            value: pig.pigId,
-            child: Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  margin: const EdgeInsets.only(right: 6),
-                  decoration: BoxDecoration(
-                    color: _getColorForPig(pig.pigId),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                Text(
-                  '${pig.breed} | ${pig.displayId}', // Or however you want to display the name
-                  style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-              ],
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // LEFT: Active/Inactive Filter Dropdown
+        DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: _currentFilter,
+            icon: Icon(Icons.filter_list, size: 18, color: isDark ? Colors.white : Colors.black87),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
             ),
-          );
-        }).toList(),
-        onChanged: (value) {
-          if (value != null && value != _selectedPigId) {
-            setState(() => _selectedPigId = value);
-            // Fetch new history when dropdown changes!
-            context.read<WeightHistoryCubit>().loadHistoryForPig(value);
-          }
-        },
-      ),
+            dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+            items: const [
+              DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
+              DropdownMenuItem(value: 'Inactive', child: Text('Inactive Pigs')),
+            ],
+            onChanged: (value) {
+              if (value != null && value != _currentFilter) {
+                setState(() {
+                  _currentFilter = value;
+                  _loadInitialPig(); // Re-select the first pig of the new list!
+                });
+              }
+            },
+          ),
+        ),
+
+        // RIGHT: Pig Selection Dropdown
+        if (displayPigs.isNotEmpty)
+          DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedPigId,
+              icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF2563EB)),
+              style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w600),
+              dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+              isDense: true,
+              items: displayPigs.map((pig) { // 👇 Use filtered list here
+                return DropdownMenuItem(
+                  value: pig.pigId,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: _getColorForPig(pig.pigId),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      Text(
+                        '${pig.breed} | ${pig.displayId}',
+                        style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null && value != _selectedPigId) {
+                  setState(() => _selectedPigId = value);
+                  context.read<WeightHistoryCubit>().loadHistoryForPig(value);
+                }
+              },
+            ),
+          ),
+      ],
     );
   }
 
@@ -111,14 +164,21 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
               const AppTopBar(title: 'Weight History', showBackButton: true),
               const SizedBox(height: 12),
 
-              Align(
-                alignment: Alignment.centerRight,
-                child: _buildDropdownFilter(isDarkMode),
-              ),
+              // The Filter Row
+              _buildFiltersRow(isDarkMode),
               const SizedBox(height: 8),
 
               Expanded(
-                child: BlocBuilder<WeightHistoryCubit, WeightHistoryState>(
+                child: _filteredPigs.isEmpty
+                    ? Center(
+                  child: Text(
+                    _currentFilter == 'Active'
+                        ? 'No active pigs available.'
+                        : 'No inactive pigs available.',
+                    style: TextStyle(color: isDarkMode ? Colors.white54 : Colors.black54),
+                  ),
+                )
+                    : BlocBuilder<WeightHistoryCubit, WeightHistoryState>(
                   builder: (context, state) {
                     if (state is WeightHistoryLoading || state is WeightHistoryInitial) {
                       return const Center(child: CircularProgressIndicator());

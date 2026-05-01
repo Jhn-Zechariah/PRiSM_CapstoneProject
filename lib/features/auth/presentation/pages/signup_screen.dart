@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/components/textfield.dart';
-import 'package:prism_app/features/auth/presentation/components/custom_button.dart';
+import 'package:prism_app/features/auth/presentation/components/button.dart';
 
 import '../components/social_logins.dart';
 
@@ -116,7 +116,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 15),
 
                   // Username Field
                   CustomTextField(
@@ -195,9 +195,10 @@ class _SignupScreenState extends State<SignupScreen> {
                   // Signup Button
                   CustomButton(
                     text: "Sign Up",
+                    borderColor: false,
                     onPressed: _signup,
                     backgroundColor: Colors.blue,
-                    color: isDarkMode ? Colors.white : Colors.black,
+                    color: Colors.white,
                   ),
 
                   const SizedBox(height: fieldSpacing),
