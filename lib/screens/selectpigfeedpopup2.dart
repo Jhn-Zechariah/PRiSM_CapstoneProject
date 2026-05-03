@@ -1,23 +1,11 @@
 import 'package:flutter/material.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SelectPigFeedPopup2
-// Individual pig feed popup — shown when a specific pig card is tapped.
-// Usage:
-//   showDialog(
-//     context: context,
-//     builder: (_) => SelectPigFeedPopup2(
-//       pigName: name,
-//       pigColor: color,
-//     ),
-//   );
-// ─────────────────────────────────────────────────────────────────────────────
+import '../features/auth/presentation/components/textfield.dart';
+import '../features/auth/presentation/components/button.dart';
+import '../features/auth/presentation/components/snackbar.dart';
+import '../features/auth/presentation/components/confirmation_box.dart';
 
 class SelectPigFeedPopup2 extends StatefulWidget {
-  // Display name of the specific pig shown in the dialog title
   final String pigName;
-
-  // Accent color used for the left strip of the dialog card
   final Color pigColor;
 
   const SelectPigFeedPopup2({
@@ -31,26 +19,59 @@ class SelectPigFeedPopup2 extends StatefulWidget {
 }
 
 class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
-  // Controller for the feed type text input
   final TextEditingController _feedTypeController = TextEditingController();
-
-  // Controller for the amount text input
   final TextEditingController _amountController = TextEditingController();
-
-  // Internal integer tracker for the spinner; synced to _amountController
   int _amount = 0;
 
   @override
   void dispose() {
-    // Dispose controllers to free resources when the dialog is closed
     _feedTypeController.dispose();
     _amountController.dispose();
     super.dispose();
   }
 
+  Future<void> _onSave() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => CustomConfirmDialog(
+        title: 'Confirm Feeding',
+        content: 'Save feeding record for ${widget.pigName}?',
+        confirmText: 'Save',
+        cancelText: 'Cancel',
+        confirmColor: const Color(0xFFF5A623),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Dialog(
+        backgroundColor: Colors.transparent,
+        child: Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFFF5A623),
+          ),
+        ),
+      ),
+    );
+
+    await Future.delayed(const Duration(seconds: 1));
+
+    if (!mounted) return;
+
+    Navigator.pop(context); // close loading
+    Navigator.pop(context); // close popup
+
+    CustomSnackbar.show(
+      context: context,
+      message: 'Feeding record saved successfully!',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Detect theme brightness for conditional styling
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? const Color(0xFF2C2C2C) : Colors.white;
 
@@ -66,7 +87,6 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ── Left colored accent strip matching the pig's color ────────
               Container(
                 width: 10,
                 decoration: BoxDecoration(
@@ -77,8 +97,6 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
                   ),
                 ),
               ),
-
-              // ── Main dialog content ───────────────────────────────────────
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
@@ -86,11 +104,9 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // ── Title row: pig name + close button ────────────────
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Display the specific pig's name as the dialog title
                           Text(
                             widget.pigName,
                             style: TextStyle(
@@ -99,7 +115,6 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
                               color: isDark ? Colors.white : Colors.black,
                             ),
                           ),
-                          // Close icon dismisses the dialog without saving
                           GestureDetector(
                             onTap: () => Navigator.pop(context),
                             child: Icon(
@@ -113,10 +128,8 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
 
                       const SizedBox(height: 10),
 
-                      // ── Read-only info labels in a 2-column grid ──────────
                       Row(
                         children: [
-                          // Left column: Breed and Type of feeds
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -127,7 +140,6 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
                               ],
                             ),
                           ),
-                          // Right column: Stage and Amount of feeds
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,147 +155,61 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
 
                       const SizedBox(height: 16),
 
-                      // ── Feed Type and Amount input fields (side by side) ───
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Feed Type free-text input
+                          // ── Feed Type — CustomTextField ────────────────
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Feed Type:',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: isDark
-                                        ? Colors.white60
-                                        : Colors.black54,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Container(
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    border: Border.all(
-                                      color: isDark
-                                          ? Colors.white24
-                                          : Colors.grey.shade400,
-                                    ),
-                                    borderRadius: BorderRadius.circular(6),
-                                    // Slightly elevated background for input fields in dark mode
-                                    color: isDark
-                                        ? const Color(0xFF3A3A3A)
-                                        : Colors.white,
-                                  ),
-                                  child: TextField(
-                                    controller: _feedTypeController,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black87,
-                                    ),
-                                    decoration: const InputDecoration(
-                                      border: InputBorder.none,
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            child: CustomTextField(
+                              controller: _feedTypeController,
+                              label: 'Feed Type:',
+                              border: 6,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 12,
+                              ),
                             ),
                           ),
 
                           const SizedBox(width: 12),
 
-                          // Amount input with tap-to-increment / long-press-to-decrement spinner
+                          // ── Amount — CustomTextField with spinner ──────
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Amount:',
-                                  style: TextStyle(
-                                    fontSize: 13,
+                            child: CustomTextField(
+                              controller: _amountController,
+                              label: 'Amount:',
+                              border: 6,
+                              keyboardType: TextInputType.number,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 12,
+                              ),
+                              suffixIcon: Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _amount++;
+                                      _amountController.text =
+                                          _amount.toString();
+                                    });
+                                  },
+                                  onLongPress: () {
+                                    setState(() {
+                                      if (_amount > 0) _amount--;
+                                      _amountController.text =
+                                          _amount.toString();
+                                    });
+                                  },
+                                  child: Icon(
+                                    Icons.expand_circle_down_outlined,
+                                    size: 22,
                                     color: isDark
-                                        ? Colors.white60
-                                        : Colors.black54,
+                                        ? Colors.white54
+                                        : Colors.black45,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                Container(
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    border: Border.all(
-                                      color: isDark
-                                          ? Colors.white24
-                                          : Colors.grey.shade400,
-                                    ),
-                                    borderRadius: BorderRadius.circular(6),
-                                    color: isDark
-                                        ? const Color(0xFF3A3A3A)
-                                        : Colors.white,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      // Numeric text input (also editable directly)
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _amountController,
-                                          keyboardType: TextInputType.number,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: isDark
-                                                ? Colors.white
-                                                : Colors.black87,
-                                          ),
-                                          decoration: const InputDecoration(
-                                            border: InputBorder.none,
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 12,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      // Spinner icon: tap = increment, long press = decrement
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.only(right: 8),
-                                        child: GestureDetector(
-                                          // Single tap increments the amount by 1
-                                          onTap: () {
-                                            setState(() {
-                                              _amount++;
-                                              _amountController.text =
-                                                  _amount.toString();
-                                            });
-                                          },
-                                          // Long press decrements the amount (minimum 0)
-                                          onLongPress: () {
-                                            setState(() {
-                                              if (_amount > 0) _amount--;
-                                              _amountController.text =
-                                                  _amount.toString();
-                                            });
-                                          },
-                                          child: Icon(
-                                            Icons.expand_circle_down_outlined,
-                                            size: 22,
-                                            color: isDark
-                                                ? Colors.white54
-                                                : Colors.black45,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                         ],
@@ -291,30 +217,14 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
 
                       const SizedBox(height: 16),
 
-                      // ── Save button ───────────────────────────────────────
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFF5A623), // Amber
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text(
-                            'Save',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
+                      // ── Save — CustomButton ────────────────────────────
+                      CustomButton(
+                        text: 'Save',
+                        onPressed: _onSave,
+                        backgroundColor: const Color(0xFFF5A623),
+                        color: Colors.white,
+                        border: 10,
+                        borderColor: false,
                       ),
                     ],
                   ),
@@ -327,7 +237,6 @@ class _SelectPigFeedPopup2State extends State<SelectPigFeedPopup2> {
     );
   }
 
-  /// Builds a small muted label used in the read-only pig info grid
   Widget _buildInfoLabel(String label, bool isDark) {
     return Text(
       label,
