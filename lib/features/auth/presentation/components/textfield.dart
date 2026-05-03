@@ -39,14 +39,11 @@ class CustomTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
-    // 'readonly' will ONLY block the keyboard, it won't change the colors.
     final bool isDisabled = !enabled;
 
-    // Colors are now driven strictly by the isDisabled flag
     final resolvedTextColor = isDisabled
         ? (isDarkMode ? Colors.white54 : Colors.grey[500])
-        : (isDarkMode ? Colors.white : Colors.black87);
+        : Theme.of(context).textTheme.bodyMedium?.color;
 
     final resolvedFillColor = fillColor ?? (isDisabled
         ? (isDarkMode ? const Color(0xFF1E1E1E) : Colors.grey[200])
@@ -66,11 +63,9 @@ class CustomTextField extends StatelessWidget {
             child: Text(
               label!,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: isDisabled
-                    ? (isDarkMode ? Colors.white54 : Colors.grey[600])
-                    : (isDarkMode ? Colors.white70 : Colors.black87),
+                color: Theme.of(context).textTheme.bodySmall?.color, // ✅ FIXED
               ),
             ),
           ),
@@ -84,7 +79,6 @@ class CustomTextField extends StatelessWidget {
           child: TextFormField(
             controller: controller,
             obscureText: obscureText,
-            // Native readOnly still blocks the keyboard beautifully
             readOnly: readonly,
             onTap: onTap,
             validator: validator,
@@ -95,23 +89,25 @@ class CustomTextField extends StatelessWidget {
               color: resolvedTextColor,
             ),
             decoration: InputDecoration(
-              labelText: labelText,
-              labelStyle: TextStyle(
-                color: isDarkMode ? Colors.white60 : Colors.black54,
-              ),
+              // ❌ REMOVE labelText conflict
+              labelText: null,
+
               isDense: contentPadding != null,
               contentPadding: contentPadding,
               filled: true,
               fillColor: resolvedFillColor,
+
               prefixIcon: prefixIcon != null
                   ? Icon(
-                prefixIcon,
-                color: isDisabled
-                    ? (isDarkMode ? Colors.white30 : Colors.grey[400])
-                    : (isDarkMode ? Colors.white60 : Colors.black54),
-              )
+                      prefixIcon,
+                      color: isDisabled
+                          ? (isDarkMode ? Colors.white30 : Colors.grey[400])
+                          : Theme.of(context).iconTheme.color,
+                    )
                   : null,
+
               suffixIcon: suffixIcon,
+
               disabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(border ?? 30),
                 borderSide: BorderSide(color: resolvedBorderColor),
@@ -123,7 +119,9 @@ class CustomTextField extends StatelessWidget {
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(border ?? 30),
                 borderSide: BorderSide(
-                  color: isDisabled ? resolvedBorderColor : Colors.blue,
+                  color: isDisabled
+                      ? resolvedBorderColor
+                      : Theme.of(context).colorScheme.primary, // ✅ FIXED
                 ),
               ),
               border: OutlineInputBorder(

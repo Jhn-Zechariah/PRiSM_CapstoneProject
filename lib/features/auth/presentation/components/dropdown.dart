@@ -34,14 +34,11 @@ class CustomDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
-    // Create the master check
     final bool isDisabledOrReadOnly = !enabled || readonly;
 
-    // Define the dynamic colors exactly like the CustomTextField
     final resolvedTextColor = isDisabledOrReadOnly
         ? (isDarkMode ? Colors.white54 : Colors.grey[500])
-        : (isDarkMode ? Colors.white : Colors.black87);
+        : Theme.of(context).textTheme.bodyMedium?.color;
 
     final resolvedFillColor = fillColor ?? (isDisabledOrReadOnly
         ? (isDarkMode ? const Color(0xFF1E1E1E) : Colors.grey[200])
@@ -53,7 +50,6 @@ class CustomDropdown extends StatelessWidget {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
       children: [
         if (label != null) ...[
           Padding(
@@ -63,17 +59,13 @@ class CustomDropdown extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                // Apply disabled color to the label
-                color: isDisabledOrReadOnly
-                    ? (isDarkMode ? Colors.white54 : Colors.grey[600])
-                    : (isDarkMode ? Colors.white70 : Colors.black87),
+                color: Theme.of(context).textTheme.bodySmall?.color, // ✅ FIXED
               ),
             ),
           ),
         ],
 
         Material(
-          // Drop the elevation if disabled
           elevation: isDisabledOrReadOnly ? 2 : 5,
           color: Colors.transparent,
           shadowColor: Colors.grey,
@@ -82,22 +74,18 @@ class CustomDropdown extends StatelessWidget {
             initialValue: value,
             isDense: true,
             validator: validator,
-            dropdownColor: fillColor ?? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.white),
+            dropdownColor: resolvedFillColor,
             style: TextStyle(
               fontSize: 14,
-              color: resolvedTextColor, // Apply text color
+              color: resolvedTextColor,
             ),
             decoration: InputDecoration(
-              labelText: labelText,
-              labelStyle: TextStyle(
-                color: isDarkMode ? Colors.white60 : Colors.black54,
-              ),
+              labelText: null, // ❌ REMOVE conflict
               isDense: contentPadding != null,
               contentPadding: contentPadding,
               filled: true,
-              fillColor: resolvedFillColor, // Apply fill color
+              fillColor: resolvedFillColor,
 
-              // Define both enabled and disabled borders
               disabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(border ?? 30),
                 borderSide: BorderSide(color: resolvedBorderColor),
@@ -109,7 +97,9 @@ class CustomDropdown extends StatelessWidget {
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(border ?? 30),
                 borderSide: BorderSide(
-                  color: isDisabledOrReadOnly ? resolvedBorderColor : Colors.blue,
+                  color: isDisabledOrReadOnly
+                      ? resolvedBorderColor
+                      : Theme.of(context).colorScheme.primary, // ✅ FIXED
                 ),
               ),
               border: OutlineInputBorder(
@@ -119,18 +109,19 @@ class CustomDropdown extends StatelessWidget {
             icon: Icon(
               Icons.arrow_drop_down,
               size: 20,
-              // Grey out the dropdown arrow when disabled
-              color: isDisabledOrReadOnly
-                  ? (isDarkMode ? Colors.white30 : Colors.grey[400])
-                  : (isDarkMode ? Colors.white54 : Colors.black54),
+              color: Theme.of(context).iconTheme.color, // ✅ FIXED
             ),
-            items: items.map((String item) {
+            items: items.map((item) {
               return DropdownMenuItem<String>(
                 value: item,
-                child: Text(item),
+                child: Text(
+                  item,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodyMedium?.color, // ✅ FIXED
+                  ),
+                ),
               );
             }).toList(),
-            // Crucial: passing null disables the dropdown natively in Flutter
             onChanged: isDisabledOrReadOnly ? null : onChanged,
           ),
         ),

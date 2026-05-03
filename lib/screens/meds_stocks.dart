@@ -2,9 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:prism_app/features/auth/presentation/components/build_tab_bar.dart';
+import 'package:prism_app/features/auth/presentation/components/medicine_card_widget.dart';
 import '../features/auth/presentation/components/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../features/auth/presentation/components/search_bar.dart';
+import 'package:prism_app/screens/addnewitem.dart';
+import 'package:prism_app/screens/updateitem.dart'; // 🔹 Added
 
 class meds_Stocks extends StatefulWidget {
   final VoidCallback? onSwitchToPigMeds;
@@ -17,36 +20,101 @@ class meds_Stocks extends StatefulWidget {
 
 class _meds_StocksState extends State<meds_Stocks> {
   int _selectedTab = 0;
-
   TextEditingController searchController = TextEditingController();
 
+  List<Map<String, dynamic>> _allMedicines = [];
   List<Map<String, dynamic>> medicines = [];
   bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    fetchMedicines(); // initial load
+    fetchMedicines();
   }
 
-  // Replace this with your real DB/API call
   Future<void> fetchMedicines({String query = ""}) async {
-    setState(() {
-      isLoading = true;
-    });
+    setState(() => isLoading = true);
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 300));
 
     final search = query.toLowerCase();
-
-    List<Map<String, dynamic>> results = medicines.where((med) {
-      return (med["name"] ?? "").toString().toLowerCase().contains(search);
-    }).toList();
-
     setState(() {
-      medicines = results;
+      medicines = _allMedicines.where((med) {
+        return (med["name"] ?? "").toString().toLowerCase().contains(search);
+      }).toList();
       isLoading = false;
     });
+  }
+
+  String _calculateStatus(int stock, int reorder) {
+    if (stock <= 0) {
+      return "Low";
+    } else if (stock <= reorder) {
+      return "Average";
+    } else {
+      return "High";
+    }
+  }
+
+  void _showAddNewItemDialog() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (BuildContext context) {
+        return const AddNewItemDialog();
+      },
+    );
+
+    if (result != null) {
+      final int stock   = result["stock"]   ?? 0;
+      final int reorder = result["reorder"] ?? 0;
+
+      _allMedicines.add({
+        "name":        result["name"]        ?? "Unknown",
+        "category":    result["category"]    ?? "Medicine",
+        "type":        result["type"]        ?? "Capsule",
+        "stock":       stock,
+        "dosage":      result["dosage"]      ?? "",
+        "expiry":      result["expiry"]      ?? "N/A",
+        "reorder":     reorder,
+        "description": result["description"] ?? "",
+        "status":      _calculateStatus(stock, reorder),
+      });
+
+      setState(() {
+        medicines = List.from(_allMedicines);
+        isLoading = false;
+      });
+    }
+  }
+
+  // 🔹 Opens Update dialog and updates item in list
+  void _showUpdateDialog(Map<String, dynamic> med, int masterIndex) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (BuildContext context) {
+        return UpdateItemDialog(item: med);
+      },
+    );
+
+    if (result != null && masterIndex >= 0) {
+      final int stock   = result["stock"]   ?? 0;
+      final int reorder = result["reorder"] ?? 0;
+
+      setState(() {
+        _allMedicines[masterIndex] = {
+          "name":        result["name"]        ?? "Unknown",
+          "category":    result["category"]    ?? "Medicine",
+          "type":        result["type"]        ?? "Capsule",
+          "stock":       stock,
+          "dosage":      result["dosage"]      ?? "",
+          "expiry":      result["expiry"]      ?? "N/A",
+          "reorder":     reorder,
+          "description": result["description"] ?? "",
+          "status":      _calculateStatus(stock, reorder),
+        };
+        medicines = List.from(_allMedicines);
+      });
+    }
   }
 
   @override
@@ -59,7 +127,7 @@ class _meds_StocksState extends State<meds_Stocks> {
           const AppTopBar(),
           const SizedBox(height: 16),
 
-          // HEADER
+          // ── Header ───────────────────────────────────────────────
           Row(
             children: [
               const Icon(Symbols.vaccines, size: 32),
@@ -71,12 +139,13 @@ class _meds_StocksState extends State<meds_Stocks> {
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.add, size: 28),
-                onPressed: () {},
+                onPressed: _showAddNewItemDialog,
               ),
             ],
           ),
 
-          // CONTENT
+          const SizedBox(height: 12),
+
           Expanded(
             child: Column(
               children: [
@@ -87,7 +156,6 @@ class _meds_StocksState extends State<meds_Stocks> {
                     setState(() {
                       _selectedTab = index;
                     });
-
                     if (index == 1) {
                       widget.onSwitchToPigMeds?.call();
                     }
@@ -96,7 +164,6 @@ class _meds_StocksState extends State<meds_Stocks> {
 
                 const SizedBox(height: 12),
 
-                // SEARCH BAR
                 MedicineSearchBar(
                   controller: searchController,
                   onChanged: (value) {
@@ -110,26 +177,36 @@ class _meds_StocksState extends State<meds_Stocks> {
 
                 const SizedBox(height: 12),
 
-                // 📋 MEDICINE LIST
                 Expanded(
                   child: isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : medicines.isEmpty
-                      ? const Center(child: Text("No medicines found"))
-                      : ListView.builder(
-                          itemCount: medicines.length,
-                          itemBuilder: (context, index) {
-                            final med = medicines[index];
-
-                            return Card(
-                              child: ListTile(
-                                leading: const Icon(Icons.medication_outlined),
-                                title: Text(med["name"]),
-                                subtitle: Text("Stock: ${med["stock"]}"),
+                          ? const Center(
+                              child: Text(
+                                "No medicines found",
+                                style: TextStyle(color: Colors.black54),
                               ),
-                            );
-                          },
-                        ),
+                            )
+                          : ListView.builder(
+                              itemCount: medicines.length,
+                              itemBuilder: (context, index) {
+                                final med = medicines[index];
+
+                                // 🔹 Find real index in master list
+                                final masterIndex = _allMedicines.indexWhere(
+                                  (m) => m["name"] == med["name"],
+                                );
+
+                                return MedicineCard(
+                                  name:       med["name"]     ?? "Unknown",
+                                  category:   med["category"] ?? "General",
+                                  stock:      med["stock"]    ?? 0,
+                                  expiryDate: med["expiry"]   ?? "N/A",
+                                  status:     med["status"]   ?? "Low",
+                                  onTap: () => _showUpdateDialog(med, masterIndex), // 🔹 Added
+                                );
+                              },
+                            ),
                 ),
               ],
             ),
