@@ -38,47 +38,49 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppTopBar(),
-            const SizedBox(height: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildTitle(),
-                  const SizedBox(height: 16),
-                  CustomTabBar(
-                    selectedIndex: _selectedTab,
-                    tabs: const ['Temperature', 'Humidity'],
-                    onTabSelected: (index) {
-                      setState(() {
-                        _selectedTab = index;
-                      });
-
-                      if (index == 1) {
-                        widget.onSwitchToHumidity?.call();
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  _buildStatusCard(),
-                  const SizedBox(height: 12),
-                  _buildTimeRangeSelector(),
-                  const SizedBox(height: 16),
-                  _buildChart(),
-                  const SizedBox(height: 16),
-                  _buildTemperatureReview(),
-                  const SizedBox(height: 16),
-                  _buildInsights(),
-                  const SizedBox(height: 24),
-                ],
-              ),
-          ],
-        ),
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: AppTopBar(),
+          ),
+          const SizedBox(height: 5),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTitle(),
+                const SizedBox(height: 16),
+                CustomTabBar(
+                  selectedIndex: _selectedTab,
+                  tabs: const ['Temperature', 'Humidity'],
+                  onTabSelected: (index) {
+                    setState(() {
+                      _selectedTab = index;
+                    });
+                    if (index == 1) {
+                      widget.onSwitchToHumidity?.call();
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildStatusCard(),
+                const SizedBox(height: 12),
+                _buildTimeRangeSelector(),
+                const SizedBox(height: 16),
+                _buildChart(),
+                const SizedBox(height: 16),
+                _buildTemperatureReview(),
+                const SizedBox(height: 16),
+                _buildInsights(),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
