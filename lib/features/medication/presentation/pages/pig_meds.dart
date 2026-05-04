@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/medication/presentation/components/pig_med_card.dart';
+import 'package:prism_app/features/medication/presentation/pages/meds_intake_history.dart';
+import 'package:prism_app/features/pig_management/presentation/cubits/pig_states.dart';
 import 'package:prism_app/features/pig_management/presentation/cubits/pig_cubit.dart';
-import '../../../../core/widgets/app_top_bar.dart';
+import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import '../../../pig_management/presentation/cubits/pig_states.dart';
-import 'meds_intake_history.dart';
 
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
@@ -43,10 +43,6 @@ class _pig_medsState extends State<pig_meds> {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
               ),
               const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.add, size: 28),
-                onPressed: () {},
-              ),
             ],
           ),
 
@@ -80,7 +76,7 @@ class _pig_medsState extends State<pig_meds> {
                             builder: (_) => MedsIntakeHistoryScreen(
                               pigs: state.allPigs.asMap().entries.map((entry) {
                                 return PigMedOption(
-                                  id: entry.value.pigId,
+                                  id: entry.value.displayId,
                                   accentColor:
                                       colors[entry.key % colors.length],
                                 );
@@ -146,7 +142,7 @@ class _pig_medsState extends State<pig_meds> {
 
                         return ListView.separated(
                           itemCount: pigs.length,
-                          separatorBuilder: (_, _) =>
+                          separatorBuilder: (_, __) =>
                               const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             return PigMedCard(
