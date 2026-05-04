@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../../auth/presentation/components/textfield.dart';
-import '../../../auth/presentation/components/button.dart';
+import '../../../../core/widgets/button.dart';
+import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/snackbar.dart';
-import '../../../auth/presentation/components/confirmation_box.dart';
+import '../../../../core/widgets/textfield.dart';
 
 class SelectPigFeedPopup2 extends StatefulWidget {
   final String pigName;

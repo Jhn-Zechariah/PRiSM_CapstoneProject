@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
-import '../../../auth/presentation/components/build_tab_bar.dart';
+import '../../../../core/widgets/build_tab_bar.dart';
 
 class TemperatureMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToHumidity;

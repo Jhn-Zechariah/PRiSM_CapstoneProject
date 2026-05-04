@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
+import '../../../../core/widgets/dropdown.dart';
 import '../../data/firestore_pig_repo.dart';
 import '../../domain/model/app_pig.dart';
 import '../../../../core/widgets/app_top_bar.dart';
-import '../../../auth/presentation/components/button.dart';
-import '../../../auth/presentation/components/confirmation_box.dart';
+import '../../../../core/widgets/button.dart';
+import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/snackbar.dart';
-import '../../../auth/presentation/components/textfield.dart';
-import '../../../auth/presentation/components/dropdown.dart';
+import '../../../../core/widgets/textfield.dart';
 import '../cubits/pig_cubit.dart';
 
 
