@@ -125,9 +125,7 @@ class _MyProfileState extends State<MyProfile> {
           // 3. Stop running the rest of the update function so we don't try
           // to update the password right as they are being logged out!
           return;
-        }else{
-
-        }
+        } else {}
       }
 
       // Did they enter a new password?
@@ -260,7 +258,9 @@ class _MyProfileState extends State<MyProfile> {
                                   text: _isEditing ? "Cancel" : "Edit Profile",
                                   borderColor: false,
                                   onPressed: _editProfile,
-                                  backgroundColor: _isEditing ? Colors.red : null,
+                                  backgroundColor: _isEditing
+                                      ? Colors.red
+                                      : null,
                                   color: _isEditing ? Colors.white : null,
                                 ),
                               ),
@@ -399,11 +399,13 @@ class _MyProfileState extends State<MyProfile> {
                         validator: (value) {
                           if (value == null ||
                               value.isEmpty &&
-                                  _newPasswordController.text.isNotEmpty)
+                                  _newPasswordController.text.isNotEmpty) {
                             return "Please confirm your password";
+                          }
                           if (value != _newPasswordController.text &&
-                              _newPasswordController.text.isNotEmpty)
+                              _newPasswordController.text.isNotEmpty) {
                             return "Passwords do not match";
+                          }
                           return null;
                         },
                       ),
