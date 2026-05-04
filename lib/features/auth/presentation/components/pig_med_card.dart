@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:prism_app/screens/medicine_intake_dialog.dart';
+import 'package:prism_app/screens/vaccine_intake_dialog.dart';
+
+enum PigMedAction { medicine, vaccine }
 
 class PigMedCard extends StatelessWidget {
   final dynamic pig;
@@ -17,21 +21,28 @@ class PigMedCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
 
-    // Dynamic Colors based on Theme
     final cardColor = theme.cardColor;
     final textColor = theme.textTheme.bodyLarge?.color;
     final labelColor = theme.textTheme.bodySmall?.color;
+    final subtleTextColor = theme.textTheme.bodyMedium?.color;
+
+    // + button colors adapt to theme
+    final buttonBg = isDarkMode
+        ? Colors.white.withValues(alpha: 0.1)
+        : Colors.black.withValues(alpha: 0.06);
+    final buttonIconColor = isDarkMode ? Colors.white : Colors.black87;
+    final buttonSplashColor = isDarkMode
+        ? Colors.white.withValues(alpha: 0.1)
+        : Colors.black.withValues(alpha: 0.06);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 2),
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(14),
-        // Subtle border for Dark Mode, grey border for Light Mode
         border: Border.all(
           color: isDarkMode ? theme.dividerColor : Colors.grey.shade200,
         ),
-        // Adding the shadow seen in your image for Light Mode
         boxShadow: isDarkMode
             ? null
             : [
@@ -48,7 +59,7 @@ class PigMedCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // The colored accent bar on the left
+              // Left accent stripe
               Container(width: 8, color: accentColor),
 
               Expanded(
@@ -59,17 +70,17 @@ class PigMedCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
+                      // Pig name + recent intake
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              pig.name,
+                              pig.displayId,
                               style: TextStyle(
                                 fontSize: 16,
-                                fontWeight:
-                                    FontWeight.w800, // Matching the bold look
+                                fontWeight: FontWeight.w800,
                                 color: textColor,
                                 letterSpacing: -0.2,
                               ),
@@ -84,12 +95,10 @@ class PigMedCard extends StatelessWidget {
                                 children: [
                                   const TextSpan(text: 'Recent intake: '),
                                   TextSpan(
-                                    text: 'None', // Or your dynamic value
+                                    text: 'None',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w500,
-                                      color: isDarkMode
-                                          ? Colors.white70
-                                          : Colors.black54,
+                                      color: subtleTextColor,
                                     ),
                                   ),
                                 ],
@@ -99,26 +108,54 @@ class PigMedCard extends StatelessWidget {
                         ),
                       ),
 
-                      // Add Button
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: onAdd,
+                      // + button — fully theme-aware
+                      PopupMenuButton<PigMedAction>(
+                        onSelected: (action) async {
+                          switch (action) {
+                            case PigMedAction.medicine:
+                              await showDialog(
+                                context: context,
+                                builder: (context) => MedicineIntakeDialog(
+                                  accentColor: accentColor,
+                                ),
+                              );
+                              break;
+
+                            case PigMedAction.vaccine:
+                              await showDialog(
+                                context: context,
+                                builder: (context) => VaccineIntakeDialog(
+                                  accentColor: accentColor,
+                                ),
+                              );
+                              break;
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: PigMedAction.medicine,
+                            child: Text('Medicine / Vitamins'),
+                          ),
+                          const PopupMenuItem(
+                            value: PigMedAction.vaccine,
+                            child: Text('Vaccine'),
+                          ),
+                        ],
+                        child: Material(
+                          color: buttonBg,
                           borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              // Using a slightly more visible background for the icon
-                              color: accentColor.withValues(
-                                alpha: isDarkMode ? 0.2 : 0.1,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            splashColor: buttonSplashColor,
+                            highlightColor: buttonSplashColor,
+                            child: SizedBox(
+                              width: 40,
+                              height: 40,
+                              child: Icon(
+                                Icons.add,
+                                size: 24,
+                                color: buttonIconColor,
                               ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              Icons.add,
-                              size: 24,
-                              color: accentColor,
                             ),
                           ),
                         ),

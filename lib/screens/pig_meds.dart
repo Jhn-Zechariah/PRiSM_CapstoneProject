@@ -43,10 +43,6 @@ class _pig_medsState extends State<pig_meds> {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
               ),
               const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.add, size: 28),
-                onPressed: () {},
-              ),
             ],
           ),
 
@@ -80,7 +76,7 @@ class _pig_medsState extends State<pig_meds> {
                             builder: (_) => MedsIntakeHistoryScreen(
                               pigs: state.allPigs.asMap().entries.map((entry) {
                                 return PigMedOption(
-                                  id: entry.value.pigId,
+                                  id: entry.value.displayId,
                                   accentColor:
                                       colors[entry.key % colors.length],
                                 );
@@ -146,7 +142,7 @@ class _pig_medsState extends State<pig_meds> {
 
                         return ListView.separated(
                           itemCount: pigs.length,
-                          separatorBuilder: (_, _) =>
+                          separatorBuilder: (_, __) =>
                               const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             return PigMedCard(

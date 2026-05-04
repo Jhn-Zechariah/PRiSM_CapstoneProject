@@ -4,7 +4,7 @@ import '../domain/models/app_pig.dart';
 import '../domain/models/app_weight_history.dart';
 import '../domain/repo/pig_repo.dart';
 
-class FirebasePigRepo implements PigRepo{
+class FirebasePigRepo implements PigRepo {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // Collection Reference
@@ -18,10 +18,10 @@ class FirebasePigRepo implements PigRepo{
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        return AppPig.fromJson(doc.data() as Map<String, dynamic>, doc.id);
-      }).toList();
-    });
+          return snapshot.docs.map((doc) {
+            return AppPig.fromJson(doc.data() as Map<String, dynamic>, doc.id);
+          }).toList();
+        });
   }
 
   // --- CREATE/ADD PIG ---
@@ -59,7 +59,6 @@ class FirebasePigRepo implements PigRepo{
         'dateRecorded': FieldValue.serverTimestamp(),
         'notes': 'Initial weight',
       });
-
     } catch (e) {
       throw Exception("Error adding pig: $e");
     }
@@ -102,7 +101,8 @@ class FirebasePigRepo implements PigRepo{
         batch.set(historyRef, {
           'weightKg': updatedPig.currentWeightKg,
           'dateRecorded': FieldValue.serverTimestamp(),
-          'notes': 'Updated via Profile Edit', // Helps you identify where the change came from
+          'notes':
+              'Updated via Profile Edit', // Helps you identify where the change came from
         });
       }
 
@@ -144,10 +144,10 @@ class FirebasePigRepo implements PigRepo{
         .orderBy('dateRecorded', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        return AppWeightRecord.fromJson(doc.data(), doc.id);
-      }).toList();
-    });
+          return snapshot.docs.map((doc) {
+            return AppWeightRecord.fromJson(doc.data(), doc.id);
+          }).toList();
+        });
   }
 
   // --- DELETE ---

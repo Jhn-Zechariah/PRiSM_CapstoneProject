@@ -5,8 +5,6 @@ import 'package:prism_app/features/auth/presentation/components/button.dart';
 import 'package:prism_app/features/auth/presentation/components/confirmation_box.dart';
 import 'package:prism_app/features/auth/presentation/components/snackbar.dart';
 
-/// A dialog widget for adding a new inventory item (Medicine, Vitamins, or Vaccine).
-/// Returns a Map of the item's data when saved, or null if dismissed.
 class AddNewItemDialog extends StatefulWidget {
   final Color accentColor;
 
@@ -20,35 +18,35 @@ class AddNewItemDialog extends StatefulWidget {
 }
 
 class _AddNewItemDialogState extends State<AddNewItemDialog> {
-  // ── Text controllers for each form field ──────────────────────────────────
-  final _nameController    = TextEditingController();
-  final _qtyController     = TextEditingController();
-  final _mgController      = TextEditingController(); // dosage/unit amount
-  final _expiryController  = TextEditingController();
-  final _reorderController = TextEditingController();
-  final _descController    = TextEditingController();
+  // ── Consistent padding for all fields ─────────────────────────────────────
+  static const _fieldPadding = EdgeInsets.symmetric(
+    horizontal: 12,
+    vertical: 13,
+  );
 
-  // Focus node used to detect when the dosage field is active (for border highlight)
+  // ── Controllers ────────────────────────────────────────────────────────────
+  final _nameController = TextEditingController();
+  final _qtyController = TextEditingController();
+  final _mgController = TextEditingController();
+  final _expiryController = TextEditingController();
+  final _reorderController = TextEditingController();
+  final _descController = TextEditingController();
   final _mgFocusNode = FocusNode();
 
-  // ── Default dropdown selections ────────────────────────────────────────────
+  // ── Dropdown state ─────────────────────────────────────────────────────────
   String selectedCategory = 'Medicine';
-  String selectedType     = 'Capsule';
-
-  // ── Labels that change based on selected category/type ────────────────────
-  String _unitLabel = 'mg';      // dosage unit shown inside the compact box
-  String _perLabel  = '/ Tablet'; // per-unit label shown beside the dosage box
+  String selectedType = 'Capsule';
+  String _unitLabel = 'mg';
+  String _perLabel = '/ Tablet';
 
   @override
   void initState() {
     super.initState();
-    // Rebuild UI when the dosage field gains or loses focus (border color update)
     _mgFocusNode.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    // Dispose all controllers and focus nodes to free resources
     _nameController.dispose();
     _qtyController.dispose();
     _mgController.dispose();
@@ -59,41 +57,34 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     super.dispose();
   }
 
-  // ── Computed label for the name field based on the selected category ───────
   String get _nameLabel {
     if (selectedCategory == 'Vitamins') return 'Vitamins Name:';
-    if (selectedCategory == 'Vaccine')  return 'Vaccine Name:';
+    if (selectedCategory == 'Vaccine') return 'Vaccine Name:';
     return 'Medicine Name:';
   }
 
-  // ── Available type options depend on the selected category ─────────────────
   List<String> get _typeOptions {
     if (selectedCategory == 'Vitamins') return ['Powder'];
     return ['Capsule', 'Fluid'];
   }
 
-  /// Updates [_unitLabel] and [_perLabel] to match the current category/type.
   void _syncLabels() {
     if (selectedCategory == 'Vitamins') {
       _unitLabel = 'g';
-      _perLabel  = '/ Sachet';
+      _perLabel = '/ Sachet';
     } else if (selectedCategory == 'Vaccine' || selectedType == 'Fluid') {
       _unitLabel = 'mL';
-      _perLabel  = '/ Bottle';
+      _perLabel = '/ Bottle';
     } else {
-      // Default: Medicine Capsule
       _unitLabel = 'mg';
-      _perLabel  = '/ Tablet';
+      _perLabel = '/ Tablet';
     }
   }
 
-  /// Called when the user picks a new category from the dropdown.
-  /// Resets the type to the appropriate default and syncs unit labels.
   void _onCategoryChanged(String? newCategory) {
     if (newCategory == null) return;
     setState(() {
       selectedCategory = newCategory;
-      // Auto-select the only valid type for Vitamins and Vaccine
       if (newCategory == 'Vitamins') {
         selectedType = 'Powder';
       } else if (newCategory == 'Vaccine') {
@@ -105,7 +96,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     });
   }
 
-  /// Called when the user picks a new type from the dropdown (Medicine only).
   void _onTypeChanged(String? newType) {
     if (newType == null) return;
     setState(() {
@@ -114,14 +104,12 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     });
   }
 
-  /// Opens the platform date picker and writes the selected date to [_expiryController].
   Future<void> _selectDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
-      // Apply the dialog's accent color to the date picker theme
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
           colorScheme: ColorScheme.light(
@@ -135,14 +123,11 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     );
     if (picked != null) {
       setState(() {
-        // Format date as YYYY-MM-DD
         _expiryController.text = "${picked.toLocal()}".split(' ')[0];
       });
     }
   }
 
-  /// Shows a confirmation dialog before saving.
-  /// On confirmation, pops the dialog and returns the collected item data.
   Future<void> _onSave() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -156,19 +141,17 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     );
 
     if (confirmed == true && mounted) {
-      // Return the filled-in item data to the caller
       Navigator.pop(context, {
-        'name':        _nameController.text,
-        'stock':       int.tryParse(_qtyController.text) ?? 0,
-        'dosage':      _mgController.text,
-        'expiry':      _expiryController.text,
-        'reorder':     int.tryParse(_reorderController.text) ?? 0,
+        'name': _nameController.text,
+        'stock': int.tryParse(_qtyController.text) ?? 0,
+        'dosage': _mgController.text,
+        'expiry': _expiryController.text,
+        'reorder': int.tryParse(_reorderController.text) ?? 0,
         'description': _descController.text,
-        'category':    selectedCategory,
-        'type':        selectedType,
+        'category': selectedCategory,
+        'type': selectedType,
       });
 
-      // Show success feedback after the dialog is closed
       CustomSnackbar.show(
         context: context,
         message: 'Item added successfully!',
@@ -176,7 +159,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     }
   }
 
-  // ── Shared label style used across all form labels ─────────────────────────
   TextStyle _labelStyle(BuildContext context) {
     return TextStyle(
       fontSize: 13,
@@ -185,16 +167,15 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     );
   }
 
-  /// Builds the compact dosage input box that shows a numeric field and a unit label
-  /// side by side, separated by a thin divider. Highlights border when focused.
+  // ── Compact dosage box ─────────────────────────────────────────────────────
   Widget _compactUnitBox({
     required TextEditingController controller,
     required FocusNode focusNode,
     required String unit,
   }) {
-    final isDarkMode   = Theme.of(context).brightness == Brightness.dark;
-    final fillColor    = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
-    final borderColor  = isDarkMode ? Colors.white24 : Colors.black26;
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final fillColor = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
+    final borderColor = isDarkMode ? Colors.white24 : Colors.black26;
     final dividerColor = isDarkMode ? Colors.white24 : Colors.black12;
 
     return Material(
@@ -208,14 +189,12 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
           color: fillColor,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            // Blue border when focused, subtle border otherwise
             color: focusNode.hasFocus ? Colors.blue : borderColor,
             width: 1.0,
           ),
         ),
         child: Row(
           children: [
-            // Numeric input area
             Expanded(
               child: TextField(
                 controller: controller,
@@ -229,22 +208,18 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   isDense: true,
+                  // ✅ matches _fieldPadding vertical
                   contentPadding: EdgeInsets.symmetric(
                     horizontal: 8,
-                    vertical: 12,
+                    vertical: 13,
                   ),
                 ),
               ),
             ),
-            // Divider between input and unit label
             Container(width: 1, height: 28, color: dividerColor),
-            // Unit label (mg / g / mL)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                unit,
-                style: _labelStyle(context),
-              ),
+              child: Text(unit, style: _labelStyle(context)),
             ),
           ],
         ),
@@ -252,8 +227,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     );
   }
 
-  /// Builds a non-editable read-only type box used when the type is fixed
-  /// (e.g., 'Fluid' for Vaccine, 'Powder' for Vitamins).
+  // ── Static (read-only) type box ────────────────────────────────────────────
   Widget _staticTypeBox(String label) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return Material(
@@ -263,7 +237,8 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        // ✅ matches _fieldPadding
+        padding: _fieldPadding,
         decoration: BoxDecoration(
           color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.grey[200],
           borderRadius: BorderRadius.circular(8),
@@ -271,10 +246,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
             color: isDarkMode ? Colors.white12 : Colors.grey[300]!,
           ),
         ),
-        child: Text(
-          label,
-          style: _labelStyle(context),
-        ),
+        child: Text(label, style: _labelStyle(context)),
       ),
     );
   }
@@ -290,11 +262,10 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-
-              // ── Colored accent strip on the left edge of the dialog ────────
+              // Left accent stripe
               Container(width: 12, color: const Color(0xFF002D44)),
 
-              // ── Main form content ──────────────────────────────────────────
+              // Form content
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
@@ -303,8 +274,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-
-                        // ── Dialog header: title + close button ──────────────
+                        // ── Header ───────────────────────────────────────────
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -313,13 +283,17 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                               style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
-                                color: Theme.of(context).textTheme.bodyLarge?.color,
+                                color: Theme.of(
+                                  context,
+                                ).textTheme.bodyLarge?.color,
                               ),
                             ),
                             IconButton(
                               icon: Icon(
                                 Icons.close,
-                                color: Theme.of(context).textTheme.bodyMedium?.color,
+                                color: Theme.of(
+                                  context,
+                                ).textTheme.bodyMedium?.color,
                               ),
                               onPressed: () => Navigator.pop(context),
                             ),
@@ -327,48 +301,43 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                         ),
                         const SizedBox(height: 16),
 
-                        // ── Item name field (label changes with category) ─────
+                        // ── Name field ───────────────────────────────────────
                         CustomTextField(
                           controller: _nameController,
                           label: _nameLabel,
                           border: 8,
+                          contentPadding: _fieldPadding,
                         ),
                         const SizedBox(height: 14),
 
-                        // ── Quantity + dosage row ────────────────────────────
+                        // ── Qty + Dosage row ─────────────────────────────────
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             Text('Qty:', style: _labelStyle(context)),
                             const SizedBox(width: 10),
-                            // Quantity input (integer only)
                             SizedBox(
-                              width: 70,
+                              width: 50,
                               child: CustomTextField(
                                 controller: _qtyController,
                                 border: 8,
                                 keyboardType: TextInputType.number,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
+                                contentPadding: _fieldPadding,
                               ),
                             ),
                             const SizedBox(width: 10),
-                            // Dosage amount + unit (mg / g / mL)
                             _compactUnitBox(
                               controller: _mgController,
                               focusNode: _mgFocusNode,
                               unit: _unitLabel,
                             ),
                             const SizedBox(width: 8),
-                            // Per-unit label (/ Tablet, / Sachet, / Bottle)
                             Text(_perLabel, style: _labelStyle(context)),
                           ],
                         ),
                         const SizedBox(height: 14),
 
-                        // ── Category + Type dropdowns ────────────────────────
+                        // ── Category + Type row ──────────────────────────────
                         Row(
                           children: [
                             Expanded(
@@ -376,7 +345,12 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                 label: 'Category:',
                                 value: selectedCategory,
                                 border: 8,
-                                items: const ['Medicine', 'Vitamins', 'Vaccine'],
+                                contentPadding: _fieldPadding,
+                                items: const [
+                                  'Medicine',
+                                  'Vitamins',
+                                  'Vaccine',
+                                ],
                                 onChanged: _onCategoryChanged,
                               ),
                             ),
@@ -387,7 +361,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                 children: [
                                   Text('Type:', style: _labelStyle(context)),
                                   const SizedBox(height: 4),
-                                  // Show a static box for fixed types, dropdown otherwise
                                   if (selectedCategory == 'Vaccine')
                                     _staticTypeBox('Fluid')
                                   else if (selectedCategory == 'Vitamins')
@@ -397,6 +370,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                       key: ValueKey(selectedCategory),
                                       value: selectedType,
                                       border: 8,
+                                      contentPadding: _fieldPadding,
                                       items: _typeOptions,
                                       onChanged: _onTypeChanged,
                                     ),
@@ -407,7 +381,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                         ),
                         const SizedBox(height: 14),
 
-                        // ── Expiry date + Re-order alert row ─────────────────
+                        // ── Expiry + Reorder row ─────────────────────────────
                         Row(
                           children: [
                             Expanded(
@@ -415,8 +389,9 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                 controller: _expiryController,
                                 label: 'Expiry date:',
                                 border: 8,
-                                readonly: true, // date is selected via picker, not typed
+                                readonly: true,
                                 onTap: _selectDate,
+                                contentPadding: _fieldPadding,
                                 suffixIcon: IconButton(
                                   icon: const Icon(
                                     Icons.calendar_month_outlined,
@@ -433,20 +408,21 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                 label: 'Re-order alert:',
                                 border: 8,
                                 keyboardType: TextInputType.number,
+                                contentPadding: _fieldPadding,
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 14),
 
-                        // ── Description (multi-line via tall content padding) ─
+                        // ── Description ──────────────────────────────────────
                         CustomTextField(
                           controller: _descController,
                           label: 'Description:',
                           border: 8,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
-                            vertical: 40,
+                            vertical: 60,
                           ),
                         ),
                         const SizedBox(height: 24),
