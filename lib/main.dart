@@ -4,11 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/auth/data/firebase_auth_repo.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/firebase_options.dart';
-import 'package:prism_app/screens/splash_screen.dart';
-import 'package:prism_app/themes/app_theme.dart';
-import 'features/auth/data/firestore_pig_repo.dart';
+import 'package:prism_app/core/widgets/splash_screen.dart';
+import 'package:prism_app/core/theme/app_theme.dart';
+import 'features/pig_management/data/firestore_pig_repo.dart';
 import 'features/auth/data/firestore_profile_repo.dart';
-import 'features/auth/presentation/cubits/pig_cubit.dart';
+import 'features/pig_management/presentation/cubits/pig_cubit.dart';
 import 'features/auth/presentation/cubits/profile_cubit.dart';
 
 void main() async {
