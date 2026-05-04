@@ -59,7 +59,9 @@ class CustomDropdown extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: Theme.of(context).textTheme.bodySmall?.color, // ✅ FIXED
+                color: isDisabledOrReadOnly
+                    ? (isDarkMode ? Colors.white54 : Colors.grey[600])
+                    : (isDarkMode ? Colors.white70 : Colors.black87),
               ),
             ),
           ),
@@ -117,7 +119,9 @@ class CustomDropdown extends StatelessWidget {
                 child: Text(
                   item,
                   style: TextStyle(
-                    color: Theme.of(context).textTheme.bodyMedium?.color, // ✅ FIXED
+                    color: isDisabledOrReadOnly
+                        ? (isDarkMode ? Colors.white54 : Colors.grey[600])
+                        : (isDarkMode ? Colors.white70 : Colors.black87),// ✅ FIXED
                   ),
                 ),
               );

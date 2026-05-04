@@ -9,6 +9,7 @@ class CustomText extends StatelessWidget {
   final double fontSize;
   final FontWeight? fontWeight;
   final String? prefix;
+  final Color? textColor;
 
   const CustomText({
     super.key,
@@ -17,6 +18,7 @@ class CustomText extends StatelessWidget {
     this.fontSize = 16,
     this.fontWeight,
     this.prefix,
+    this.textColor,
   });
 
   @override
@@ -54,7 +56,7 @@ class CustomText extends StatelessWidget {
           style: TextStyle(
             fontSize: fontSize,
             fontWeight: fontWeight ?? FontWeight.bold,
-            color: isDark ? Colors.white : Colors.black,
+            color: textColor ?? (isDark ? Colors.white : Colors.black),
           ),
         );
       },

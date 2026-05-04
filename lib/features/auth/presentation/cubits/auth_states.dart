@@ -4,7 +4,7 @@ AUTH STATES
 
  */
 
-import 'package:prism_app/features/auth/domain/models/app_user.dart';
+import 'package:prism_app/features/auth/domain/model/app_user.dart';
 
 abstract class AuthState {}
 

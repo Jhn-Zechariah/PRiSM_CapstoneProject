@@ -5,7 +5,7 @@ import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/features/auth/presentation/components/textfield.dart';
 import 'package:prism_app/features/auth/presentation/components/button.dart';
 
-import '../components/snackbar.dart';
+import '../../../../core/widgets/snackbar.dart';
 import '../components/social_logins.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -24,7 +24,7 @@ class LoginScreenState extends State<LoginScreen> {
   final TextEditingController passwordController = TextEditingController();
   bool _obscurePassword = true;
 
-  //auth cubit
+  //auth cubits
   late final authCubit = context.read<AuthCubit>();
 
   //login button press

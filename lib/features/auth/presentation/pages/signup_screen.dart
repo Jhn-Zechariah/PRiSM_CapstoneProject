@@ -28,7 +28,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final passwordController = TextEditingController();
   final confirmPasswordController = TextEditingController();
 
-  //auth cubit
+  //auth cubits
   late final authCubit = context.read<AuthCubit>();
 
   bool _obscurePassword = true;
