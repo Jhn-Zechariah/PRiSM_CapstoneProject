@@ -7,7 +7,7 @@ FIREBASE AS A BACKEND - replace backend here
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:prism_app/features/auth/domain/models/app_user.dart';
+import 'package:prism_app/features/auth/domain/model/app_user.dart';
 import 'package:prism_app/features/auth/domain/repo/auth_repo.dart';
 
 class FirebaseAuthRepo implements AuthRepo {
