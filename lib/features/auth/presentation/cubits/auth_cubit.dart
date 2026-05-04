@@ -6,7 +6,7 @@ Responsible for state management --> show appropriate data on the screen
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:prism_app/features/auth/domain/models/app_user.dart';
+import 'package:prism_app/features/auth/domain/model/app_user.dart';
 import 'package:prism_app/features/auth/domain/repo/auth_repo.dart';
 import 'auth_states.dart';
 

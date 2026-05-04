@@ -4,7 +4,7 @@ AUTH REPOSITORY - Outlines the possible auth operation to this app
 
 */
 
-import 'package:prism_app/features/auth/domain/models/app_user.dart';
+import 'package:prism_app/features/auth/domain/model/app_user.dart';
 
 abstract class AuthRepo {
   Future<AppUser?> loginWithEmailPassword(String email, String password);
