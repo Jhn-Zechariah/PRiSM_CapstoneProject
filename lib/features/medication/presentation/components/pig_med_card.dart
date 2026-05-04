@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:prism_app/screens/medicine_intake_dialog.dart';
-import 'package:prism_app/screens/vaccine_intake_dialog.dart';
+import 'package:prism_app/features/medication/presentation/pages/medicine_intake_dialog.dart';
+import 'package:prism_app/features/medication/presentation/pages/vaccine_intake_dialog.dart';
 
 enum PigMedAction { medicine, vaccine }
 

@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/medication/presentation/components/pig_med_card.dart';
+import 'package:prism_app/features/medication/presentation/pages/meds_intake_history.dart';
+import 'package:prism_app/features/pig_management/presentation/cubits/pig_states.dart';
 import 'package:prism_app/features/pig_management/presentation/cubits/pig_cubit.dart';
-import '../../../../core/widgets/app_top_bar.dart';
+import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import '../../../pig_management/presentation/cubits/pig_states.dart';
-import 'meds_intake_history.dart';
 
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
