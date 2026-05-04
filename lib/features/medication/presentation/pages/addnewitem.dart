@@ -423,7 +423,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                           border: 8,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
-                            vertical: 60,
+                            vertical: 20,
                           ),
                         ),
                         const SizedBox(height: 24),

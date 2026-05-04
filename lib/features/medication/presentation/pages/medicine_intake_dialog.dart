@@ -1,31 +1,26 @@
 import 'package:flutter/material.dart';
 
-class VaccineIntakeDialog extends StatefulWidget {
+class MedicineIntakeDialog extends StatefulWidget {
   final Color accentColor;
 
-  const VaccineIntakeDialog({super.key, required this.accentColor});
+  const MedicineIntakeDialog({super.key, required this.accentColor});
 
   @override
-  State<VaccineIntakeDialog> createState() => _VaccineIntakeDialogState();
+  State<MedicineIntakeDialog> createState() => _MedicineIntakeDialogState();
 }
 
-class _VaccineIntakeDialogState extends State<VaccineIntakeDialog> {
-  final _vaccineController = TextEditingController();
+class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
+  final _medsController = TextEditingController();
   final _dosageController = TextEditingController();
   final _scheduleController = TextEditingController();
   final _purposeController = TextEditingController();
   String? _selectedStatus;
 
-  final List<String> _statusOptions = [
-    'Scheduled',
-    'Administered',
-    'Overdue',
-    'Skipped',
-  ];
+  final List<String> _statusOptions = ['Ongoing', 'Completed', 'Discontinued'];
 
   @override
   void dispose() {
-    _vaccineController.dispose();
+    _medsController.dispose();
     _dosageController.dispose();
     _scheduleController.dispose();
     _purposeController.dispose();
@@ -58,8 +53,8 @@ class _VaccineIntakeDialogState extends State<VaccineIntakeDialog> {
 
   void _onSave() {
     Navigator.pop(context, {
-      'type': 'vaccine',
-      'name': _vaccineController.text,
+      'type': 'medicine',
+      'name': _medsController.text,
       'dosage': _dosageController.text,
       'status': _selectedStatus,
       'nextSchedule': _scheduleController.text,
@@ -220,16 +215,16 @@ class _VaccineIntakeDialogState extends State<VaccineIntakeDialog> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Vaccine
-                      Text('Vaccine:', style: _labelStyle(context)),
+                      // Meds/vit
+                      Text('Meds/vit:', style: _labelStyle(context)),
                       const SizedBox(height: 4),
                       _buildField(
-                        controller: _vaccineController,
-                        hint: 'Vaccine',
+                        controller: _medsController,
+                        hint: 'Medicine/vitamins',
                       ),
                       const SizedBox(height: 12),
 
-                      // Dosage + Vaccination Status
+                      // Dosage + Status
                       Row(
                         children: [
                           Expanded(
@@ -250,10 +245,7 @@ class _VaccineIntakeDialogState extends State<VaccineIntakeDialog> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Vaccination Status:',
-                                  style: _labelStyle(context),
-                                ),
+                                Text('Status:', style: _labelStyle(context)),
                                 const SizedBox(height: 4),
                                 _buildDropdown(),
                               ],
@@ -313,7 +305,6 @@ class _VaccineIntakeDialogState extends State<VaccineIntakeDialog> {
                       const SizedBox(height: 4),
                       _buildField(
                         controller: _purposeController,
-                        maxLines: 4,
                         keyboardType: TextInputType.multiline,
                       ),
                       const SizedBox(height: 20),
