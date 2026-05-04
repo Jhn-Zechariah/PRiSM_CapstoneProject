@@ -2,7 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import '../../../auth/presentation/components/text.dart';
+import '../../../../core/widgets/text.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:prism_app/features/auth/presentation/components/textfield.dart';
-
-import '../../../auth/presentation/components/button.dart';
+import '../../../../core/widgets/button.dart';
+import '../../../../core/widgets/textfield.dart';
 
 class UpdatePigWeightDialog extends StatefulWidget {
   final String pigLabel;

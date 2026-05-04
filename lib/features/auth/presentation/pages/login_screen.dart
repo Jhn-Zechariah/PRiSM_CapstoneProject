@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
-import 'package:prism_app/features/auth/presentation/components/textfield.dart';
-import 'package:prism_app/features/auth/presentation/components/button.dart';
+import 'package:prism_app/core/widgets/button.dart';
 
 import '../../../../core/widgets/snackbar.dart';
+import '../../../../core/widgets/textfield.dart';
 import '../components/social_logins.dart';
 
 class LoginScreen extends StatefulWidget {

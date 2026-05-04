@@ -1,13 +1,14 @@
 // ignore_for_file: camel_case_types
 
 import 'package:flutter/material.dart';
-import 'package:prism_app/features/auth/presentation/components/build_tab_bar.dart';
-import 'package:prism_app/features/auth/presentation/components/medicine_card_widget.dart';
+import 'package:prism_app/core/widgets/build_tab_bar.dart';
+import 'package:prism_app/features/medication/presentation/components/medicine_card_widget.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import '../../../auth/presentation/components/search_bar.dart';
 import 'package:prism_app/features/medication/presentation/pages/addnewitem.dart';
-import 'package:prism_app/features/medication/presentation/pages/updateitem.dart'; // 🔹 Added
+import 'package:prism_app/features/medication/presentation/pages/updateitem.dart';
+
+import '../../../../core/widgets/search_bar.dart'; // 🔹 Added
 
 class meds_Stocks extends StatefulWidget {
   final VoidCallback? onSwitchToPigMeds;

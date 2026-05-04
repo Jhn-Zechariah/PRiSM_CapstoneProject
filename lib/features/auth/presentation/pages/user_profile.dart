@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
-import 'package:prism_app/features/auth/presentation/components/text.dart';
-import 'package:prism_app/features/auth/presentation/components/button.dart';
-import 'package:prism_app/features/auth/presentation/components/textfield.dart';
+import 'package:prism_app/core/widgets/button.dart';
 import '../../../../core/widgets/snackbar.dart';
+import '../../../../core/widgets/text.dart';
+import '../../../../core/widgets/textfield.dart';
 import '../cubits/profile_cubit.dart';
 import '../cubits/profile_states.dart';
 import '../cubits/auth_cubit.dart';

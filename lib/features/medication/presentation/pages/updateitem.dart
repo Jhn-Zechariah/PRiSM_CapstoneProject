@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:prism_app/features/auth/presentation/components/textfield.dart';
-import 'package:prism_app/features/auth/presentation/components/dropdown.dart';
-import 'package:prism_app/features/auth/presentation/components/button.dart';
-import 'package:prism_app/features/auth/presentation/components/confirmation_box.dart';
+import 'package:prism_app/core/widgets/button.dart';
 import 'package:prism_app/core/widgets/snackbar.dart';
+
+import '../../../../core/widgets/confirmation_box.dart';
+import '../../../../core/widgets/dropdown.dart';
+import '../../../../core/widgets/textfield.dart';
 
 /// A dialog widget for editing an existing inventory item.
 /// Requires an [item] map pre-populated with the item's current data.
