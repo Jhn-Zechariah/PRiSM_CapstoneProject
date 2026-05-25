@@ -6,6 +6,8 @@ import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/firebase_options.dart';
 import 'package:prism_app/core/widgets/splash_screen.dart';
 import 'package:prism_app/core/theme/app_theme.dart';
+import 'features/feeding/data/firestore_feeding_record_repo.dart';
+import 'features/feeding/presentation/cubits/feeding_record_cubit.dart';
 import 'features/pig_management/data/firestore_pig_repo.dart';
 import 'features/auth/data/firestore_profile_repo.dart';
 import 'features/pig_management/presentation/cubits/pig_cubit.dart';
@@ -55,7 +57,10 @@ class _MyAppState extends State<MyApp> {
         BlocProvider(
           // You provide the concrete Firebase version here
           create: (context) => PigCubit(pigRepo: FirebasePigRepo()),
-        )
+        ),
+        BlocProvider<FeedingRecordCubit>(
+          create: (context) => FeedingRecordCubit(feedingRepo: FirestoreFeedingRecordRepo()),
+        ),
       ],
       //app
       child: MaterialApp(
