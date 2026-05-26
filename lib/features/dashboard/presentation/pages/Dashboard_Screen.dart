@@ -1,8 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
+
+const String esp32Ip = "192.168.1.100";
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -12,11 +17,85 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  int selectedIndex = 2; // Default to Home
+  int selectedIndex = 2;
+
+  Timer? _timer;
+  bool _isLoading = true;
+  String _connectionStatus = "Connecting..."; // now displayed in header
+
+  double _tempMax     = 0;
+  String _tempStatus  = "Normal";
+  bool   _isActivated = false;
+
+  String _sprinklerStatus = "OFF";
+  String _lastActivated   = "—";
+  String _mode            = "—";
+  String _pigStatus       = "—";
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchData() async {
+    try {
+      final response = await http
+          .get(Uri.parse("http://$esp32Ip/data"))
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _tempMax         = (data['tempMax']   as num?)?.toDouble() ?? _tempMax;
+          _tempStatus      = data['tempStatus'] as String? ?? _tempStatus;
+          _isActivated     = data['sprinkler']  as bool?   ?? _isActivated;
+          _sprinklerStatus = _isActivated ? "ON" : "OFF";
+          _lastActivated   = data['lastActivated'] as String? ?? _lastActivated;
+          _mode            = data['mode']       as String? ?? _mode;
+          _pigStatus       = data['pigStatus']  as String? ?? _pigStatus;
+          _isLoading        = false;
+          _connectionStatus = "Live";
+        });
+      }
+    } catch (_) {
+      setState(() {
+        _connectionStatus = "No connection";
+        _isLoading        = false;
+      });
+    }
+  }
+
+  Future<void> _toggleSprinkler(bool turnOn) async {
+    try {
+      final state    = turnOn ? "on" : "off";
+      final response = await http
+          .get(Uri.parse("http://$esp32Ip/sprinkler?state=$state"))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        setState(() {
+          _isActivated     = turnOn;
+          _sprinklerStatus = turnOn ? "ON" : "OFF";
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Failed to control sprinkler")),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Determine theme state for dynamic styling
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
@@ -27,7 +106,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             const AppTopBar(),
             const SizedBox(height: 16),
-
             _buildHeader(isDarkMode),
             const SizedBox(height: 16),
             _buildWeatherCard(isDarkMode),
@@ -46,8 +124,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- HEADER SECTION (FIXED TO SHOW LOGO_LIGHT) ---
+  // FIX: _connectionStatus is now rendered as a status badge
   Widget _buildHeader(bool isDark) {
+    final isLive = _connectionStatus == "Live";
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -83,6 +162,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
+            // Connection status badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isLive
+                    ? Colors.green.withValues(alpha: 0.15)
+                    : Colors.red.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isLive ? Colors.green : Colors.red,
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isLive ? Icons.wifi : Icons.wifi_off,
+                    size: 12,
+                    color: isLive ? Colors.green : Colors.red,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _connectionStatus,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isLive ? Colors.green : Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ],
@@ -103,28 +215,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Normal",
+                _tempStatus,
                 style: TextStyle(
                   color: isDark ? Colors.white60 : Colors.grey,
                   fontSize: 12,
                 ),
               ),
-              Text(
-                "35°",
-                style: TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-              ),
+              _isLoading
+                  ? const SizedBox(
+                      height: 40,
+                      width: 40,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      "${_tempMax.toStringAsFixed(1)}°",
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
             ],
           ),
           ElevatedButton.icon(
-            onPressed: () {},
+            onPressed: () => _toggleSprinkler(!_isActivated),
             icon: const Icon(Icons.water_drop_outlined, size: 16),
-            label: const Text("Activate"),
+            label: Text(_isActivated ? "Active" : "Activate"),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+              backgroundColor: _isActivated ? Colors.green : Colors.red,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -136,7 +254,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- QUICK STATS ROW ---
   Widget _buildQuickStatsRow(bool isDark) {
     return Row(
       children: [
@@ -145,7 +262,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             isDark,
             Icons.bar_chart,
             "Quick Stats",
-            const ["Max Temp: ", "Sprinkler: ", "Pig Status: "],
+            [
+              "Max Temp: ${_isLoading ? '…' : '${_tempMax.toStringAsFixed(1)}°C'}",
+              "Sprinkler: $_sprinklerStatus",
+              "Pig Status: $_pigStatus",
+            ],
             Colors.green.withValues(alpha: 0.2),
           ),
         ),
@@ -155,7 +276,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             isDark,
             Icons.water_outlined,
             "Control",
-            const ["Status: ", "Last: ", "Mode: "],
+            [
+              "Status: $_sprinklerStatus",
+              "Last: $_lastActivated",
+              "Mode: $_mode",
+            ],
             Colors.blue.withValues(alpha: 0.2),
           ),
         ),
@@ -173,8 +298,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color:
-            backgroundColor ??
+        color: backgroundColor ??
             (isDark ? const Color(0xFF2C2C2C) : Colors.white),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -217,7 +341,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- TEMPERATURE GRAPH ---
   Widget _buildTemperatureGraph(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -281,7 +404,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- BOTTOM STATS ---
   Widget _buildBottomStatsRow(bool isDark) {
     return Row(
       children: [
