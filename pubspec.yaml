@@ -48,6 +48,7 @@ dependencies:
   flutter_facebook_auth: ^7.1.6
   cloud_firestore: ^6.3.0
   flutter_svg: ^2.2.4
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:

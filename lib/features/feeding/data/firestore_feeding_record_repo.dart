@@ -1,26 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../domain/model/app_feeding_history.dart';
 import '../domain/model/app_feeding_record.dart';
 import '../domain/repo/feeding_record_repo.dart';
 
 class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // // Collection Reference
-  // CollectionReference get _feedingsCollection => _firestore.collection('feeding_records');
-  //
-  // // --- READ ---
-  // @override
-  // Stream<List<AppFeedingRecord>> streamFeedingRecords(String userId) {
-  //   return _feedingsCollection
-  //       .where('userId', isEqualTo: userId) // Only fetch this user's pigs
-  //       .orderBy('createdAt', descending: true)
-  //       .snapshots()
-  //       .map((snapshot) {
-  //     return snapshot.docs.map((doc) {
-  //       return AppPig.fromJson(doc.data() as Map<String, dynamic>, doc.id);
-  //     }).toList();
-  //   });
-  // }
+
 
   @override
   Future<void> addFeedingRecord(AppFeedingRecord record) async {
@@ -41,7 +27,7 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
     await docRef.set(newRecord.toMap());
   }
 
-  // 👇 Implement the batch function
+  // Implement the batch function
   @override
   Future<void> addBatchFeedingRecords(List<AppFeedingRecord> records) async {
     final batch = _firestore.batch();
@@ -81,4 +67,18 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
         .map((doc) => AppFeedingRecord.fromMap(doc.data()))
         .toList();
   }
+
+  // ── 2. STREAM GLOBAL HISTORY (Merged here) ───────────────────────
+  Stream<List<AppFeedingHistory>> streamGlobalFeedingHistory() {
+    return _firestore
+        .collectionGroup('feeding_records') // Targets all subcollections across all pigs
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return AppFeedingHistory.fromJson(doc.data(), doc.id);
+      }).toList();
+    });
+  }
+
 }

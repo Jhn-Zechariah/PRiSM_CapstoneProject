@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
+import '../../../../core/widgets/header.dart';
 
 class TemperatureMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToHumidity;
@@ -52,7 +53,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildTitle(),
+                CustomFeatureHeader(
+                  title: 'Temperature',
+                  icon:  Icons.thermostat,
+                ),
                 const SizedBox(height: 16),
                 CustomTabBar(
                   selectedIndex: _selectedTab,
@@ -85,28 +89,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
-  Widget _buildTitle() {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      children: [
-        Icon(
-          Icons.thermostat,
-          size: 32,
-          color: isDarkMode ? Colors.white : Colors.black,
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'Temperature',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w900,
-            color: isDarkMode ? Colors.white : Colors.black,
-          ),
-        ),
-        const Spacer(),
-      ],
-    );
-  }
 
   Widget _buildStatusCard() {
     return Container(
