@@ -13,7 +13,9 @@ import '../../../pig_management/presentation/cubits/pig_cubit.dart';
 import '../../../pig_management/presentation/cubits/pig_states.dart';
 
 // --- Feature Widgets & Pages ---
+import '../../data/firestore_feeding_record_repo.dart';
 import '../components/feeding_card.dart';
+import '../cubits/feeding_history_cubit.dart';
 import '../cubits/feeding_record_cubit.dart';
 import 'selectpigfeedpopup.dart';
 import 'feedinghistory.dart';
@@ -122,10 +124,22 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                       CustomTextLink(
                         text: 'View feeding history',
                         onPressed: () {
+                          // Make sure you look up your active/loaded pig state context here
+                          final pigState = context.read<PigCubit>().state;
+                          List<AppPig> allPigs = [];
+                          if (pigState is PigLoaded) {
+                            allPigs = pigState.allPigs;
+                          }
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => const FeedingHistoryPage(),
+                              builder: (context) => BlocProvider(
+                                create: (context) => FeedingHistoryCubit(
+                                  repo: FirestoreFeedingRecordRepo(),
+                                )..loadGlobalFeedingHistory(),
+                                child: FeedingHistoryPage(availablePigs: allPigs), // 👈 Passed pigs list here
+                              ),
                             ),
                           );
                         },

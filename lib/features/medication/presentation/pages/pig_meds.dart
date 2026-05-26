@@ -10,6 +10,8 @@ import 'package:prism_app/features/pig_management/presentation/cubits/pig_cubit.
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../../core/widgets/header.dart';
+
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
 
@@ -32,19 +34,14 @@ class _pig_medsState extends State<pig_meds> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const AppTopBar(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
 
-          Row(
-            children: [
-              const Icon(Symbols.vaccines, size: 32),
-              const SizedBox(width: 12),
-              const Text(
-                'Healthcare',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
-              ),
-              const Spacer(),
-            ],
+          CustomFeatureHeader(
+            title: 'Healthcare',
+            icon: Symbols.vaccines,
           ),
+
+          const SizedBox(height: 17),
 
           Expanded(
             child: Column(
