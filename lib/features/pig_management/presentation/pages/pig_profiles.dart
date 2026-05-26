@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/pig_management/presentation/pages/pig_weight_history.dart';
 
 // Adjust these imports based on your exact folder structure
+import '../../../../core/widgets/header.dart';
+import '../../../../core/widgets/textlink.dart';
 import '../../data/firestore_pig_repo.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import '../components/pig_profile_card.dart';
@@ -27,28 +29,21 @@ class PigProfilesScreen extends StatelessWidget {
           const AppTopBar(),
           const SizedBox(height: 16),
 
-          // Header Row
-          Row(
-            children: [
-              const Icon(Icons.savings_outlined, size: 32),
-              const SizedBox(width: 12),
-              const Text(
-                'Pig Profiles',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.add, size: 28),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const PigInformationScreen(),
-                    ),
-                  );
-                },
-              ),
-            ],
+          CustomFeatureHeader(
+            title: 'Pig Profiles',
+            icon: Icons.savings_outlined,
+            trailing: IconButton(
+              icon: const Icon(Icons.add, size: 28),
+              color: isDarkMode ? Colors.white : Colors.black,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const PigInformationScreen(),
+                  ),
+                );
+              },
+            ),
           ),
           const SizedBox(height: 5),
 
@@ -103,8 +98,9 @@ class PigProfilesScreen extends StatelessWidget {
                             ),
                           ),
 
-                          // RIGHT SIDE: View Weight History Link
-                          TextButton(
+                          // RIGHT SIDE: View Weight History Link Using Global Component
+                          CustomTextLink(
+                            text: 'View weight history',
                             onPressed: () {
                               Navigator.push(
                                 context,
@@ -121,18 +117,6 @@ class PigProfilesScreen extends StatelessWidget {
                                 ),
                               );
                             },
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: const Size(0, 30),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            child: const Text(
-                              'View weight history',
-                              style: TextStyle(
-                                color: Color(0xFF3B82F6),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
                           ),
                         ],
                       ),

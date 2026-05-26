@@ -7,8 +7,9 @@ import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/features/medication/presentation/pages/addnewitem.dart';
 import 'package:prism_app/features/medication/presentation/pages/updateitem.dart';
+import '../../../../core/widgets/header.dart';
+import '../../../../core/widgets/search_bar.dart';
 
-import '../../../../core/widgets/search_bar.dart'; // 🔹 Added
 
 class meds_Stocks extends StatefulWidget {
   final VoidCallback? onSwitchToPigMeds;
@@ -88,7 +89,6 @@ class _meds_StocksState extends State<meds_Stocks> {
     }
   }
 
-  // 🔹 Opens Update dialog and updates item in list
   void _showUpdateDialog(Map<String, dynamic> med, int masterIndex) async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -120,32 +120,28 @@ class _meds_StocksState extends State<meds_Stocks> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const AppTopBar(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 11),
 
-          // ── Header ───────────────────────────────────────────────
-          Row(
-            children: [
-              const Icon(Symbols.vaccines, size: 32),
-              const SizedBox(width: 12),
-              const Text(
-                'Healthcare',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.add, size: 28),
-                onPressed: _showAddNewItemDialog,
-              ),
-            ],
+          // ── Cleaned Global Header Implementation ───────────────────
+          CustomFeatureHeader(
+            title: 'Healthcare',
+            icon: Symbols.vaccines,
+            trailing: IconButton(
+              icon: const Icon(Icons.add, size: 28),
+              color: isDarkMode ? Colors.white : Colors.black,
+              onPressed: _showAddNewItemDialog,
+            ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
           Expanded(
             child: Column(
@@ -182,32 +178,33 @@ class _meds_StocksState extends State<meds_Stocks> {
                   child: isLoading
                       ? const Center(child: CircularProgressIndicator())
                       : medicines.isEmpty
-                          ? const Center(
-                              child: Text(
-                                "No medicines found",
-                                style: TextStyle(color: Colors.black54),
-                              ),
-                            )
-                          : ListView.builder(
-                              itemCount: medicines.length,
-                              itemBuilder: (context, index) {
-                                final med = medicines[index];
+                      ? Center(
+                    child: Text(
+                      "No medicines found",
+                      style: TextStyle(
+                        color: isDarkMode ? Colors.white54 : Colors.black54,
+                      ),
+                    ),
+                  )
+                      : ListView.builder(
+                    itemCount: medicines.length,
+                    itemBuilder: (context, index) {
+                      final med = medicines[index];
 
-                                // 🔹 Find real index in master list
-                                final masterIndex = _allMedicines.indexWhere(
-                                  (m) => m["name"] == med["name"],
-                                );
+                      final masterIndex = _allMedicines.indexWhere(
+                            (m) => m["name"] == med["name"],
+                      );
 
-                                return MedicineCard(
-                                  name:       med["name"]     ?? "Unknown",
-                                  category:   med["category"] ?? "General",
-                                  stock:      med["stock"]    ?? 0,
-                                  expiryDate: med["expiry"]   ?? "N/A",
-                                  status:     med["status"]   ?? "Low",
-                                  onTap: () => _showUpdateDialog(med, masterIndex), // 🔹 Added
-                                );
-                              },
-                            ),
+                      return MedicineCard(
+                        name:       med["name"]     ?? "Unknown",
+                        category:   med["category"] ?? "General",
+                        stock:      med["stock"]    ?? 0,
+                        expiryDate: med["expiry"]   ?? "N/A",
+                        status:     med["status"]   ?? "Low",
+                        onTap: () => _showUpdateDialog(med, masterIndex),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),

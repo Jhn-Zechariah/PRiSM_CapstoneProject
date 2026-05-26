@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "927396793814-g328p3v80mvb2dv915ul68hc7uehlafh.apps.googleusercontent.com",
+          "client_id": "927396793814-26fefkcj878p61ahnauvtl7578gl1bms.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.codeVibers.prism_app",
-            "certificate_hash": "ad0428b2d5d8e21228776ca57ce878347dd0192c"
+            "certificate_hash": "16626e9388ff7575acb8b4b06b11d90ebbad6ce1"
           }
         },
         {
@@ -27,6 +27,14 @@
           "android_info": {
             "package_name": "com.codeVibers.prism_app",
             "certificate_hash": "b9e43d03c327e124ca50b9b4874127e59808ccd9"
+          }
+        },
+        {
+          "client_id": "927396793814-thf5fhcggq53in3v9qk3udvehf4lear3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.codeVibers.prism_app",
+            "certificate_hash": "c960c2c52f9191cbbf90bb8719f8c2d0a2e82046"
           }
         },
         {

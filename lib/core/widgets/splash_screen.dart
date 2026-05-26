@@ -6,7 +6,7 @@ import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 import 'loading.dart';
 import '../../features/auth/presentation/cubits/auth_cubit.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
-import 'bottom_nav.dart';
+import 'bottom_nav_and_drawer.dart';
 
 class SplashScreen extends StatefulWidget {
   // 1. Define the parameter to receive the function from main.dart
