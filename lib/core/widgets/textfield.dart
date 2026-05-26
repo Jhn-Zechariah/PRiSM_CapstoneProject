@@ -47,13 +47,17 @@ class CustomTextField extends StatelessWidget {
         ? (isDarkMode ? Colors.white54 : Colors.grey[500])
         : (isDarkMode ? Colors.white : Colors.black87);
 
-    final resolvedFillColor = fillColor ?? (isDisabled
-        ? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[200])
-        : (isDarkMode ? const Color(0xFF1E1E1E) : Colors.white));
+    final resolvedFillColor =
+        fillColor ??
+        (isDisabled
+            ? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[200])
+            : (isDarkMode ? const Color(0xFF1E1E1E) : Colors.white));
 
-    final resolvedBorderColor = borderColor ?? (isDisabled
-        ? (isDarkMode ? Colors.white12 : Colors.grey[300]!)
-        : (isDarkMode ? Colors.white24 : Colors.black26));
+    final resolvedBorderColor =
+        borderColor ??
+        (isDisabled
+            ? (isDarkMode ? Colors.white12 : Colors.grey[300]!)
+            : (isDarkMode ? Colors.white24 : Colors.black26));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,10 +91,7 @@ class CustomTextField extends StatelessWidget {
             validator: validator,
             enabled: enabled,
             keyboardType: keyboardType,
-            style: TextStyle(
-              fontSize: 14,
-              color: resolvedTextColor,
-            ),
+            style: TextStyle(fontSize: 14, color: resolvedTextColor),
             decoration: InputDecoration(
               labelText: labelText,
               labelStyle: TextStyle(
@@ -102,11 +103,11 @@ class CustomTextField extends StatelessWidget {
               fillColor: resolvedFillColor,
               prefixIcon: prefixIcon != null
                   ? Icon(
-                prefixIcon,
-                color: isDisabled
-                    ? (isDarkMode ? Colors.white30 : Colors.grey[400])
-                    : (isDarkMode ? Colors.white60 : Colors.black54),
-              )
+                      prefixIcon,
+                      color: isDisabled
+                          ? (isDarkMode ? Colors.white30 : Colors.grey[400])
+                          : (isDarkMode ? Colors.white60 : Colors.black54),
+                    )
                   : null,
               suffixIcon: suffixIcon,
 
