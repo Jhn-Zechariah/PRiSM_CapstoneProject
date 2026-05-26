@@ -77,51 +77,40 @@ class _SignupScreenState extends State<SignupScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 60),
+                  const SizedBox(height: 20),
 
                   // Dynamically swap the logo
                   SvgPicture.asset(
                     isDarkMode
                         ? 'assets/logo_dark.svg'
                         : 'assets/logo_light.svg',
-                    width: 200,
+                    width: 120,
                   ),
 
                   // Welcome text
                   Text(
-                    "Let's Get You Started!",
+                    "Create account",
                     style: TextStyle(
-                      fontSize: 25,
+                      fontSize: 30,
                       fontWeight: FontWeight.bold,
                       color: isDarkMode ? Colors.white : Colors.black,
                     ),
                   ),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        "Already have an account?",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: isDarkMode ? Colors.white70 : Colors.black54,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: widget.togglePages,
-                        child: Text(
-                          " Log in",
-                          style: TextStyle(fontSize: 14, color: Colors.blue),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    "Let's get you started",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
                   ),
+
                   const SizedBox(height: 15),
 
                   // Username Field
                   CustomTextField(
                     controller: usernameController,
                     labelText: "Username",
+                    border: 10,
                     prefixIcon: Icons.account_circle_outlined,
                     validator: (value) => value == null || value.isEmpty
                         ? "Please enter your username"
@@ -133,6 +122,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   CustomTextField(
                     controller: emailController,
                     labelText: "Email",
+                    border: 10,
                     prefixIcon: Icons.email_outlined,
                     validator: (value) => value == null || value.isEmpty
                         ? "Please enter your email"
@@ -144,6 +134,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   CustomTextField(
                     controller: passwordController,
                     labelText: "Password",
+                    border: 10,
                     prefixIcon: Icons.lock_outlined,
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
@@ -169,6 +160,7 @@ class _SignupScreenState extends State<SignupScreen> {
                   CustomTextField(
                     controller: confirmPasswordController,
                     labelText: "Confirm Password",
+                    border: 10,
                     prefixIcon: Icons.lock_outlined,
                     obscureText: _obscureConfirmPassword,
                     suffixIcon: IconButton(
@@ -185,8 +177,10 @@ class _SignupScreenState extends State<SignupScreen> {
                       },
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) return "Please confirm your password";
-                      if (value != passwordController.text) return "Passwords do not match";
+                      if (value == null || value.isEmpty)
+                        return "Please confirm your password";
+                      if (value != passwordController.text)
+                        return "Passwords do not match";
                       return null;
                     },
                   ),
@@ -194,7 +188,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                   // Signup Button
                   CustomButton(
-                    text: "Sign Up",
+                    text: "Create Account",
                     borderColor: false,
                     onPressed: _signup,
                     backgroundColor: Colors.blue,
@@ -235,21 +229,33 @@ class _SignupScreenState extends State<SignupScreen> {
                     children: [
                       SocialLoginButton(
                         asset: 'assets/google.svg',
-                        label: "Google",
+                        label: "Sign up with Google",
+
                         isDarkMode: isDarkMode,
                         onTap: () async {
                           //Google Sign-In function here
                           authCubit.googleSignIn();
                         },
                       ),
-                      const SizedBox(width: 20),
-                      SocialLoginButton(
-                        asset: 'assets/facebook.svg',
-                        label: "Facebook",
-                        isDarkMode: isDarkMode,
-                        onTap: () {
-                          //Facebook Sign-In logic here
-                        },
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "Already have an account?",
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDarkMode ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: widget.togglePages,
+                        child: Text(
+                          " Log in",
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
+                        ),
                       ),
                     ],
                   ),
