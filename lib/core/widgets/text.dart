@@ -9,6 +9,7 @@ class CustomText extends StatelessWidget {
   final double fontSize;
   final FontWeight? fontWeight;
   final String? prefix;
+  final String? suffix;
   final Color? textColor;
 
   const CustomText({
@@ -18,6 +19,7 @@ class CustomText extends StatelessWidget {
     this.fontSize = 16,
     this.fontWeight,
     this.prefix,
+    this.suffix,
     this.textColor,
   });
 

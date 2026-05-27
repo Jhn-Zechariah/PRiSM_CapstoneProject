@@ -56,7 +56,6 @@ class TemperatureMonitoring extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
 
-                    // Live Telemetry Signal Status Indicator
                     Row(
                       children: [
                         Container(
