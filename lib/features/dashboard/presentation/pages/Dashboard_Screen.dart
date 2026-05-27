@@ -37,6 +37,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _fetchData();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
+    if (!mounted) return;
   }
 
   @override

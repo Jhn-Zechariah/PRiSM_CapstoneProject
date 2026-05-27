@@ -17,6 +17,10 @@ import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart'
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
 
+// ── 🆕 ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
+import '../../features/monitoring/presentation/cubits/temperature_monitoring_cubit.dart';
+import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
+
 class AppNav extends StatefulWidget {
   final VoidCallback onThemeToggle;
 
@@ -45,30 +49,39 @@ class _AppNavState extends State<AppNav> {
 
     final List<Widget> screens = [
       PigProfilesScreen(), // Index 0: Pig Profiles
-      _showHumidity // Index 1: Temperature / Humidity
+
+      // Index 1: Temperature / Humidity Monitor Option
+      _showHumidity
           ? HumidityMonitoring(
-              onSwitchToTemperature: () {
-                setState(() => _showHumidity = false);
-              },
-            )
-          : TemperatureMonitoring(
-              onSwitchToHumidity: () {
-                setState(() => _showHumidity = true);
-              },
-            ),
+        onSwitchToTemperature: () {
+          setState(() => _showHumidity = false);
+        },
+      )
+          : BlocProvider(
+        // 🔹 🆕 Providing the cubit right here eliminates the ProviderNotFound crash!
+        create: (context) => TemperatureMonitoringCubit(
+          repo: FirestoreTemperatureMonitoringRepo(),
+        )..startMonitoring(), // Triggers automatic hardware background updates
+        child: TemperatureMonitoring(
+          onSwitchToHumidity: () {
+            setState(() => _showHumidity = true);
+          },
+        ),
+      ),
+
       const DashboardScreen(), // Index 2: Home / Dashboard
       const FeedingRecordsPage(), // Index 3: Feeding Records
       _showPigMeds // Index 4: Pig Meds
           ? pig_meds(
-              onSwitchToStock: () {
-                setState(() => _showPigMeds = false);
-              },
-            )
+        onSwitchToStock: () {
+          setState(() => _showPigMeds = false);
+        },
+      )
           : meds_Stocks(
-              onSwitchToPigMeds: () {
-                setState(() => _showPigMeds = true);
-              },
-            ),
+        onSwitchToPigMeds: () {
+          setState(() => _showPigMeds = true);
+        },
+      ),
     ];
 
     return Scaffold(
@@ -99,23 +112,23 @@ class _AppNavState extends State<AppNav> {
                     ),
                   ),
                   const SizedBox(width: 15),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CustomText(
-                      type: TextType.username,
-                      textColor: Colors.white,
-                      fontSize: 18,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CustomText(
+                          type: TextType.username,
+                          textColor: Colors.white,
+                          fontSize: 18,
+                        ),
+                        CustomText(
+                          type: TextType.email,
+                          textColor: Colors.white,
+                          fontSize: 11,
+                        )
+                      ],
                     ),
-                    CustomText(
-                      type: TextType.email,
-                      textColor: Colors.white,
-                      fontSize: 11,
-                    )
-                  ],
-                ),
-              ),
+                  ),
                 ],
               ),
             ),
@@ -159,7 +172,7 @@ class _AppNavState extends State<AppNav> {
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-              () {
+                  () {
                 widget.onThemeToggle();
                 Navigator.pop(context);
               },
