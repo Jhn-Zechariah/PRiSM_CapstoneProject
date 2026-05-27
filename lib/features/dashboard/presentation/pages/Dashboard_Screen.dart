@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -6,8 +5,6 @@ import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
-
-const String esp32Ip = "192.168.1.100";
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -19,79 +16,61 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int selectedIndex = 2;
 
-  Timer? _timer;
-  bool _isLoading = true;
-  String _connectionStatus = "Connecting..."; // now displayed in header
-
+  // Sensor data variables
+  double _waterPct = 0;
+  String _waterStatus = "Unknown";
+  double _humidity = 0;
   double _tempMax = 0;
+  double _tempAvg = 0;
+  double _tempMin = 0;
   String _tempStatus = "Normal";
-  bool _isActivated = false;
-
-  String _sprinklerStatus = "OFF";
-  String _lastActivated = "—";
-  String _mode = "—";
-  String _pigStatus = "—";
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
-    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
-    if (!mounted) return;
+    _startFetching();
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  void _startFetching() {
+    Future.delayed(Duration.zero, () async {
+      while (mounted) {
+        await _fetchSensorData();
+        await Future.delayed(const Duration(seconds: 3));
+      }
+    });
   }
 
-  Future<void> _fetchData() async {
+  Future<void> _fetchSensorData() async {
     try {
       final response = await http
-          .get(Uri.parse("http://$esp32Ip/data"))
+          .get(Uri.parse("http://192.168.1.100/data"))
           .timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
-          _tempMax = (data['tempMax'] as num?)?.toDouble() ?? _tempMax;
-          _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
-          _isActivated = data['sprinkler'] as bool? ?? _isActivated;
-          _sprinklerStatus = _isActivated ? "ON" : "OFF";
-          _lastActivated = data['lastActivated'] as String? ?? _lastActivated;
-          _mode = data['mode'] as String? ?? _mode;
-          _pigStatus = data['pigStatus'] as String? ?? _pigStatus;
-          _isLoading = false;
-          _connectionStatus = "Live";
-        });
-      }
-    } catch (_) {
-      setState(() {
-        _connectionStatus = "No connection";
-        _isLoading = false;
-      });
-    }
-  }
+          _waterPct = (data['waterPct'] as num).toDouble();
+          _humidity = (data['humidity'] as num).toDouble();
+          _tempMax = (data['tempMax'] as num).toDouble();
+          _tempAvg = (data['tempAvg'] as num).toDouble();
+          _tempMin = (data['tempMin'] as num).toDouble();
+          _tempStatus = data['tempStatus'] ?? "Normal";
 
-  Future<void> _toggleSprinkler(bool turnOn) async {
-    try {
-      final state = turnOn ? "on" : "off";
-      final response = await http
-          .get(Uri.parse("http://$esp32Ip/sprinkler?state=$state"))
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        setState(() {
-          _isActivated = turnOn;
-          _sprinklerStatus = turnOn ? "ON" : "OFF";
+          if (_waterPct >= 70) {
+            _waterStatus = "High";
+          } else if (_waterPct >= 40) {
+            _waterStatus = "Medium";
+          } else if (_waterPct > 10) {
+            _waterStatus = "Low";
+          } else {
+            _waterStatus = "Critical";
+          }
         });
       }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to control sprinkler")),
-        );
-      }
+    } catch (e) {
+      setState(() {
+        _waterStatus = "Offline";
+      });
     }
   }
 
@@ -125,9 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // FIX: _connectionStatus is now rendered as a status badge
   Widget _buildHeader(bool isDark) {
-    final isLive = _connectionStatus == "Live";
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -152,46 +129,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const CustomText(
                     type: TextType.username,
                     prefix: 'Hello, ',
-                    suffix: '👋',
                     fontSize: 20,
                   ),
                   Text(
                     "What do you want today?",
                     style: TextStyle(
                       color: isDark ? Colors.white60 : Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Connection status badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: isLive
-                    ? Colors.green.withValues(alpha: 0.15)
-                    : Colors.red.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isLive ? Colors.green : Colors.red,
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isLive ? Icons.wifi : Icons.wifi_off,
-                    size: 12,
-                    color: isLive ? Colors.green : Colors.red,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _connectionStatus,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: isLive ? Colors.green : Colors.red,
                     ),
                   ),
                 ],
@@ -204,6 +147,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildWeatherCard(bool isDark) {
+    Color statusColor;
+    if (_tempStatus == "Fever Alert") {
+      statusColor = Colors.red;
+    } else if (_tempStatus == "Elevated") {
+      statusColor = Colors.orange;
+    } else {
+      statusColor = Colors.green;
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -219,32 +171,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Text(
                 _tempStatus,
                 style: TextStyle(
-                  color: isDark ? Colors.white60 : Colors.grey,
+                  color: statusColor,
                   fontSize: 12,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              _isLoading
-                  ? const SizedBox(
-                      height: 40,
-                      width: 40,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(
-                      "${_tempMax.toStringAsFixed(1)}°",
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black,
-                      ),
-                    ),
+              Text(
+                "${_tempMax.toStringAsFixed(1)}°",
+                style: TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
             ],
           ),
           ElevatedButton.icon(
-            onPressed: () => _toggleSprinkler(!_isActivated),
+            onPressed: () {},
             icon: const Icon(Icons.water_drop_outlined, size: 16),
-            label: Text(_isActivated ? "Active" : "Activate"),
+            label: const Text("Activate"),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _isActivated ? Colors.green : Colors.red,
+              backgroundColor: Colors.red,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -265,9 +212,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Icons.bar_chart,
             "Quick Stats",
             [
-              "Max Temp: ${_isLoading ? '…' : '${_tempMax.toStringAsFixed(1)}°C'}",
-              "Sprinkler: $_sprinklerStatus",
-              "Pig Status: $_pigStatus",
+              "Max Temp: ${_tempMax.toStringAsFixed(1)}°",
+              "Avg Temp: ${_tempAvg.toStringAsFixed(1)}°",
+              "Pig Status: $_tempStatus",
             ],
             Colors.green.withValues(alpha: 0.2),
           ),
@@ -279,9 +226,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Icons.water_outlined,
             "Control",
             [
-              "Status: $_sprinklerStatus",
-              "Last: $_lastActivated",
-              "Mode: $_mode",
+              "Humidity: ${_humidity.toStringAsFixed(1)}%",
+              "Min Temp: ${_tempMin.toStringAsFixed(1)}°",
+              "Mode: Auto",
             ],
             Colors.blue.withValues(alpha: 0.2),
           ),
@@ -300,8 +247,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color:
-            backgroundColor ??
+        color: backgroundColor ??
             (isDark ? const Color(0xFF2C2C2C) : Colors.white),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -350,7 +296,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       decoration: BoxDecoration(
         color: isDark
             ? const Color(0xFF3B72FF).withValues(alpha: 0.2)
-            : const Color(0xFFB0C4DE),
+            : const Color(0xFFDCEAF5),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -458,16 +404,101 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         const SizedBox(width: 13),
+        // ✅ Water Level Card
         Flexible(
           flex: 1,
-          child: _buildStatCard(
-            isDark,
-            "Feeding Schedule",
-            "10:00 AM",
-            "5:00 PM",
-          ),
+          child: _buildWaterLevelCard(isDark),
         ),
       ],
+    );
+  }
+
+  Widget _buildWaterLevelCard(bool isDark) {
+    Color statusColor;
+    if (_waterStatus == "High") {
+      statusColor = Colors.green;
+    } else if (_waterStatus == "Medium") {
+      statusColor = Colors.orange;
+    } else if (_waterStatus == "Low") {
+      statusColor = Colors.red;
+    } else if (_waterStatus == "Critical") {
+      statusColor = Colors.red.shade900;
+    } else {
+      statusColor = Colors.grey;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.water_outlined,
+                size: 20,
+                color: Color(0xFF3333CC),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                "Water Level",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Level: ${_waterPct.toStringAsFixed(0)}%",
+            style: TextStyle(
+              color: isDark
+                  ? Colors.white60
+                  : const Color.fromARGB(255, 112, 112, 112),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Text(
+                "Status: ",
+                style: TextStyle(
+                  color: isDark
+                      ? Colors.white60
+                      : const Color.fromARGB(255, 112, 112, 112),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                _waterStatus,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: _waterPct / 100,
+              minHeight: 6,
+              backgroundColor:
+                  isDark ? Colors.white12 : Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -499,65 +530,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            "Based on current conditions, we recommend activating the sprinkler system for 15 minutes to maintain optimal humidity levels.",
+            _waterStatus == "Critical" || _waterStatus == "Low"
+                ? "Water level is $_waterStatus! Please refill the tank immediately to ensure proper hydration for the pigs."
+                : _tempStatus == "Fever Alert"
+                    ? "Fever detected! Activate the sprinkler system immediately and contact your veterinarian."
+                    : _tempStatus == "Elevated"
+                        ? "Temperature is elevated. Consider activating the sprinkler for 15 minutes to cool down."
+                        : "All conditions are normal. No immediate action required. Keep monitoring regularly.",
             style: TextStyle(
               color: isDark
                   ? Colors.white60
                   : const Color.fromARGB(255, 112, 112, 112),
               fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(
-    bool isDark,
-    String label,
-    String value1,
-    String value2,
-  ) {
-    return Container(
-      width: 150,
-      height: 85,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF2C2C2C)
-            : const Color.fromRGBO(0, 48, 73, 0.2),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: isDark
-                  ? const Color.fromARGB(255, 255, 255, 255)
-                  : const Color.fromARGB(255, 0, 0, 0),
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value1,
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark
-                  ? Colors.white60
-                  : const Color.fromARGB(255, 112, 112, 112),
-            ),
-          ),
-          Text(
-            value2,
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark
-                  ? Colors.white60
-                  : const Color.fromARGB(255, 112, 112, 112),
             ),
           ),
         ],
