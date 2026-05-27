@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../pig_management/domain/model/app_pig.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/confirmation_box.dart';
 
+import '../../domain/model/app_feeding_record.dart';
+import '../cubits/feeding_record_cubit.dart';
+
 class SelectPigFeedPopup extends StatefulWidget {
-  final List<Map<String, dynamic>> pigs;
+  final List<AppPig> pigs;
   final Color pigColor;
 
   const SelectPigFeedPopup({
@@ -19,6 +24,9 @@ class SelectPigFeedPopup extends StatefulWidget {
 }
 
 class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
+  // 👇 1. Add FormKey for the text fields validation
+  final _formKey = GlobalKey<FormState>();
+
   late List<bool> _checked;
   final TextEditingController _feedTypeController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
@@ -52,21 +60,37 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
   }
 
   Future<void> _onSave() async {
+    // 1. Validate Form (Feed Type and Amount)
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // 2. Validate Checkboxes manually
+    final hasSelection = _checked.skip(1).any((isChecked) => isChecked);
+    if (!hasSelection) {
+      CustomSnackbar.show(
+        context: context,
+        message: 'Please select at least one pig.',
+      );
+      return;
+    }
+
+    // 3. Show Confirmation Dialog
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => CustomConfirmDialog(
+      builder: (_) => const CustomConfirmDialog(
         title: 'Confirm Feeding',
         content: 'Save feeding record for selected pigs?',
         confirmText: 'Save',
         cancelText: 'Cancel',
-        confirmColor: const Color(0xFFF5A623),
+        confirmColor: Color(0xFFF5A623),
       ),
     );
 
     if (confirmed != true) return;
-
     if (!mounted) return;
 
+    // 4. Show Loading Spinner
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -80,18 +104,49 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       ),
     );
 
-    await Future.delayed(const Duration(seconds: 1)); // replace with actual save logic
+    // 5. Extract form data
+    final feedType = _feedTypeController.text.trim();
+    final amount = double.parse(_amountController.text.trim());
+
+    // 6. Identify selected pigs
+    final selectedPigs = <AppPig>[];
+    for (int i = 0; i < widget.pigs.length; i++) {
+      // _checked[0] is "Select All", so pig checkboxes start at index 1
+      if (_checked[i + 1]) {
+        selectedPigs.add(widget.pigs[i]);
+      }
+    }
+
+    // 7. Map pigs to AppFeedingRecord models
+    final recordsToSave = selectedPigs.map((pig) => AppFeedingRecord(
+      id: '', // Will be assigned by Firestore
+      pigId: pig.pigId, // Make sure your AppPig model uses 'id' here
+      feedType: feedType,
+      amount: amount,
+      timestamp: DateTime.now(), // Or FieldValue.serverTimestamp() in the repo
+    )).toList();
+
+    // 8. Call Cubit
+    final success = await context.read<FeedingRecordCubit>().addBatchRecords(recordsToSave);
 
     if (!mounted) return;
 
-    Navigator.pop(context); // close loading
-    Navigator.pop(context); // close popup
+    // 9. Close the loading spinner
+    Navigator.pop(context);
 
-    if (!mounted) return;
-    CustomSnackbar.show(
-      context: context,
-      message: 'Feeding record saved successfully!',
-    );
+    if (success) {
+      Navigator.pop(context); // Close the popup entirely
+      CustomSnackbar.show(
+        context: context,
+        message: 'Successfully saved feeding records for ${selectedPigs.length} pig(s)!',
+      );
+    } else {
+      // If it fails, the popup stays open so they can try again
+      CustomSnackbar.show(
+        context: context,
+        message: 'Failed to save records. Please try again.',
+      );
+    }
   }
 
   @override
@@ -124,134 +179,142 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Pigs to feed:',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
-                          ),
-                          GestureDetector(
-                            onTap: () => Navigator.pop(context),
-                            child: Icon(
-                              Icons.close,
-                              size: 22,
-                              color: isDark ? Colors.white60 : Colors.black54,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 6),
-
-                      Text(
-                        'Select:',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isDark ? Colors.white60 : Colors.black54,
-                        ),
-                      ),
-
-                      const SizedBox(height: 6),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: isDark
-                                ? Colors.white12
-                                : Colors.grey.shade300,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
+                  // 👇 4. Wrap the Column in the Form
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            _buildCheckRow(
-                              label: 'Select All',
-                              checked: _checked[0],
-                              isSelectAll: true,
-                              isDark: isDark,
-                              onChanged: _onSelectAll,
+                            Text(
+                              'Pigs to feed:',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
                             ),
-                            Divider(
-                              height: 1,
-                              color: isDark
-                                  ? Colors.white12
-                                  : Colors.grey.shade200,
+                            GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Icon(
+                                Icons.close,
+                                size: 22,
+                                color: isDark ? Colors.white60 : Colors.black54,
+                              ),
                             ),
-                            ...List.generate(widget.pigs.length, (i) {
-                              final pig = widget.pigs[i];
-                              return Column(
-                                children: [
-                                  _buildCheckRow(
-                                    label: '${pig["name"]} - Stage',
-                                    checked: _checked[i + 1],
-                                    isSelectAll: false,
-                                    isDark: isDark,
-                                    onChanged: (val) => _onPigChecked(i, val),
-                                  ),
-                                  if (i < widget.pigs.length - 1)
-                                    Divider(
-                                      height: 1,
-                                      color: isDark
-                                          ? Colors.white12
-                                          : Colors.grey.shade200,
-                                    ),
-                                ],
-                              );
-                            }),
                           ],
                         ),
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: CustomTextField(
-                              controller: _feedTypeController,
-                              label: 'Feed Type:',
-                              border: 6,
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 12),
-                            ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Select:',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? Colors.white60 : Colors.black54,
                           ),
-
-                          const SizedBox(width: 12),
-
-                          Expanded(
-                            child: CustomTextField(
-                              controller: _amountController,
-                              label: 'Amount:',
-                              border: 6,
-                              keyboardType: TextInputType.number,
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 12),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: isDark ? Colors.white12 : Colors.grey.shade300,
                             ),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                        ],
-                      ),
+                          child: Column(
+                            children: [
+                              _buildCheckRow(
+                                label: 'Select All',
+                                checked: _checked[0],
+                                isSelectAll: true,
+                                isDark: isDark,
+                                onChanged: _onSelectAll,
+                              ),
+                              Divider(
+                                height: 1,
+                                color: isDark ? Colors.white12 : Colors.grey.shade200,
+                              ),
+                              ...List.generate(widget.pigs.length, (i) {
+                                final pig = widget.pigs[i];
+                                final displayLabel = '${pig.breed} | ${pig.displayId} - ${pig.stage}';
 
-                      const SizedBox(height: 16),
-
-                      CustomButton(
-                        text: 'Save',
-                        onPressed: _onSave,
-                        backgroundColor: const Color(0xFFF5A623),
-                        color: Colors.white,
-                        border: 10,
-                        borderColor: false,
-                      ),
-                    ],
+                                return Column(
+                                  children: [
+                                    _buildCheckRow(
+                                      label: displayLabel,
+                                      checked: _checked[i + 1],
+                                      isSelectAll: false,
+                                      isDark: isDark,
+                                      onChanged: (val) => _onPigChecked(i, val),
+                                    ),
+                                    if (i < widget.pigs.length - 1)
+                                      Divider(
+                                        height: 1,
+                                        color: isDark ? Colors.white12 : Colors.grey.shade200,
+                                      ),
+                                  ],
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: CustomTextField(
+                                controller: _feedTypeController,
+                                label: 'Feed Type:',
+                                border: 6,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 12),
+                                // 👇 5. Add Feed Type validation
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Required';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: CustomTextField(
+                                controller: _amountController,
+                                label: 'Amount:',
+                                border: 6,
+                                keyboardType: TextInputType.number,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 12),
+                                // 👇 6. Add Amount validation
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Required';
+                                  }
+                                  final val = num.tryParse(value);
+                                  if (val == null || val <= 0) {
+                                    return 'Invalid';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        CustomButton(
+                          text: 'Save',
+                          onPressed: _onSave,
+                          backgroundColor: const Color(0xFFF5A623),
+                          color: Colors.white,
+                          border: 10,
+                          borderColor: false,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -283,14 +346,17 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: isSelectAll ? FontWeight.w600 : FontWeight.normal,
-              color: isSelectAll
-                  ? const Color(0xFF2563EB)
-                  : (isDark ? Colors.white : Colors.black87),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isSelectAll ? FontWeight.w600 : FontWeight.normal,
+                color: isSelectAll
+                    ? const Color(0xFF2563EB)
+                    : (isDark ? Colors.white : Colors.black87),
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

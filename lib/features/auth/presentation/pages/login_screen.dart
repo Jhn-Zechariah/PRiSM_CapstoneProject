@@ -53,6 +53,7 @@ class LoginScreenState extends State<LoginScreen> {
         content: CustomTextField(
           controller: emailController,
           labelText: "Email",
+          border: 10,
           prefixIcon: Icons.email_outlined,
         ),
         actions: [
@@ -106,12 +107,12 @@ class LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 60),
+                  const SizedBox(height: 20),
                   SvgPicture.asset(
                     isDarkMode
                         ? 'assets/logo_dark.svg'
                         : 'assets/logo_light.svg',
-                    width: 200,
+                    width: 120,
                     errorBuilder: (context, error, stackTrace) => Icon(
                       Icons.business,
                       size: 80,
@@ -126,31 +127,21 @@ class LoginScreenState extends State<LoginScreen> {
                       color: isDarkMode ? Colors.white : Colors.black,
                     ),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        "Don't have an account?",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: isDarkMode ? Colors.white70 : Colors.black54,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: widget.togglePages ?? () {},
-                        child: Text(
-                          " Sign Up",
-                          style: TextStyle(fontSize: 14, color: Colors.blue),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    "Sign in to continue",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDarkMode ? Colors.white : Colors.black,
+                    ),
                   ),
-                  const SizedBox(height: 15),
+
+                  const SizedBox(height: 30),
 
                   //Email
                   CustomTextField(
                     controller: emailController,
                     labelText: "Email",
+                    border: 10,
                     prefixIcon: Icons.email_outlined,
                     validator: (value) => value == null || value.isEmpty
                         ? "Please enter your email"
@@ -163,6 +154,7 @@ class LoginScreenState extends State<LoginScreen> {
                   CustomTextField(
                     controller: passwordController,
                     labelText: "Password",
+                    border: 10,
                     prefixIcon: Icons.lock_outlined,
                     obscureText: _obscurePassword,
                     suffixIcon: IconButton(
@@ -197,7 +189,7 @@ class LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: fieldSpacing),
+                  const SizedBox(height: 50),
 
                   // Sign in button
                   CustomButton(
@@ -234,26 +226,39 @@ class LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SocialLoginButton(
+                          asset: 'assets/google.svg',
+                          label: "Sign in with Google",
+                          isDarkMode: isDarkMode,
+                          onTap: () async {
+                            authCubit.googleSignIn();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SocialLoginButton(
-                        asset: 'assets/google.svg',
-                        label: "Google",
-                        isDarkMode: isDarkMode,
-                        onTap: () async {
-                          //Google Sign-In function here
-                          authCubit.googleSignIn();
-                        },
+                      Text(
+                        "Don't have an account?",
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDarkMode ? Colors.white70 : Colors.black54,
+                        ),
                       ),
-                      const SizedBox(width: 20),
-                      SocialLoginButton(
-                        asset: 'assets/facebook.svg',
-                        label: "Facebook",
-                        isDarkMode: isDarkMode,
-                        onTap: () {
-                          //Facebook Sign-In logic here
-                        },
+                      GestureDetector(
+                        onTap: widget.togglePages ?? () {},
+                        child: Text(
+                          " Sign Up",
+                          style: TextStyle(fontSize: 14, color: Colors.blue),
+                        ),
                       ),
                     ],
                   ),

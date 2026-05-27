@@ -1,63 +1,127 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../pig_management/domain/model/app_pig.dart';
+import '../../domain/model/app_feeding_record.dart';
 
-// A read-only two-column preview widget displaying a pig's feeding record info.
-// Intended to be embedded inside an expanded pig card on the feeding record screen.
 class FeedingRecordExpandedPreview extends StatelessWidget {
-  // Display name of the pig this preview belongs to
-  final String pigName;
-
-  // Accent color associated with the pig (used by the parent card's left strip)
+  final AppPig pig;
   final Color pigColor;
 
   const FeedingRecordExpandedPreview({
     super.key,
-    required this.pigName,
+    required this.pig,
     required this.pigColor,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    // Detect theme brightness for conditional label color
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  // 👇 Helper to calculate age from birthDate
+  String _calculateAge(DateTime birthDate) {
+    final days = DateTime
+        .now()
+        .difference(birthDate)
+        .inDays;
+    if (days < 30) return '$days days';
+    final months = days ~/ 30;
+    return '$months months';
+  }
 
-    return Row(
-      children: [
-        // ── Left column: Breed and Type of feed labels ────────────────────
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _label('Breed:', isDark),
-              const SizedBox(height: 6),
-              _label('Type of feed:', isDark),
-            ],
-          ),
-        ),
+  // 👇 Changed from Future to Stream, and .get() to .snapshots()
+  Stream<AppFeedingRecord?> _streamLatestFeedingRecord() {
+    return FirebaseFirestore.instance
+        .collection('pigs')
+        .doc(pig.pigId) // ⚠️ Make sure this is the exact string of the Firestore Document ID!
+        .collection('feeding_records')
+        .orderBy('timestamp', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isNotEmpty) {
+        try {
+          return AppFeedingRecord.fromMap(snapshot.docs.first.data());
+        } catch (e) {
+          // 🔥 If the data crashes while parsing, it will print here!
+          debugPrint("🔥 ERROR PARSING FEEDING RECORD: $e");
+          return null;
+        }
+      }
+      return null;
+    });
+  }
 
-        // ── Right column: Stage and Amount of feeds labels ────────────────
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _label('Stage:', isDark),
-              const SizedBox(height: 6),
-              _label('Amount of feeds:', isDark),
-            ],
+  Widget _buildInfoText(String label, String value, Color labelColor,
+      Color textColor) {
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(text: '$label ',
+              style: TextStyle(fontSize: 12, color: labelColor)),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+                fontSize: 12, color: textColor, fontWeight: FontWeight.w500),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  /// Builds a small muted label that adapts its color to the current theme
-  Widget _label(String text, bool isDark) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        // Softer white in dark mode, grey in light mode
-        color: isDark ? Colors.white60 : Colors.grey,
-      ),
+  @override
+  Widget build(BuildContext context) {
+    final isDarkMode = Theme
+        .of(context)
+        .brightness == Brightness.dark;
+    final textColor = isDarkMode ? Colors.white : Colors.black87;
+    final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
+
+    return StreamBuilder<AppFeedingRecord?>(
+      stream: _streamLatestFeedingRecord(),
+      builder: (context, snapshot) {
+        String feedType = 'No data yet';
+        String amount = '0';
+
+        // 👇 2. Add an explicit error check to show on the UI
+        if (snapshot.hasError) {
+          debugPrint("🔥 STREAM ERROR: ${snapshot.error}");
+          feedType = 'Stream Error!';
+          amount = 'Error';
+        } else if (snapshot.hasData && snapshot.data != null) {
+          feedType = snapshot.data!.feedType;
+          amount = snapshot.data!.amount.toString();
+        } else if (snapshot.connectionState == ConnectionState.waiting) {
+          feedType = 'Loading...';
+          amount = '...';
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInfoText(
+                      'Age:', _calculateAge(pig.birthDate), labelColor,
+                      textColor),
+                  const SizedBox(height: 4),
+                  _buildInfoText(
+                      'Type of feed:', feedType, labelColor, textColor),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInfoText(
+                      'Stage:', pig.stage.isNotEmpty ? pig.stage : 'N/A',
+                      labelColor, textColor),
+                  const SizedBox(height: 4),
+                  _buildInfoText(
+                      'Amount of feeds:', amount, labelColor, textColor),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
