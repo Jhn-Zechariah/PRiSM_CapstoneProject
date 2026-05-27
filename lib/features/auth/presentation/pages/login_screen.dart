@@ -233,7 +233,7 @@ class LoginScreenState extends State<LoginScreen> {
                       children: [
                         SocialLoginButton(
                           asset: 'assets/google.svg',
-                          label: "Sign up with Google",
+                          label: "Sign in with Google",
                           isDarkMode: isDarkMode,
                           onTap: () async {
                             authCubit.googleSignIn();
