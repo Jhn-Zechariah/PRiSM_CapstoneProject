@@ -17,12 +17,11 @@ class AuthPage extends StatefulWidget {
 }
 
 class _AuthPageState extends State<AuthPage> {
-
   //initially shows login page
   bool showLoginPage = true;
 
   //toggle between pages
-  void togglePages(){
+  void togglePages() {
     setState(() {
       showLoginPage = !showLoginPage;
     });
@@ -30,14 +29,16 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
-    if(showLoginPage){
+    if (showLoginPage) {
       return LoginScreen(
         onThemeToggle: widget.onThemeToggle,
-        togglePages: togglePages);
-    }else{
+        togglePages: togglePages,
+      );
+    } else {
       return SignupScreen(
         onThemeToggle: widget.onThemeToggle,
-        togglePages: togglePages);
+        togglePages: togglePages,
+      );
     }
   }
 }

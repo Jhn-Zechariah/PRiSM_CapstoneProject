@@ -23,14 +23,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoading = true;
   String _connectionStatus = "Connecting..."; // now displayed in header
 
-  double _tempMax     = 0;
-  String _tempStatus  = "Normal";
-  bool   _isActivated = false;
+  double _tempMax = 0;
+  String _tempStatus = "Normal";
+  bool _isActivated = false;
 
   String _sprinklerStatus = "OFF";
-  String _lastActivated   = "—";
-  String _mode            = "—";
-  String _pigStatus       = "—";
+  String _lastActivated = "—";
+  String _mode = "—";
+  String _pigStatus = "—";
 
   @override
   void initState() {
@@ -55,34 +55,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
-          _tempMax         = (data['tempMax']   as num?)?.toDouble() ?? _tempMax;
-          _tempStatus      = data['tempStatus'] as String? ?? _tempStatus;
-          _isActivated     = data['sprinkler']  as bool?   ?? _isActivated;
+          _tempMax = (data['tempMax'] as num?)?.toDouble() ?? _tempMax;
+          _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
+          _isActivated = data['sprinkler'] as bool? ?? _isActivated;
           _sprinklerStatus = _isActivated ? "ON" : "OFF";
-          _lastActivated   = data['lastActivated'] as String? ?? _lastActivated;
-          _mode            = data['mode']       as String? ?? _mode;
-          _pigStatus       = data['pigStatus']  as String? ?? _pigStatus;
-          _isLoading        = false;
+          _lastActivated = data['lastActivated'] as String? ?? _lastActivated;
+          _mode = data['mode'] as String? ?? _mode;
+          _pigStatus = data['pigStatus'] as String? ?? _pigStatus;
+          _isLoading = false;
           _connectionStatus = "Live";
         });
       }
     } catch (_) {
       setState(() {
         _connectionStatus = "No connection";
-        _isLoading        = false;
+        _isLoading = false;
       });
     }
   }
 
   Future<void> _toggleSprinkler(bool turnOn) async {
     try {
-      final state    = turnOn ? "on" : "off";
+      final state = turnOn ? "on" : "off";
       final response = await http
           .get(Uri.parse("http://$esp32Ip/sprinkler?state=$state"))
           .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         setState(() {
-          _isActivated     = turnOn;
+          _isActivated = turnOn;
           _sprinklerStatus = turnOn ? "ON" : "OFF";
         });
       }
@@ -152,6 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const CustomText(
                     type: TextType.username,
                     prefix: 'Hello, ',
+                    suffix: '👋',
                     fontSize: 20,
                   ),
                   Text(
@@ -299,7 +300,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: backgroundColor ??
+        color:
+            backgroundColor ??
             (isDark ? const Color(0xFF2C2C2C) : Colors.white),
         borderRadius: BorderRadius.circular(16),
       ),
