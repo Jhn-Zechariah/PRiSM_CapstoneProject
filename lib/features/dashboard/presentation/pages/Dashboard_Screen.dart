@@ -21,7 +21,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Timer? _timer;
   bool _isLoading = true;
-  String _connectionStatus = "Connecting..."; // now displayed in header
+  String _connectionStatus = "Connecting...";
 
   double _tempMax     = 0;
   String _tempStatus  = "Normal";
@@ -31,6 +31,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _lastActivated   = "—";
   String _mode            = "—";
   String _pigStatus       = "—";
+
+  // ✅ FIX: these now get populated from the updated ESP32 /data endpoint
+  String _waterLevel  = "—";
+  String _waterStatus = "—";
 
   @override
   void initState() {
@@ -61,6 +65,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _lastActivated   = data['lastActivated'] as String? ?? _lastActivated;
           _mode            = data['mode']       as String? ?? _mode;
           _pigStatus       = data['pigStatus']  as String? ?? _pigStatus;
+
+          // ✅ FIX: correctly reads "waterLevel" and "waterStatus" from ESP32
+          _waterLevel      = data['waterLevel'] as String? ?? _waterLevel;
+          _waterStatus     = data['waterStatus'] as String? ?? _waterStatus;
+
           _isLoading        = false;
           _connectionStatus = "Live";
         });
@@ -124,7 +133,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // FIX: _connectionStatus is now rendered as a status badge
   Widget _buildHeader(bool isDark) {
     final isLive = _connectionStatus == "Live";
     return Column(
@@ -457,15 +465,95 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(width: 13),
         Flexible(
           flex: 1,
-          child: _buildStatCard(
-            isDark,
-            "Feeding Schedule",
-            "10:00 AM",
-            "5:00 PM",
-          ),
+          child: _buildWaterLevelCard(isDark),
         ),
       ],
     );
+  }
+
+  // ✅ FIX: now shows real _waterLevel and _waterStatus from ESP32
+  Widget _buildWaterLevelCard(bool isDark) {
+    return Container(
+      width: 500,
+      height: 85,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF2C2C2C)
+            : const Color.fromRGBO(0, 48, 73, 0.2),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.water_outlined,
+                size: 16,
+                color: Colors.blue,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                "Water Level",
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: isDark
+                      ? const Color.fromARGB(255, 255, 255, 255)
+                      : const Color.fromARGB(255, 0, 0, 0),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _isLoading
+              ? const SizedBox(
+                  height: 16,
+                  width: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Level: $_waterLevel",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? Colors.white60
+                            : const Color.fromARGB(255, 112, 112, 112),
+                      ),
+                    ),
+                    Text(
+                      "Status: $_waterStatus",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _getWaterStatusColor(_waterStatus),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+        ],
+      ),
+    );
+  }
+
+  /// Returns a color based on water status severity
+  Color _getWaterStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'full':
+        return Colors.green;
+      case 'normal':
+        return Colors.blue;
+      case 'low':
+        return Colors.orange;
+      case 'critical':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 
   Widget _buildRecommendationCard(bool isDark) {
@@ -502,59 +590,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ? Colors.white60
                   : const Color.fromARGB(255, 112, 112, 112),
               fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(
-    bool isDark,
-    String label,
-    String value1,
-    String value2,
-  ) {
-    return Container(
-      width: 150,
-      height: 85,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF2C2C2C)
-            : const Color.fromRGBO(0, 48, 73, 0.2),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: isDark
-                  ? const Color.fromARGB(255, 255, 255, 255)
-                  : const Color.fromARGB(255, 0, 0, 0),
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value1,
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark
-                  ? Colors.white60
-                  : const Color.fromARGB(255, 112, 112, 112),
-            ),
-          ),
-          Text(
-            value2,
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark
-                  ? Colors.white60
-                  : const Color.fromARGB(255, 112, 112, 112),
             ),
           ),
         ],
