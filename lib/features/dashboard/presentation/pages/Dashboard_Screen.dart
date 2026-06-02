@@ -67,6 +67,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
       }
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _connectionStatus = "No connection";
         _isLoading = false;
