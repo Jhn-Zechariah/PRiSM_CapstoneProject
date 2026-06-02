@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lottie/lottie.dart';
 import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
-
+import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import 'loading.dart';
 import '../../features/auth/presentation/cubits/auth_cubit.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
@@ -57,31 +57,30 @@ class SplashScreenState extends State<SplashScreen>
 
     _navigated = true;
 
-    // 2. Pass the function to the LoginScreen so it can eventually reach the Dashboard
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => BlocConsumer<AuthCubit, AuthState>(
           builder: (context, state) {
-            // unauthenticated -> auth page (login/register)
+            // 🔹 CHANGED: Unauthenticated now returns LandingPage
             if (state is Unauthenticated) {
-              return AuthPage(onThemeToggle: widget.onThemeToggle);
+              return LandingPage(onThemeToggle: widget.onThemeToggle);
             }
 
-            //authenticated -> homepage/dashboard
+            // authenticated -> homepage/dashboard
             if (state is Authenticated) {
               return AppNav(onThemeToggle: widget.onThemeToggle);
             }
-            //loading...
+            // loading...
             else {
-              return LoadingScreen();
+              return const LoadingScreen();
             }
           },
           listener: (context, state) {
             if (state is AuthError) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(state.message)));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(state.message)),
+              );
             }
           },
         ),

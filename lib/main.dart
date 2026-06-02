@@ -69,9 +69,7 @@ class _MyAppState extends State<MyApp> {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: _themeMode,
-        /*
-        Bloc consumer - Auth
-         */
+
         home: SplashScreen(onThemeToggle: toggleTheme)
       )
     );

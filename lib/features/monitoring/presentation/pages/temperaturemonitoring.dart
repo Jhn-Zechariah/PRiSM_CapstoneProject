@@ -34,7 +34,7 @@ class TemperatureMonitoring extends StatelessWidget {
             children: [
               const Padding(
                 padding: EdgeInsets.all(16),
-                child: AppTopBar(showBackButton: true),
+                child: AppTopBar(),
               ),
               const SizedBox(height: 5),
               Padding(
