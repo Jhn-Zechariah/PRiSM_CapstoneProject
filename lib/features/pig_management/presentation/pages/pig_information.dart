@@ -11,7 +11,6 @@ import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../cubits/pig_cubit.dart';
 
-
 class PigInformationScreen extends StatefulWidget {
   final AppPig? existingPig;
   const PigInformationScreen({super.key, this.existingPig});
@@ -78,9 +77,10 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   void _onSave() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // 👇 2. Check for confirmation dialog condition if updating
+    // 2. Check for confirmation dialog condition if updating
     if (widget.existingPig != null) {
-      final isMarkingInactive = _selectedStatus == 'Sold' || _selectedStatus == 'Deceased';
+      final isMarkingInactive =
+          _selectedStatus == 'Sold' || _selectedStatus == 'Deceased';
       final statusChanged = _selectedStatus != widget.existingPig!.status;
 
       // Only show dialog if they are changing the status TO Sold or Deceased
@@ -89,7 +89,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
           context: context,
           builder: (context) => CustomConfirmDialog(
             title: 'Confirm Status Change',
-            content: 'Are you sure you want to mark ${widget.existingPig!.breed}/${widget.existingPig!.displayId} as $_selectedStatus?',
+            content:
+                'Are you sure you want to mark ${widget.existingPig!.breed}/${widget.existingPig!.displayId} as $_selectedStatus?',
             confirmText: 'Yes, Proceed',
             cancelText: 'Cancel',
             confirmColor: Colors.amber.shade700,
@@ -108,11 +109,11 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
     final pigCubit = context.read<PigCubit>();
 
     if (widget.existingPig != null) {
-       String notes = "";
+      String notes = "";
 
-      if(_selectedStatus == 'Sold'){
+      if (_selectedStatus == 'Sold') {
         notes = "Sold at ${DateTime.now().toString().split(' ')[0]}";
-      }else if(_selectedStatus == 'Deceased') {
+      } else if (_selectedStatus == 'Deceased') {
         notes = "Deceased at ${DateTime.now().toString().split(' ')[0]}";
       }
 
@@ -122,12 +123,16 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         userId: widget.existingPig!.userId,
         displayId: widget.existingPig!.displayId,
         breed: _breedController.text,
-        birthDate: DateTime.tryParse(_birthDateController.text) ?? widget.existingPig!.birthDate,
+        birthDate:
+            DateTime.tryParse(_birthDateController.text) ??
+            widget.existingPig!.birthDate,
         sex: _selectedSex!,
         stage: _selectedStage!,
         status: _selectedStatus!,
         notes: notes,
-        currentWeightKg: double.tryParse(_weightController.text) ?? widget.existingPig!.currentWeightKg,
+        currentWeightKg:
+            double.tryParse(_weightController.text) ??
+            widget.existingPig!.currentWeightKg,
       );
 
       pigCubit.updatePigDetails(updatedPig);
@@ -138,7 +143,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         message: "Pig updated successfully!",
       );
       Navigator.pop(context);
-
     } else {
       // ADD MODE
       final newPig = AppPig(
@@ -146,7 +150,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         userId: '',
         displayId: '',
         breed: _breedController.text,
-        birthDate: DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
+        birthDate:
+            DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,
         currentWeightKg: double.parse(_weightController.text),
         notes: 'Pig Registered ',
@@ -158,10 +163,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         await pigRepo.addPig(newPig);
 
         if (!mounted) return;
-        CustomSnackbar.show(
-          context: context,
-          message: "Pig Profile Saved!",
-        );
+        CustomSnackbar.show(context: context, message: "Pig Profile Saved!");
         Navigator.pop(context);
       } catch (e) {
         if (!mounted) return;
@@ -179,9 +181,13 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final fieldPadding = const EdgeInsets.symmetric(horizontal: 10, vertical: 14);
+    final fieldPadding = const EdgeInsets.symmetric(
+      horizontal: 10,
+      vertical: 14,
+    );
 
-    final isReadOnly = widget.existingPig != null &&
+    final isReadOnly =
+        widget.existingPig != null &&
         (widget.existingPig!.status.toLowerCase() == 'sold' ||
             widget.existingPig!.status.toLowerCase() == 'deceased');
 
@@ -203,13 +209,17 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         SvgPicture.asset(
-                          isDarkMode ? 'assets/pig_dark.svg' : 'assets/pig_light.svg',
+                          isDarkMode
+                              ? 'assets/pig_dark.svg'
+                              : 'assets/pig_light.svg',
                           height: 120,
                           width: 120,
                         ),
 
                         Text(
-                          isReadOnly ? 'View Pig Information' : 'Pig Information',
+                          isReadOnly
+                              ? 'View Pig Information'
+                              : 'Pig Information',
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -222,7 +232,9 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                           width: double.infinity,
                           decoration: BoxDecoration(
                             border: Border.all(color: Colors.black54),
-                            color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
+                            color: isDarkMode
+                                ? const Color(0xFF1E1E1E)
+                                : Colors.white,
                             borderRadius: BorderRadius.circular(10),
                             boxShadow: const [
                               BoxShadow(
@@ -251,7 +263,10 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       onTap: () {
                                         if (!isReadOnly) _selectDate(context);
                                       },
-                                      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                                      validator: (value) =>
+                                          value == null || value.isEmpty
+                                          ? 'Required'
+                                          : null,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -266,9 +281,14 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       readonly: isReadOnly,
                                       enabled: !isReadOnly,
                                       onChanged: (newValue) {
-                                        setState(() => _selectedSex = newValue!);
+                                        setState(
+                                          () => _selectedSex = newValue!,
+                                        );
                                       },
-                                      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                                      validator: (value) =>
+                                          value == null || value.isEmpty
+                                          ? 'Required'
+                                          : null,
                                     ),
                                   ),
                                 ],
@@ -287,7 +307,10 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       borderColor: Colors.black54,
                                       border: 6,
                                       contentPadding: fieldPadding,
-                                      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                                      validator: (value) =>
+                                          value == null || value.isEmpty
+                                          ? 'Required'
+                                          : null,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -302,8 +325,10 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                       keyboardType: TextInputType.number,
                                       contentPadding: fieldPadding,
                                       validator: (value) {
-                                        if (value == null || value.isEmpty) return 'Required';
-                                        if (double.tryParse(value) == null) return 'Invalid number';
+                                        if (value == null || value.isEmpty)
+                                          return 'Required';
+                                        if (double.tryParse(value) == null)
+                                          return 'Invalid number';
                                         return null;
                                       },
                                     ),
@@ -324,14 +349,18 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                 onChanged: (newValue) {
                                   setState(() => _selectedStage = newValue!);
                                 },
-                                validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                                validator: (value) =>
+                                    value == null || value.isEmpty
+                                    ? 'Required'
+                                    : null,
                               ),
                               const SizedBox(height: 12),
 
                               CustomDropdown(
                                 label: 'Status:',
                                 value: _selectedStatus,
-                                items: _statusOptions, // 👇 Uses the dynamic list now
+                                items:
+                                    _statusOptions, // 👇 Uses the dynamic list now
                                 borderColor: Colors.black54,
                                 border: 6,
                                 contentPadding: fieldPadding,
@@ -340,20 +369,25 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                 onChanged: (newValue) {
                                   setState(() => _selectedStatus = newValue!);
                                 },
-                                validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+                                validator: (value) =>
+                                    value == null || value.isEmpty
+                                    ? 'Required'
+                                    : null,
                               ),
                               const SizedBox(height: 20),
 
                               if (!isReadOnly) ...[
                                 CustomButton(
                                   text: _isLoading ? 'Saving...' : 'Save',
-                                  backgroundColor: Colors.amber,
+                                  backgroundColor: Colors.blue,
                                   border: 10,
                                   onPressed: _onSave,
-                                  color: isDarkMode ? Colors.black87 : Colors.black87,
+                                  color: isDarkMode
+                                      ? Colors.black87
+                                      : Colors.black87,
                                 ),
                                 const SizedBox(height: 12),
-                              ]
+                              ],
                             ],
                           ),
                         ),

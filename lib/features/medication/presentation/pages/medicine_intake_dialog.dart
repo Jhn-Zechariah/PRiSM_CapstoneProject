@@ -316,15 +316,15 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                         child: ElevatedButton(
                           onPressed: _onSave,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amber,
-                            foregroundColor: Colors.black,
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                           child: const Text(
-                            'Save',
+                            'Save Record',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,

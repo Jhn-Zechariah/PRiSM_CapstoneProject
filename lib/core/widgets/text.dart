@@ -43,7 +43,7 @@ class CustomText extends StatelessWidget {
         String displayText;
         switch (type) {
           case TextType.username:
-            displayText = "${prefix ?? ""}$username";
+            displayText = "${prefix ?? ""}$username${suffix ?? ""}";
             break;
           case TextType.email:
             displayText = "${prefix ?? ""}$email";
