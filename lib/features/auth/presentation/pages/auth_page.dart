@@ -8,7 +8,7 @@ import '../cubits/auth_cubit.dart';
 import '../cubits/auth_states.dart';
 
 class AuthPage extends StatefulWidget {
-  final VoidCallback onThemeToggle;
+  final Function(bool isCurrentDark) onThemeToggle;
   const AuthPage({super.key, required this.onThemeToggle});
 
   @override
@@ -26,6 +26,7 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     // 🔹 Wrapping the UI in a BlocConsumer so it listens for the login success!
     return BlocConsumer<AuthCubit, AuthState>(
       listener: (context, state) {
@@ -54,12 +55,12 @@ class _AuthPageState extends State<AuthPage> {
         // Default: Show login or signup page
         if (showLoginPage) {
           return LoginScreen(
-            onThemeToggle: widget.onThemeToggle,
+            onThemeToggle: widget.onThemeToggle(isDarkMode),
             togglePages: togglePages,
           );
         } else {
           return SignupScreen(
-            onThemeToggle: widget.onThemeToggle,
+            onThemeToggle: widget.onThemeToggle(isDarkMode),
             togglePages: togglePages,
           );
         }

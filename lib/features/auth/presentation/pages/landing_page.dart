@@ -3,7 +3,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
 
 class LandingPage extends StatefulWidget {
-  final VoidCallback onThemeToggle;
+  final Function(bool isCurrentDark) onThemeToggle;
   const LandingPage({super.key, required this.onThemeToggle});
 
   @override

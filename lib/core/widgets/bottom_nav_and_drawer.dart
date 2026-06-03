@@ -18,13 +18,12 @@ import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
-
-// ── 🆕 ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
 import '../../features/monitoring/presentation/cubits/temperature_monitoring_cubit.dart';
 import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
 
 class AppNav extends StatefulWidget {
-  final VoidCallback onThemeToggle;
+  // 🔹 CHANGED: Change VoidCallback to a function that accepts the current theme state
+  final Function(bool isCurrentDark) onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
 
@@ -189,7 +188,7 @@ class _AppNavState extends State<AppNav> {
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
                   () {
-                widget.onThemeToggle();
+                widget.onThemeToggle(isDark);
                 Navigator.pop(context);
               },
             ),
