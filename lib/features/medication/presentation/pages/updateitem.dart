@@ -29,7 +29,7 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
   // ── Text controllers — initialized with existing item values in initState ──
   late final TextEditingController _nameController;
   late final TextEditingController _qtyController;
-  late final TextEditingController _mgController;     // dosage/unit amount
+  late final TextEditingController _mgController; // dosage/unit amount
   late final TextEditingController _expiryController;
   late final TextEditingController _reorderController;
   late final TextEditingController _descController;
@@ -43,7 +43,7 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
 
   // ── Labels that change based on category/type ─────────────────────────────
   late String _unitLabel; // dosage unit shown inside the compact box
-  late String _perLabel;  // per-unit label shown beside the dosage box
+  late String _perLabel; // per-unit label shown beside the dosage box
 
   @override
   void initState() {
@@ -51,15 +51,23 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
 
     // Pre-fill category and type from the item, falling back to safe defaults
     selectedCategory = widget.item['category'] ?? 'Medicine';
-    selectedType     = widget.item['type'] ?? 'Capsule';
+    selectedType = widget.item['type'] ?? 'Capsule';
 
     // Pre-fill each text controller with the item's existing values
-    _nameController    = TextEditingController(text: widget.item['name'] ?? '');
-    _qtyController     = TextEditingController(text: widget.item['stock']?.toString() ?? '');
-    _mgController      = TextEditingController(text: widget.item['dosage'] ?? '');
-    _expiryController  = TextEditingController(text: widget.item['expiry'] ?? '');
-    _reorderController = TextEditingController(text: widget.item['reorder']?.toString() ?? '');
-    _descController    = TextEditingController(text: widget.item['description'] ?? '');
+    _nameController = TextEditingController(text: widget.item['name'] ?? '');
+    _qtyController = TextEditingController(
+      text: widget.item['stock']?.toString() ?? '',
+    );
+    _mgController = TextEditingController(text: widget.item['dosage'] ?? '');
+    _expiryController = TextEditingController(
+      text: widget.item['expiry'] ?? '',
+    );
+    _reorderController = TextEditingController(
+      text: widget.item['reorder']?.toString() ?? '',
+    );
+    _descController = TextEditingController(
+      text: widget.item['description'] ?? '',
+    );
 
     // Rebuild UI when the dosage field gains or loses focus (border color update)
     _mgFocusNode.addListener(() => setState(() {}));
@@ -85,28 +93,28 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
   void _syncLabels() {
     if (selectedCategory == 'Vitamins') {
       _unitLabel = 'g';
-      _perLabel  = '/ Sachet';
+      _perLabel = '/ Sachet';
     } else if (selectedCategory == 'Vaccine' || selectedType == 'Fluid') {
       _unitLabel = 'mL';
-      _perLabel  = '/ Bottle';
+      _perLabel = '/ Bottle';
     } else {
       // Default: Medicine Capsule
       _unitLabel = 'mg';
-      _perLabel  = '/ Tablet';
+      _perLabel = '/ Tablet';
     }
   }
 
   // ── Computed label for the name display based on selected category ─────────
   String get _nameLabel {
     if (selectedCategory == 'Vitamins') return 'Vitamins Name:';
-    if (selectedCategory == 'Vaccine')  return 'Vaccine Name:';
+    if (selectedCategory == 'Vaccine') return 'Vaccine Name:';
     return 'Medicine Name:';
   }
 
   // ── Dialog title changes to reflect what category is being updated ─────────
   String get _dialogTitle {
     if (selectedCategory == 'Vitamins') return 'Update Vitamins';
-    if (selectedCategory == 'Vaccine')  return 'Update Vaccine';
+    if (selectedCategory == 'Vaccine') return 'Update Vaccine';
     return 'Update Medicine';
   }
 
@@ -171,14 +179,14 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
     if (confirmed == true && mounted) {
       // Return the updated item data to the caller
       Navigator.pop(context, {
-        'name':        _nameController.text,
-        'stock':       int.tryParse(_qtyController.text) ?? 0,
-        'dosage':      _mgController.text,
-        'expiry':      _expiryController.text,
-        'reorder':     int.tryParse(_reorderController.text) ?? 0,
+        'name': _nameController.text,
+        'stock': int.tryParse(_qtyController.text) ?? 0,
+        'dosage': _mgController.text,
+        'expiry': _expiryController.text,
+        'reorder': int.tryParse(_reorderController.text) ?? 0,
         'description': _descController.text,
-        'category':    selectedCategory,
-        'type':        selectedType,
+        'category': selectedCategory,
+        'type': selectedType,
       });
 
       // Show success feedback after the dialog is closed
@@ -206,9 +214,9 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
     required FocusNode focusNode,
     required String unit,
   }) {
-    final isDarkMode   = Theme.of(context).brightness == Brightness.dark;
-    final fillColor    = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
-    final borderColor  = isDarkMode ? Colors.white24 : Colors.black26;
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final fillColor = isDarkMode ? const Color(0xFF2A2A2A) : Colors.white;
+    final borderColor = isDarkMode ? Colors.white24 : Colors.black26;
     final dividerColor = isDarkMode ? Colors.white24 : Colors.black12;
 
     return Material(
@@ -255,10 +263,7 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
             // Unit label (mg / g / mL)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                unit,
-                style: _labelStyle(context),
-              ),
+              child: Text(unit, style: _labelStyle(context)),
             ),
           ],
         ),
@@ -303,10 +308,9 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-
               // ── Colored accent strip on the left edge of the dialog ────────
               // Uses yellow (0xFFFFC154) instead of navy to distinguish from Add dialog
-              Container(width: 12, color: const Color(0xFFFFC154)),
+              Container(width: 12, color: const Color(0xFF2563EB)),
 
               // ── Main form content ──────────────────────────────────────────
               Expanded(
@@ -317,7 +321,6 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-
                         // ── Dialog header: dynamic title + close button ───────
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -327,7 +330,9 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
                               style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
-                                color: Theme.of(context).textTheme.bodyLarge?.color,
+                                color: Theme.of(
+                                  context,
+                                ).textTheme.bodyLarge?.color,
                               ),
                             ),
                             IconButton(
@@ -347,13 +352,17 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
                           text: TextSpan(
                             style: TextStyle(
                               fontSize: 14,
-                              color: Theme.of(context).textTheme.bodyMedium?.color,
+                              color: Theme.of(
+                                context,
+                              ).textTheme.bodyMedium?.color,
                             ),
                             children: [
                               TextSpan(text: '$_nameLabel '),
                               TextSpan(
                                 text: _nameController.text,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ],
                           ),
@@ -400,13 +409,13 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
                         selectedCategory == 'Vaccine'
                             ? _staticTypeBox('Fluid')
                             : selectedCategory == 'Vitamins'
-                                ? _staticTypeBox('Powder')
-                                : CustomDropdown(
-                                    value: selectedType,
-                                    items: _typeOptions,
-                                    border: 8,
-                                    onChanged: _onTypeChanged,
-                                  ),
+                            ? _staticTypeBox('Powder')
+                            : CustomDropdown(
+                                value: selectedType,
+                                items: _typeOptions,
+                                border: 8,
+                                onChanged: _onTypeChanged,
+                              ),
 
                         const SizedBox(height: 14),
 
@@ -418,7 +427,8 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
                                 controller: _expiryController,
                                 label: 'Expiry date:',
                                 border: 8,
-                                readonly: true, // date is selected via picker, not typed
+                                readonly:
+                                    true, // date is selected via picker, not typed
                                 onTap: _selectDate,
                                 suffixIcon: IconButton(
                                   icon: const Icon(
@@ -456,10 +466,10 @@ class _UpdateItemDialogState extends State<UpdateItemDialog> {
 
                         // ── Save button ──────────────────────────────────────
                         CustomButton(
-                          text: 'Save',
+                          text: 'Update Item',
                           border: 8,
-                          backgroundColor: const Color(0xFFFFC154),
-                          color: Colors.black,
+                          backgroundColor: const Color(0xFF2563EB),
+                          color: Colors.white,
                           borderColor: false,
                           onPressed: _onSave,
                         ),
