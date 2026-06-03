@@ -11,17 +11,15 @@ import '../cubits/feeding_history_states.dart';
 class FeedingHistoryPage extends StatefulWidget {
   final List<AppPig> availablePigs;
 
-  const FeedingHistoryPage({
-    super.key,
-    required this.availablePigs,
-  });
+  const FeedingHistoryPage({super.key, required this.availablePigs});
 
   @override
   State<FeedingHistoryPage> createState() => _FeedingHistoryPageState();
 }
 
 class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
-  String? _selectedPigId = 'All'; // 👈 Set 'All' as the initial default string option
+  String? _selectedPigId =
+      'All'; //  Set 'All' as the initial default string option
   String _currentFilter = 'Active';
 
   final List<Color> _accentColors = const [
@@ -74,7 +72,11 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _currentFilter,
-            icon: Icon(Icons.filter_list, size: 18, color: isDark ? Colors.white : Colors.black87),
+            icon: Icon(
+              Icons.filter_list,
+              size: 18,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -100,8 +102,16 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _selectedPigId,
-            icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF2563EB)),
-            style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w600),
+            icon: const Icon(
+              Icons.keyboard_arrow_down,
+              size: 18,
+              color: Color(0xFF2563EB),
+            ),
+            style: const TextStyle(
+              color: Color(0xFF2563EB),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
             dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
             isDense: true,
             items: [
@@ -110,7 +120,11 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                 value: 'All',
                 child: Text(
                   'All Pigs',
-                  style: TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    color: Color(0xFF2563EB),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
               ...displayPigs.map((pig) {
@@ -129,7 +143,11 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                       ),
                       Text(
                         '${pig.breed} | ${pig.displayId}',
-                        style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500),
+                        style: const TextStyle(
+                          color: Color(0xFF2563EB),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
@@ -152,7 +170,9 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDarkMode ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
+      backgroundColor: isDarkMode
+          ? const Color(0xFF121212)
+          : const Color(0xFFF5F5F5),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -168,64 +188,86 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
               Expanded(
                 child: _filteredPigs.isEmpty
                     ? Center(
-                  child: Text(
-                    _currentFilter == 'Active'
-                        ? 'No active pigs available.'
-                        : 'No inactive pigs available.',
-                    style: TextStyle(color: isDarkMode ? Colors.white54 : Colors.black54),
-                  ),
-                )
+                        child: Text(
+                          _currentFilter == 'Active'
+                              ? 'No active pigs available.'
+                              : 'No inactive pigs available.',
+                          style: TextStyle(
+                            color: isDarkMode ? Colors.white54 : Colors.black54,
+                          ),
+                        ),
+                      )
                     : BlocBuilder<FeedingHistoryCubit, FeedingHistoryState>(
-                  builder: (context, state) {
-                    if (state is FeedingHistoryLoading || state is FeedingHistoryInitial) {
-                      return const Center(child: CircularProgressIndicator());
-                    } else if (state is FeedingHistoryError) {
-                      return Center(child: Text(state.message, style: const TextStyle(color: Colors.red)));
-                    } else if (state is FeedingHistoryLoaded) {
+                        builder: (context, state) {
+                          if (state is FeedingHistoryLoading ||
+                              state is FeedingHistoryInitial) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          } else if (state is FeedingHistoryError) {
+                            return Center(
+                              child: Text(
+                                state.message,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            );
+                          } else if (state is FeedingHistoryLoaded) {
+                            // 1. Map pigs to access details efficiently
+                            final pigMap = {
+                              for (var p in widget.availablePigs) p.pigId: p,
+                            };
 
-                      // 1. Map pigs to access details efficiently
-                      final pigMap = {for (var p in widget.availablePigs) p.pigId: p};
+                            // 2. Perform inline routing array modifications
+                            final targetRecords = state.historyRecords.where((
+                              record,
+                            ) {
+                              final associatedPig = pigMap[record.pigId];
+                              if (associatedPig == null) return false;
 
-                      // 2. Perform inline routing array modifications
-                      final targetRecords = state.historyRecords.where((record) {
-                        final associatedPig = pigMap[record.pigId];
-                        if (associatedPig == null) return false;
+                              // Verify record belongs to a pig matching the left-side filter context
+                              final statusLower = associatedPig.status
+                                  .toLowerCase();
+                              final isPigInactive =
+                                  statusLower == 'sold' ||
+                                  statusLower == 'deceased';
+                              final matchesStatus = _currentFilter == 'Active'
+                                  ? !isPigInactive
+                                  : isPigInactive;
 
-                        // Verify record belongs to a pig matching the left-side filter context
-                        final statusLower = associatedPig.status.toLowerCase();
-                        final isPigInactive = statusLower == 'sold' || statusLower == 'deceased';
-                        final matchesStatus = _currentFilter == 'Active' ? !isPigInactive : isPigInactive;
+                              if (!matchesStatus) return false;
 
-                        if (!matchesStatus) return false;
+                              // 👇 If 'All' is selected, display all records matching the status filter
+                              if (_selectedPigId == 'All') return true;
+                              return record.pigId == _selectedPigId;
+                            }).toList();
 
-                        // 👇 If 'All' is selected, display all records matching the status filter
-                        if (_selectedPigId == 'All') return true;
-                        return record.pigId == _selectedPigId;
-                      }).toList();
+                            if (targetRecords.isEmpty) {
+                              return const Center(
+                                child: Text('No feeding records found.'),
+                              );
+                            }
 
-                      if (targetRecords.isEmpty) {
-                        return const Center(child: Text('No feeding records found.'));
-                      }
+                            return ListView.builder(
+                              itemCount: targetRecords.length,
+                              itemBuilder: (context, index) {
+                                final record = targetRecords[index];
+                                final targetPig = pigMap[record.pigId];
+                                final cardAccentColor = _getColorForPig(
+                                  record.pigId,
+                                );
 
-                      return ListView.builder(
-                        itemCount: targetRecords.length,
-                        itemBuilder: (context, index) {
-                          final record = targetRecords[index];
-                          final targetPig = pigMap[record.pigId];
-                          final cardAccentColor = _getColorForPig(record.pigId);
-
-                          return _buildFeedingRecordCard(
-                            record: record,
-                            pig: targetPig,
-                            accentColor: cardAccentColor,
-                            isDarkMode: isDarkMode,
-                          );
+                                return _buildFeedingRecordCard(
+                                  record: record,
+                                  pig: targetPig,
+                                  accentColor: cardAccentColor,
+                                  isDarkMode: isDarkMode,
+                                );
+                              },
+                            );
+                          }
+                          return const SizedBox.shrink();
                         },
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
+                      ),
               ),
             ],
           ),
@@ -245,7 +287,9 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
     final labelColor = isDarkMode ? Colors.white60 : Colors.black54;
 
     // 👇 Dynamically construct header values from parsed cross-reference
-    final cardTitle = pig != null ? '${pig.breed} | ${pig.displayId}' : 'Unknown Pig';
+    final cardTitle = pig != null
+        ? '${pig.breed} | ${pig.displayId}'
+        : 'Unknown Pig';
 
     return Container(
       width: double.infinity,
@@ -253,7 +297,9 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
       decoration: BoxDecoration(
         color: isDarkMode ? const Color(0xFF2C2C2C) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isDarkMode ? Colors.white10 : Colors.grey.shade300),
+        border: Border.all(
+          color: isDarkMode ? Colors.white10 : Colors.grey.shade300,
+        ),
       ),
       child: IntrinsicHeight(
         child: Row(
@@ -263,7 +309,10 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
               width: 10,
               decoration: BoxDecoration(
                 color: accentColor,
-                borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
               ),
             ),
             Expanded(
@@ -274,21 +323,53 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                   children: [
                     Text(
                       cardTitle, // 👈 Dynamically populated string identifier
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: textColor,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: _buildRichLabel('Date:', record.formattedDate, labelColor, textColor)),
-                        Expanded(child: _buildRichLabel('Time:', record.formattedTime, labelColor, textColor)),
+                        Expanded(
+                          child: _buildRichLabel(
+                            'Date:',
+                            record.formattedDate,
+                            labelColor,
+                            textColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildRichLabel(
+                            'Time:',
+                            record.formattedTime,
+                            labelColor,
+                            textColor,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Row(
                       children: [
                         // Removed the extra "kg" suffix from Feed type
-                        Expanded(child: _buildRichLabel('Feed type:', record.feedType, labelColor, textColor)),
-                        Expanded(child: _buildRichLabel('Amount:', '${record.amount} kg', labelColor, textColor)),
+                        Expanded(
+                          child: _buildRichLabel(
+                            'Feed type:',
+                            record.feedType,
+                            labelColor,
+                            textColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildRichLabel(
+                            'Amount:',
+                            '${record.amount} kg',
+                            labelColor,
+                            textColor,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -301,15 +382,27 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
     );
   }
 
-  Widget _buildRichLabel(String label, String value, Color labelColor, Color textColor) {
+  Widget _buildRichLabel(
+    String label,
+    String value,
+    Color labelColor,
+    Color textColor,
+  ) {
     return RichText(
       overflow: TextOverflow.ellipsis,
       text: TextSpan(
         children: [
-          TextSpan(text: '$label ', style: TextStyle(fontSize: 13, color: labelColor)),
+          TextSpan(
+            text: '$label ',
+            style: TextStyle(fontSize: 13, color: labelColor),
+          ),
           TextSpan(
             text: value.isNotEmpty ? value : 'N/A',
-            style: TextStyle(fontSize: 13, color: textColor, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              fontSize: 13,
+              color: textColor,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),

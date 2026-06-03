@@ -99,10 +99,10 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
 
                         // Text input
                         CustomTextField(
-                            label: 'Enter new weight:',
-                            keyboardType: TextInputType.number,
-                            controller: _controller,
-                            border: 10
+                          label: 'Enter new weight:',
+                          keyboardType: TextInputType.number,
+                          controller: _controller,
+                          border: 10,
                         ),
                         const SizedBox(height: 20),
 
@@ -110,9 +110,9 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                         SizedBox(
                           width: double.infinity,
                           height: 48,
-                          child:  CustomButton(
+                          child: CustomButton(
                             text: 'Update',
-                            backgroundColor: Colors.amber,
+                            backgroundColor: Colors.blue,
                             color: Colors.black87,
                             border: 10,
                             onPressed: _submit,

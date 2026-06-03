@@ -24,7 +24,7 @@ class SelectPigFeedPopup extends StatefulWidget {
 }
 
 class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
-  // 👇 1. Add FormKey for the text fields validation
+  //  1. Add FormKey for the text fields validation
   final _formKey = GlobalKey<FormState>();
 
   late List<bool> _checked;
@@ -83,7 +83,7 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
         content: 'Save feeding record for selected pigs?',
         confirmText: 'Save',
         cancelText: 'Cancel',
-        confirmColor: Color(0xFFF5A623),
+        confirmColor: Colors.blue,
       ),
     );
 
@@ -96,11 +96,7 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       barrierDismissible: false,
       builder: (_) => const Dialog(
         backgroundColor: Colors.transparent,
-        child: Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFFF5A623),
-          ),
-        ),
+        child: Center(child: CircularProgressIndicator()),
       ),
     );
 
@@ -118,16 +114,23 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
     }
 
     // 7. Map pigs to AppFeedingRecord models
-    final recordsToSave = selectedPigs.map((pig) => AppFeedingRecord(
-      id: '', // Will be assigned by Firestore
-      pigId: pig.pigId, // Make sure your AppPig model uses 'id' here
-      feedType: feedType,
-      amount: amount,
-      timestamp: DateTime.now(), // Or FieldValue.serverTimestamp() in the repo
-    )).toList();
+    final recordsToSave = selectedPigs
+        .map(
+          (pig) => AppFeedingRecord(
+            id: '', // Will be assigned by Firestore
+            pigId: pig.pigId, // Make sure your AppPig model uses 'id' here
+            feedType: feedType,
+            amount: amount,
+            timestamp:
+                DateTime.now(), // Or FieldValue.serverTimestamp() in the repo
+          ),
+        )
+        .toList();
 
     // 8. Call Cubit
-    final success = await context.read<FeedingRecordCubit>().addBatchRecords(recordsToSave);
+    final success = await context.read<FeedingRecordCubit>().addBatchRecords(
+      recordsToSave,
+    );
 
     if (!mounted) return;
 
@@ -138,7 +141,8 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       Navigator.pop(context); // Close the popup entirely
       CustomSnackbar.show(
         context: context,
-        message: 'Successfully saved feeding records for ${selectedPigs.length} pig(s)!',
+        message:
+            'Successfully saved feeding records for ${selectedPigs.length} pig(s)!',
       );
     } else {
       // If it fails, the popup stays open so they can try again
@@ -179,7 +183,7 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                  // 👇 4. Wrap the Column in the Form
+                  // 4. Wrap the Column in the Form
                   child: Form(
                     key: _formKey,
                     child: Column(
@@ -219,7 +223,9 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                         Container(
                           decoration: BoxDecoration(
                             border: Border.all(
-                              color: isDark ? Colors.white12 : Colors.grey.shade300,
+                              color: isDark
+                                  ? Colors.white12
+                                  : Colors.grey.shade300,
                             ),
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -234,11 +240,14 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                               ),
                               Divider(
                                 height: 1,
-                                color: isDark ? Colors.white12 : Colors.grey.shade200,
+                                color: isDark
+                                    ? Colors.white12
+                                    : Colors.grey.shade200,
                               ),
                               ...List.generate(widget.pigs.length, (i) {
                                 final pig = widget.pigs[i];
-                                final displayLabel = '${pig.breed} | ${pig.displayId} - ${pig.stage}';
+                                final displayLabel =
+                                    '${pig.breed} | ${pig.displayId} - ${pig.stage}';
 
                                 return Column(
                                   children: [
@@ -252,7 +261,9 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                                     if (i < widget.pigs.length - 1)
                                       Divider(
                                         height: 1,
-                                        color: isDark ? Colors.white12 : Colors.grey.shade200,
+                                        color: isDark
+                                            ? Colors.white12
+                                            : Colors.grey.shade200,
                                       ),
                                   ],
                                 );
@@ -270,8 +281,10 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                                 label: 'Feed Type:',
                                 border: 6,
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 12),
-                                // 👇 5. Add Feed Type validation
+                                  horizontal: 10,
+                                  vertical: 12,
+                                ),
+                                // 5. Add Feed Type validation
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
@@ -288,8 +301,10 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                                 border: 6,
                                 keyboardType: TextInputType.number,
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 12),
-                                // 👇 6. Add Amount validation
+                                  horizontal: 10,
+                                  vertical: 12,
+                                ),
+                                //  6. Add Amount validation
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
@@ -306,9 +321,9 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                         ),
                         const SizedBox(height: 16),
                         CustomButton(
-                          text: 'Save',
+                          text: 'Save Records',
                           onPressed: _onSave,
-                          backgroundColor: const Color(0xFFF5A623),
+                          backgroundColor: const Color(0xFF2563EB),
                           color: Colors.white,
                           border: 10,
                           borderColor: false,

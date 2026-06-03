@@ -22,7 +22,7 @@ class PigFeedCardPopUp extends StatefulWidget {
 }
 
 class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
-  // 👇 1. Add a FormKey to manage validation
+  //  1. Add a FormKey to manage validation
   final _formKey = GlobalKey<FormState>();
 
   final TextEditingController _feedTypeController = TextEditingController();
@@ -49,7 +49,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
         content: 'Save feeding record for ${widget.pigId}?',
         confirmText: 'Save',
         cancelText: 'Cancel',
-        confirmColor: const Color(0xFFF5A623),
+        confirmColor: const Color(0xFF2563EB),
       ),
     );
 
@@ -63,9 +63,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
       builder: (_) => const Dialog(
         backgroundColor: Colors.transparent,
         child: Center(
-          child: CircularProgressIndicator(
-            color: Color(0xFFF5A623),
-          ),
+          child: CircularProgressIndicator(color: Color(0xFFF5A623)),
         ),
       ),
     );
@@ -77,14 +75,16 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     // 5. Prepare Record
     final recordToSave = AppFeedingRecord(
       id: '', // Handled by repo
-      pigId: widget.pigId, // 👈 Make sure widget.pigId exists!
+      pigId: widget.pigId, //  Make sure widget.pigId exists!
       feedType: feedType,
       amount: amount,
       timestamp: DateTime.now(),
     );
 
     // 6. Call Cubit
-    final success = await context.read<FeedingRecordCubit>().addRecord(recordToSave);
+    final success = await context.read<FeedingRecordCubit>().addRecord(
+      recordToSave,
+    );
 
     if (!mounted) return;
 
@@ -126,7 +126,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
               Container(
                 width: 10,
                 decoration: BoxDecoration(
-                  color: widget.pigColor,
+                  color: Colors.blue,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(16),
                     bottomLeft: Radius.circular(16),
@@ -137,7 +137,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                   child: Form(
-                    // 👇 3. Wrap the Column in a Form and attach the key
+                    //  3. Wrap the Column in a Form and attach the key
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,7 +207,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                                   horizontal: 10,
                                   vertical: 12,
                                 ),
-                                // 👇 4. Add validator for Feed Type
+                                // 4. Add validator for Feed Type
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
@@ -230,7 +230,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                                   horizontal: 10,
                                   vertical: 12,
                                 ),
-                                // 👇 5. Add validator for Amount
+                                // 5. Add validator for Amount
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
@@ -251,9 +251,9 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
 
                         // ── Save — CustomButton ────────────────────────────
                         CustomButton(
-                          text: 'Save',
+                          text: 'Save Record',
                           onPressed: _onSave,
-                          backgroundColor: const Color(0xFFF5A623),
+                          backgroundColor: Colors.blue,
                           color: Colors.white,
                           border: 10,
                           borderColor: false,
