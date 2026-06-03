@@ -60,27 +60,26 @@ class SplashScreenState extends State<SplashScreen>
       context,
       MaterialPageRoute(
         builder: (_) => BlocConsumer<AuthCubit, AuthState>(
-          builder: (context, state) {
-            // 🔹 CHANGED: Unauthenticated now returns LandingPage
-            if (state is Unauthenticated) {
-              return LandingPage(onThemeToggle: widget.onThemeToggle);
-            }
-
-            // authenticated -> homepage/dashboard
-            if (state is Authenticated) {
-              return AppNav(onThemeToggle: widget.onThemeToggle);
-            }
-            // loading...
-            else {
-              return const LoadingScreen();
-            }
-          },
           listener: (context, state) {
             if (state is AuthError) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(state.message)),
               );
             }
+          },
+          builder: (context, state) {
+            // 🔹 FIX: Make sure there are NO parentheses after widget.onThemeToggle!
+            // It must be passed exactly as `widget.onThemeToggle` without (true) or (false)
+
+            if (state is Unauthenticated) {
+              return LandingPage(onThemeToggle: widget.onThemeToggle);
+            }
+
+            if (state is Authenticated) {
+              return AppNav(onThemeToggle: widget.onThemeToggle);
+            }
+
+            return const LoadingScreen();
           },
         ),
       ),

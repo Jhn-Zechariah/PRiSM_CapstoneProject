@@ -357,7 +357,7 @@ class _LandingPageState extends State<LandingPage>
               color: const Color(0xFF2979FF),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: const Color(0xFF2979FF), size: 22),
+            child: Icon(icon, color: Colors.white, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(

@@ -27,10 +27,9 @@ class _AuthPageState extends State<AuthPage> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    // 🔹 Wrapping the UI in a BlocConsumer so it listens for the login success!
+
     return BlocConsumer<AuthCubit, AuthState>(
       listener: (context, state) {
-        // If they successfully log in or sign up, route to Dashboard
         if (state is Authenticated) {
           Navigator.pushReplacement(
             context,
@@ -39,7 +38,6 @@ class _AuthPageState extends State<AuthPage> {
             ),
           );
         }
-        // If error, show snackbar
         else if (state is AuthError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(state.message)),
@@ -47,7 +45,6 @@ class _AuthPageState extends State<AuthPage> {
         }
       },
       builder: (context, state) {
-        // Show loading screen while processing login/signup
         if (state is AuthLoading) {
           return const LoadingScreen();
         }
@@ -55,12 +52,14 @@ class _AuthPageState extends State<AuthPage> {
         // Default: Show login or signup page
         if (showLoginPage) {
           return LoginScreen(
-            onThemeToggle: widget.onThemeToggle(isDarkMode),
+            // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
+            onThemeToggle: () => widget.onThemeToggle(isDarkMode),
             togglePages: togglePages,
           );
         } else {
           return SignupScreen(
-            onThemeToggle: widget.onThemeToggle(isDarkMode),
+            // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
+            onThemeToggle: () => widget.onThemeToggle(isDarkMode),
             togglePages: togglePages,
           );
         }
