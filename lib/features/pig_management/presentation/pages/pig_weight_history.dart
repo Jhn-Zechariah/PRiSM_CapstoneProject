@@ -83,7 +83,11 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _currentFilter,
-            icon: Icon(Icons.filter_list, size: 18, color: isDark ? Colors.white : Colors.black87),
+            icon: Icon(
+              Icons.filter_list,
+              size: 18,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -110,11 +114,20 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
           DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: _selectedPigId,
-              icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF2563EB)),
-              style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w600),
+              icon: const Icon(
+                Icons.keyboard_arrow_down,
+                size: 18,
+                color: Color(0xFF2563EB),
+              ),
+              style: const TextStyle(
+                color: Color(0xFF2563EB),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
               dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
               isDense: true,
-              items: displayPigs.map((pig) { // 👇 Use filtered list here
+              items: displayPigs.map((pig) {
+                //  Use filtered list here
                 return DropdownMenuItem(
                   value: pig.pigId,
                   child: Row(
@@ -130,7 +143,11 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
                       ),
                       Text(
                         '${pig.breed} | ${pig.displayId}',
-                        style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500),
+                        style: const TextStyle(
+                          color: Color(0xFF2563EB),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
@@ -151,10 +168,14 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final selectedColor = _selectedPigId != null ? _getColorForPig(_selectedPigId!) : Colors.grey;
+    final selectedColor = _selectedPigId != null
+        ? _getColorForPig(_selectedPigId!)
+        : Colors.grey;
 
     return Scaffold(
-      backgroundColor: isDarkMode ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
+      backgroundColor: isDarkMode
+          ? const Color(0xFF121212)
+          : const Color(0xFFF5F5F5),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -171,37 +192,53 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
               Expanded(
                 child: _filteredPigs.isEmpty
                     ? Center(
-                  child: Text(
-                    _currentFilter == 'Active'
-                        ? 'No active pigs available.'
-                        : 'No inactive pigs available.',
-                    style: TextStyle(color: isDarkMode ? Colors.white54 : Colors.black54),
-                  ),
-                )
+                        child: Text(
+                          _currentFilter == 'Active'
+                              ? 'No active pigs available.'
+                              : 'No inactive pigs available.',
+                          style: TextStyle(
+                            color: isDarkMode ? Colors.white54 : Colors.black54,
+                          ),
+                        ),
+                      )
                     : BlocBuilder<WeightHistoryCubit, WeightHistoryState>(
-                  builder: (context, state) {
-                    if (state is WeightHistoryLoading || state is WeightHistoryInitial) {
-                      return const Center(child: CircularProgressIndicator());
-                    } else if (state is WeightHistoryError) {
-                      return Center(child: Text(state.message, style: const TextStyle(color: Colors.red)));
-                    } else if (state is WeightHistoryLoaded) {
-                      final records = state.records;
+                        builder: (context, state) {
+                          if (state is WeightHistoryLoading ||
+                              state is WeightHistoryInitial) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          } else if (state is WeightHistoryError) {
+                            return Center(
+                              child: Text(
+                                state.message,
+                                style: const TextStyle(color: Colors.red),
+                              ),
+                            );
+                          } else if (state is WeightHistoryLoaded) {
+                            final records = state.records;
 
-                      if (records.isEmpty) {
-                        return const Center(child: Text('No weight records found.'));
-                      }
+                            if (records.isEmpty) {
+                              return const Center(
+                                child: Text('No weight records found.'),
+                              );
+                            }
 
-                      return ListView.builder(
-                        itemCount: records.length,
-                        itemBuilder: (context, index) {
-                          final record = records[index];
-                          return _buildWeightRecordCard(record, selectedColor, isDarkMode);
+                            return ListView.builder(
+                              itemCount: records.length,
+                              itemBuilder: (context, index) {
+                                final record = records[index];
+                                return _buildWeightRecordCard(
+                                  record,
+                                  selectedColor,
+                                  isDarkMode,
+                                );
+                              },
+                            );
+                          }
+                          return const SizedBox.shrink();
                         },
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
+                      ),
               ),
             ],
           ),
@@ -210,7 +247,11 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
     );
   }
 
-  Widget _buildWeightRecordCard(AppWeightRecord record, Color accentColor, bool isDarkMode) {
+  Widget _buildWeightRecordCard(
+    AppWeightRecord record,
+    Color accentColor,
+    bool isDarkMode,
+  ) {
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final labelColor = isDarkMode ? Colors.white60 : Colors.black54;
 
@@ -220,7 +261,9 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
       decoration: BoxDecoration(
         color: isDarkMode ? const Color(0xFF2C2C2C) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isDarkMode ? Colors.white10 : Colors.grey.shade300),
+        border: Border.all(
+          color: isDarkMode ? Colors.white10 : Colors.grey.shade300,
+        ),
       ),
       child: IntrinsicHeight(
         child: Row(
@@ -230,7 +273,10 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
               width: 10,
               decoration: BoxDecoration(
                 color: accentColor,
-                borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
               ),
             ),
             Expanded(
@@ -241,7 +287,11 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
                   children: [
                     Text(
                       record.notes.isNotEmpty ? record.notes : 'Weight Update',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: textColor,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -250,10 +300,20 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
                           child: RichText(
                             text: TextSpan(
                               children: [
-                                TextSpan(text: 'Date: ', style: TextStyle(fontSize: 13, color: labelColor)),
+                                TextSpan(
+                                  text: 'Date: ',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: labelColor,
+                                  ),
+                                ),
                                 TextSpan(
                                   text: _formatDate(record.dateRecorded),
-                                  style: TextStyle(fontSize: 13, color: textColor, fontWeight: FontWeight.w500),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: textColor,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ],
                             ),
@@ -263,10 +323,20 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
                           child: RichText(
                             text: TextSpan(
                               children: [
-                                TextSpan(text: 'Weight: ', style: TextStyle(fontSize: 13, color: labelColor)),
+                                TextSpan(
+                                  text: 'Weight: ',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: labelColor,
+                                  ),
+                                ),
                                 TextSpan(
                                   text: '${record.weightKg} kg',
-                                  style: TextStyle(fontSize: 13, color: textColor, fontWeight: FontWeight.w500),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: textColor,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ],
                             ),

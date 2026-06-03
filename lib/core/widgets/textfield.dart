@@ -17,6 +17,7 @@ class CustomTextField extends StatelessWidget {
   final EdgeInsetsGeometry? contentPadding;
   final Color? fillColor;
   final Color? borderColor;
+  final int? maxLines;
 
   const CustomTextField({
     super.key,
@@ -35,6 +36,7 @@ class CustomTextField extends StatelessWidget {
     this.fillColor,
     this.borderColor,
     this.readonly = false,
+    this.maxLines,
   });
 
   @override
