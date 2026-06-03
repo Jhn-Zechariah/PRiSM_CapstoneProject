@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/core/widgets/text.dart';
+import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
-import '../../features/auth/presentation/pages/auth_page.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
@@ -92,7 +92,7 @@ class _AppNavState extends State<AppNav> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (context) => AuthPage(onThemeToggle: widget.onThemeToggle),
+              builder: (context) => LandingPage(onThemeToggle: widget.onThemeToggle),
             ),
                 (route) => false, // Completely destroys the dashboard history
           );
