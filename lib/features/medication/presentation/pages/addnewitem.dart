@@ -19,18 +19,14 @@ class AddNewItemDialog extends StatefulWidget {
 }
 
 class _AddNewItemDialogState extends State<AddNewItemDialog> {
-  // ── Consistent padding for all fields ─────────────────────────────────────
-  static const _fieldPadding = EdgeInsets.symmetric(
-    horizontal: 12,
-    vertical: 13,
-  );
+  static const _fieldPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 13);
 
   // ── Controllers ────────────────────────────────────────────────────────────
   final _nameController = TextEditingController();
   final _qtyController = TextEditingController();
   final _mgController = TextEditingController();
   final _expiryController = TextEditingController();
-  final _reorderController = TextEditingController();
+  final _reorderController = TextEditingController(); // Now holds a date string
   final _descController = TextEditingController();
   final _mgFocusNode = FocusNode();
 
@@ -65,17 +61,17 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
   }
 
   List<String> get _typeOptions {
-    if (selectedCategory == 'Vitamins') return ['Powder'];
+    if (selectedCategory == 'Vitamins') return ['Powder', 'Fluid'];
     return ['Capsule', 'Fluid'];
   }
 
   void _syncLabels() {
-    if (selectedCategory == 'Vitamins') {
-      _unitLabel = 'g';
-      _perLabel = '/ Sachet';
-    } else if (selectedCategory == 'Vaccine' || selectedType == 'Fluid') {
+    if (selectedCategory == 'Vaccine' || selectedType == 'Fluid') {
       _unitLabel = 'mL';
       _perLabel = '/ Bottle';
+    } else if (selectedCategory == 'Vitamins') {
+      _unitLabel = 'g';
+      _perLabel = '/ Sachet';
     } else {
       _unitLabel = 'mg';
       _perLabel = '/ Tablet';
@@ -105,11 +101,17 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     });
   }
 
-  Future<void> _selectDate() async {
+  // ── Date Picker Logic ──────────────────────────────────────────────────────
+
+  // 🔹 FIXED: firstDate set to today to prevent choosing past dates
+  Future<void> _selectExpiryDate() async {
+    final DateTime now = DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
+
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2000),
+      initialDate: today,
+      firstDate: today,
       lastDate: DateTime(2101),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
@@ -129,6 +131,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     }
   }
 
+
   Future<void> _onSave() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -147,7 +150,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
         'stock': int.tryParse(_qtyController.text) ?? 0,
         'dosage': _mgController.text,
         'expiry': _expiryController.text,
-        'reorder': int.tryParse(_reorderController.text) ?? 0,
+        'reorder': _reorderController.text, // 🔹 CHANGED: Sends string date instead of integer
         'description': _descController.text,
         'category': selectedCategory,
         'type': selectedType,
@@ -168,7 +171,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     );
   }
 
-  // ── Compact dosage box ─────────────────────────────────────────────────────
   Widget _compactUnitBox({
     required TextEditingController controller,
     required FocusNode focusNode,
@@ -209,11 +211,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   isDense: true,
-                  // ✅ matches _fieldPadding vertical
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 13,
-                  ),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 13),
                 ),
               ),
             ),
@@ -228,7 +226,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
     );
   }
 
-  // ── Static (read-only) type box ────────────────────────────────────────────
   Widget _staticTypeBox(String label) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return Material(
@@ -238,14 +235,11 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: double.infinity,
-        // ✅ matches _fieldPadding
         padding: _fieldPadding,
         decoration: BoxDecoration(
           color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.grey[200],
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isDarkMode ? Colors.white12 : Colors.grey[300]!,
-          ),
+          border: Border.all(color: isDarkMode ? Colors.white12 : Colors.grey[300]!),
         ),
         child: Text(label, style: _labelStyle(context)),
       ),
@@ -263,10 +257,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Left accent stripe
               Container(width: 12, color: const Color(0xFF002D44)),
-
-              // Form content
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
@@ -275,7 +266,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ── Header ───────────────────────────────────────────
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -284,25 +274,16 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                               style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodyLarge?.color,
+                                color: Theme.of(context).textTheme.bodyLarge?.color,
                               ),
                             ),
                             IconButton(
-                              icon: Icon(
-                                Icons.close,
-                                color: Theme.of(
-                                  context,
-                                ).textTheme.bodyMedium?.color,
-                              ),
+                              icon: Icon(Icons.close, color: Theme.of(context).textTheme.bodyMedium?.color),
                               onPressed: () => Navigator.pop(context),
                             ),
                           ],
                         ),
                         const SizedBox(height: 16),
-
-                        // ── Name field ───────────────────────────────────────
                         CustomTextField(
                           controller: _nameController,
                           label: _nameLabel,
@@ -310,8 +291,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                           contentPadding: _fieldPadding,
                         ),
                         const SizedBox(height: 14),
-
-                        // ── Qty + Dosage row ─────────────────────────────────
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -337,8 +316,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                           ],
                         ),
                         const SizedBox(height: 14),
-
-                        // ── Category + Type row ──────────────────────────────
                         Row(
                           children: [
                             Expanded(
@@ -347,11 +324,7 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                 value: selectedCategory,
                                 border: 8,
                                 contentPadding: _fieldPadding,
-                                items: const [
-                                  'Medicine',
-                                  'Vitamins',
-                                  'Vaccine',
-                                ],
+                                items: const ['Medicine', 'Vitamins', 'Vaccine'],
                                 onChanged: _onCategoryChanged,
                               ),
                             ),
@@ -364,8 +337,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                   const SizedBox(height: 4),
                                   if (selectedCategory == 'Vaccine')
                                     _staticTypeBox('Fluid')
-                                  else if (selectedCategory == 'Vitamins')
-                                    _staticTypeBox('Powder')
                                   else
                                     CustomDropdown(
                                       key: ValueKey(selectedCategory),
@@ -381,8 +352,6 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                           ],
                         ),
                         const SizedBox(height: 14),
-
-                        // ── Expiry + Reorder row ─────────────────────────────
                         Row(
                           children: [
                             Expanded(
@@ -391,44 +360,35 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                 label: 'Expiry date:',
                                 border: 8,
                                 readonly: true,
-                                onTap: _selectDate,
+                                onTap: _selectExpiryDate, // 🔹 Changed function name
                                 contentPadding: _fieldPadding,
                                 suffixIcon: IconButton(
-                                  icon: const Icon(
-                                    Icons.calendar_month_outlined,
-                                    size: 20,
-                                  ),
-                                  onPressed: _selectDate,
+                                  icon: const Icon(Icons.calendar_month_outlined, size: 20),
+                                  onPressed: _selectExpiryDate,
                                 ),
                               ),
                             ),
                             const SizedBox(width: 12),
+
+                            // 🔹 CHANGED: Re-order alert is now a full date picker field
                             Expanded(
                               child: CustomTextField(
                                 controller: _reorderController,
                                 label: 'Re-order alert:',
                                 border: 8,
-                                keyboardType: TextInputType.number,
                                 contentPadding: _fieldPadding,
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 14),
-
-                        // ── Description ──────────────────────────────────────
                         CustomTextField(
                           controller: _descController,
                           label: 'Description:',
                           border: 8,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 20,
-                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
                         ),
                         const SizedBox(height: 24),
-
-                        // ── Save button ──────────────────────────────────────
                         CustomButton(
                           text: 'Save',
                           border: 8,

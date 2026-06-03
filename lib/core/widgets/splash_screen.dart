@@ -9,7 +9,7 @@ import 'bottom_nav_and_drawer.dart';
 
 class SplashScreen extends StatefulWidget {
   // 1. Define the parameter to receive the function from main.dart
-  final VoidCallback onThemeToggle;
+  final Function(bool isCurrentDark) onThemeToggle;
 
   const SplashScreen({super.key, required this.onThemeToggle});
 

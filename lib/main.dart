@@ -35,16 +35,16 @@ class _MyAppState extends State<MyApp> {
   //auth repo
   final firebaseAuthRepo = FirebaseAuthRepo();
 
-  void toggleTheme() {
+  // 🔹 FIXED: Modified to accept the current visual state of the UI
+  // This explicitly sets the opposite theme mode and stops the 2-tap system delay bug.
+  void toggleTheme(bool isCurrentDark) {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+      _themeMode = isCurrentDark ? ThemeMode.light : ThemeMode.dark;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-
-
     return MultiBlocProvider(
       providers: [
         //auth cubit
@@ -70,9 +70,9 @@ class _MyAppState extends State<MyApp> {
         darkTheme: AppTheme.darkTheme,
         themeMode: _themeMode,
 
-        home: SplashScreen(onThemeToggle: toggleTheme)
-      )
+        // 🔹 FIXED: The compiler is happy now that signatures match perfectly!
+        home: SplashScreen(onThemeToggle: toggleTheme),
+      ),
     );
-
   }
 }
