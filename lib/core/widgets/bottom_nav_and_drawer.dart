@@ -8,7 +8,6 @@ import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
-import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
@@ -191,7 +190,7 @@ class _AppNavState extends State<AppNav> {
               isDark ? Symbols.brightness_7 : Symbols.brightness_5,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
               () {
-                widget.onThemeToggle();
+                widget.onThemeToggle(isDark);
                 Navigator.pop(context);
               },
             ),
