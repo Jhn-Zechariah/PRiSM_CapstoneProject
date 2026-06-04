@@ -299,7 +299,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             "Pig Status: $_pigStatus",
           ], const Color(0xFFE53935)),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 5),
         Expanded(
           child: _buildInfoCard(isDark, Symbols.shower, "Sprinkler Info", [
             "Status: $_sprinklerStatus",
@@ -586,12 +586,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: _buildInfoCard(
             isDark,
             Symbols.calendar_month,
-            "Vaccine Schedule",
+            "Vax Schedule",
             ["Vax name: ", "Date: "],
             const Color(0xFFFB8C00),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 5),
         Expanded(
           child: _buildInfoCard(isDark, Symbols.water_medium, "Water Level", [
             "Level: ",
