@@ -7,7 +7,7 @@ import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
-import '../../features/auth/presentation/pages/auth_page.dart';
+import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
@@ -19,7 +19,7 @@ import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart'
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
 
-// ── 🆕 ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
+// ── ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
 import '../../features/monitoring/presentation/cubits/temperature_monitoring_cubit.dart';
 import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
 
@@ -93,7 +93,7 @@ class _AppNavState extends State<AppNav> {
             context,
             MaterialPageRoute(
               builder: (context) =>
-                  AuthPage(onThemeToggle: widget.onThemeToggle),
+                  LandingPage(onThemeToggle: widget.onThemeToggle),
             ),
             (route) => false, // Completely destroys the dashboard history
           );
