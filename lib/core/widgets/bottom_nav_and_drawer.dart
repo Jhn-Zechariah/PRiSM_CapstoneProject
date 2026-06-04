@@ -8,6 +8,7 @@ import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
+import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
@@ -18,6 +19,8 @@ import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
+
+// ── ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
 import '../../features/monitoring/presentation/cubits/temperature_monitoring_cubit.dart';
 import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
 
@@ -50,39 +53,38 @@ class _AppNavState extends State<AppNav> {
 
     final List<Widget> screens = [
       PigProfilesScreen(), // Index 0: Pig Profiles
-
       // Index 1: Temperature / Humidity Monitor Option
       _showHumidity
           ? HumidityMonitoring(
-        onSwitchToTemperature: () {
-          setState(() => _showHumidity = false);
-        },
-      )
+              onSwitchToTemperature: () {
+                setState(() => _showHumidity = false);
+              },
+            )
           : BlocProvider(
-        // 🔹 🆕 Providing the cubit right here eliminates the ProviderNotFound crash!
-        create: (context) => TemperatureMonitoringCubit(
-          repo: FirestoreTemperatureMonitoringRepo(),
-        )..startMonitoring(), // Triggers automatic hardware background updates
-        child: TemperatureMonitoring(
-          onSwitchToHumidity: () {
-            setState(() => _showHumidity = true);
-          },
-        ),
-      ),
+              // 🔹 🆕 Providing the cubit right here eliminates the ProviderNotFound crash!
+              create: (context) => TemperatureMonitoringCubit(
+                repo: FirestoreTemperatureMonitoringRepo(),
+              )..startMonitoring(), // Triggers automatic hardware background updates
+              child: TemperatureMonitoring(
+                onSwitchToHumidity: () {
+                  setState(() => _showHumidity = true);
+                },
+              ),
+            ),
 
       const DashboardScreen(), // Index 2: Home / Dashboard
       const FeedingRecordsPage(), // Index 3: Feeding Records
       _showPigMeds // Index 4: Pig Meds
           ? pig_meds(
-        onSwitchToStock: () {
-          setState(() => _showPigMeds = false);
-        },
-      )
+              onSwitchToStock: () {
+                setState(() => _showPigMeds = false);
+              },
+            )
           : meds_Stocks(
-        onSwitchToPigMeds: () {
-          setState(() => _showPigMeds = true);
-        },
-      ),
+              onSwitchToPigMeds: () {
+                setState(() => _showPigMeds = true);
+              },
+            ),
     ];
 
     return BlocListener<AuthCubit, AuthState>(
@@ -92,9 +94,10 @@ class _AppNavState extends State<AppNav> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (context) => LandingPage(onThemeToggle: widget.onThemeToggle),
+              builder: (context) =>
+                  LandingPage(onThemeToggle: widget.onThemeToggle),
             ),
-                (route) => false, // Completely destroys the dashboard history
+            (route) => false, // Completely destroys the dashboard history
           );
         }
       },
@@ -140,7 +143,7 @@ class _AppNavState extends State<AppNav> {
                           type: TextType.email,
                           textColor: Colors.white,
                           fontSize: 11,
-                        )
+                        ),
                       ],
                     ),
                   ),
@@ -166,7 +169,7 @@ class _AppNavState extends State<AppNav> {
                 ),
               );
             }),
-            _drawerTile(Icons.sensors, "IoT Control", () {
+            _drawerTile(Symbols.barcode_reader, "IoT Control", () {
               Navigator.pop(context);
               showDialog(
                 context: context,
@@ -175,7 +178,7 @@ class _AppNavState extends State<AppNav> {
                 },
               );
             }),
-            _drawerTile(Icons.notifications, "Notification", () {
+            _drawerTile(Symbols.notifications_active, "Notification", () {
               Navigator.pop(context);
               showDialog(
                 context: context,
@@ -185,10 +188,10 @@ class _AppNavState extends State<AppNav> {
               );
             }),
             _drawerTile(
-              isDark ? Icons.wb_sunny : Icons.nightlight_round,
+              isDark ? Symbols.brightness_7 : Symbols.brightness_5,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                  () {
-                widget.onThemeToggle(isDark);
+              () {
+                widget.onThemeToggle();
                 Navigator.pop(context);
               },
             ),
