@@ -337,13 +337,13 @@ class _AddNewItemDialogState extends State<AddNewItemDialog> {
                                     : selectedCategory == 'Vitamins'
                                     ? _staticTypeBox('Powder')
                                     : CustomDropdown(
-                                        key: ValueKey(selectedCategory),
-                                        value: selectedType,
-                                        border: 8,
-                                        contentPadding: _fieldPadding,
-                                        items: _typeOptions,
-                                        onChanged: _onTypeChanged,
-                                      ),
+                                  key: ValueKey(selectedCategory),
+                                  value: selectedType,
+                                  border: 8,
+                                  contentPadding: _fieldPadding,
+                                  items: _typeOptions,
+                                  onChanged: _onTypeChanged,
+                                ),
                               ),
                             ),
                           ],

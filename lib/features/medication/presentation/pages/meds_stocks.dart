@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
-import 'package:prism_app/features/medication/presentation/components/medicine_card_widget.dart';
+import 'package:prism_app/features/medication/presentation/components/medicine_card.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/features/medication/presentation/pages/addnewitem.dart';
