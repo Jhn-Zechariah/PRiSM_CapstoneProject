@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/core/widgets/text.dart';
+import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
@@ -24,7 +25,8 @@ import '../../features/monitoring/presentation/cubits/temperature_monitoring_cub
 import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
 
 class AppNav extends StatefulWidget {
-  final VoidCallback onThemeToggle;
+  // 🔹 CHANGED: Change VoidCallback to a function that accepts the current theme state
+  final Function(bool isCurrentDark) onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
 

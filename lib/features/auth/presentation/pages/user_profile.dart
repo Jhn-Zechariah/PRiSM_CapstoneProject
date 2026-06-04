@@ -8,9 +8,6 @@ import '../components/password_field.dart';
 import '../cubits/profile_cubit.dart';
 import '../cubits/profile_states.dart';
 import '../cubits/auth_cubit.dart';
-// 🆕 Add your new imports here:
-// import 'path/to/custom_password_field.dart';
-// import 'path/to/dialog_utils.dart';
 
 class MyProfile extends StatefulWidget {
   const MyProfile({super.key});
