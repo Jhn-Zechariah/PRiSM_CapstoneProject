@@ -354,7 +354,7 @@ class _LandingPageState extends State<LandingPage>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: const Color(0xFF2979FF),
+              color: const Color(0xFF2979FF).withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: Colors.white, size: 22),
