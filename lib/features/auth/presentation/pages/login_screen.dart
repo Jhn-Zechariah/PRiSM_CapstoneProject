@@ -29,16 +29,12 @@ class LoginScreenState extends State<LoginScreen> {
 
   //login button press
   void _login() {
-    //prepare email & pass
     final String email = emailController.text;
     final String password = passwordController.text;
 
-    //validate fields
     if (_formKey.currentState!.validate()) {
       debugPrint("Email: ${emailController.text}");
       debugPrint("Password: ${passwordController.text}");
-
-      //log in
       authCubit.login(email, password);
     }
   }
@@ -49,7 +45,6 @@ class LoginScreenState extends State<LoginScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Forgot Password"),
-
         content: CustomTextField(
           controller: emailController,
           labelText: "Email",
@@ -57,7 +52,6 @@ class LoginScreenState extends State<LoginScreen> {
           prefixIcon: Icons.email_outlined,
         ),
         actions: [
-          //cancel
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -65,8 +59,6 @@ class LoginScreenState extends State<LoginScreen> {
             },
             child: const Text("Cancel"),
           ),
-
-          //reset
           TextButton(
             onPressed: () async {
               String message = await authCubit.forgotPassword(
@@ -137,7 +129,7 @@ class LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 30),
 
-                  //Email
+                  // Email
                   CustomTextField(
                     controller: emailController,
                     labelText: "Email",
@@ -150,7 +142,7 @@ class LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: fieldSpacing),
 
-                  //Password
+                  // Password
                   CustomTextField(
                     controller: passwordController,
                     labelText: "Password",
@@ -174,7 +166,7 @@ class LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 10),
 
-                  //forgot password
+                  // Forgot password
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -225,24 +217,21 @@ class LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 20),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SocialLoginButton(
-                          asset: 'assets/google.svg',
-                          label: "Sign in with Google",
-                          isDarkMode: isDarkMode,
-                          onTap: () async {
-                            authCubit.googleSignIn();
-                          },
-                        ),
-                      ],
-                    ),
+
+                  // ✅ Fixed: no Padding or Row wrapper
+                  SocialLoginButton(
+                    asset: 'assets/google.svg',
+                    label: "Sign in with Google",
+                    isDarkMode: isDarkMode,
+                    onTap: () async {
+                      authCubit.googleSignIn();
+                    },
                   ),
+
                   const SizedBox(height: 20),
+
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -255,7 +244,7 @@ class LoginScreenState extends State<LoginScreen> {
                       ),
                       GestureDetector(
                         onTap: widget.togglePages ?? () {},
-                        child: Text(
+                        child: const Text(
                           " Sign Up",
                           style: TextStyle(fontSize: 14, color: Colors.blue),
                         ),
