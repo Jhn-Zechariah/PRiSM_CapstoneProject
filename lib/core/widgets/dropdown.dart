@@ -57,7 +57,7 @@ class CustomDropdown extends StatelessWidget {
             child: Text(
               label!,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w500,
                 color: isDisabledOrReadOnly
                     ? (isDarkMode ? Colors.white54 : Colors.grey[600])
@@ -73,6 +73,7 @@ class CustomDropdown extends StatelessWidget {
           shadowColor: Colors.grey,
           borderRadius: BorderRadius.circular(border ?? 30),
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: value,
             isDense: true,
             validator: validator,
@@ -111,7 +112,7 @@ class CustomDropdown extends StatelessWidget {
             icon: Icon(
               Icons.arrow_drop_down,
               size: 20,
-              color: Theme.of(context).iconTheme.color, // ✅ FIXED
+              color: enabled ? Theme.of(context).iconTheme.color : Colors.transparent, // ✅ FIXED
             ),
             items: items.map((item) {
               return DropdownMenuItem<String>(

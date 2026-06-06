@@ -11,6 +11,7 @@ import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../../core/widgets/header.dart';
+import '../../../pig_management/domain/model/app_pig.dart';
 
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
@@ -19,6 +20,14 @@ class pig_meds extends StatefulWidget {
 
   @override
   State<pig_meds> createState() => _pig_medsState();
+}
+
+// Filter for Active pigs only (ignores Sold/Deceased)
+List<AppPig> _getActivePigs(List<AppPig> allPigs) {
+  return allPigs.where((pig) {
+    final statusLower = pig.status.toLowerCase();
+    return statusLower != 'sold' && statusLower != 'deceased';
+  }).toList();
 }
 
 class _pig_medsState extends State<pig_meds> {
@@ -34,14 +43,19 @@ class _pig_medsState extends State<pig_meds> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const AppTopBar(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 11),
 
           CustomFeatureHeader(
             title: 'Healthcare',
             icon: Symbols.vaccines,
+            trailing: IconButton(
+              icon: const Icon(Icons.add, size: 28),
+             disabledColor: Colors.transparent,
+              onPressed: null
+            ),
           ),
 
-          const SizedBox(height: 17),
+          const SizedBox(height: 10),
 
           Expanded(
             child: Column(
@@ -67,6 +81,8 @@ class _pig_medsState extends State<pig_meds> {
                           const Color(0xFF003366),
                           Colors.orange,
                         ];
+
+
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -74,8 +90,8 @@ class _pig_medsState extends State<pig_meds> {
                               pigs: state.allPigs.asMap().entries.map((entry) {
                                 return PigMedOption(
                                   id: entry.value.displayId,
-                                  accentColor:
-                                      colors[entry.key % colors.length],
+                                  status: entry.value.status, // 👈 MUST ADD THIS LINE
+                                  accentColor: colors[entry.key % colors.length],
                                 );
                               }).toList(),
                             ),
@@ -115,12 +131,14 @@ class _pig_medsState extends State<pig_meds> {
                       }
 
                       if (state is PigLoaded) {
-                        final pigs = state.allPigs;
+                        // 🔹 FIX: Apply the filter here so the list only gets active pigs
+                        final activePigs = _getActivePigs(state.allPigs);
 
-                        if (pigs.isEmpty) {
+                        // 🔹 Check if the filtered list is empty
+                        if (activePigs.isEmpty) {
                           return Center(
                             child: Text(
-                              'No pigs added yet. Click + to add one!',
+                              'No active pigs found.',
                               style: TextStyle(
                                 color: isDarkMode
                                     ? Colors.white70
@@ -138,12 +156,14 @@ class _pig_medsState extends State<pig_meds> {
                         ];
 
                         return ListView.separated(
-                          itemCount: pigs.length,
+                          // 🔹 Use activePigs.length here
+                          itemCount: activePigs.length,
                           separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
+                          const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             return PigMedCard(
-                              pig: pigs[index],
+                              // 🔹 Pass the active pig to the card
+                              pig: activePigs[index],
                               accentColor: colors[index % colors.length],
                               onAdd: () {
                                 // TODO: open add medication dialog
