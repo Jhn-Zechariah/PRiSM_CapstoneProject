@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/medication/presentation/components/medicine_intake_dialog.dart';
-import 'package:prism_app/features/medication/presentation/components/vaccine_intake_dialog.dart';
 
-enum PigMedAction { medicine, vaccine }
+import '../../domain/model/app_medicine.dart';
+import '../cubits/medicine_cubit.dart';
+import '../cubits/medicine_states.dart';
+
+
+enum PigMedAction { medicine, vaccine, vitamin }
 
 class PigMedCard extends StatelessWidget {
   final dynamic pig;
@@ -77,7 +82,7 @@ class PigMedCard extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              pig.displayId,
+                              '${pig.breed} | ${pig.displayId}',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -111,30 +116,39 @@ class PigMedCard extends StatelessWidget {
                       // + button — fully theme-aware
                       PopupMenuButton<PigMedAction>(
                         onSelected: (action) async {
-                          switch (action) {
-                            case PigMedAction.medicine:
-                              await showDialog(
-                                context: context,
-                                builder: (context) => MedicineIntakeDialog(
-                                  accentColor: accentColor,
-                                ),
-                              );
-                              break;
+                          String selectedType = '';
+                          if (action == PigMedAction.medicine) selectedType = 'Medicine';
+                          if (action == PigMedAction.vitamin) selectedType = 'Vitamin';
+                          if (action == PigMedAction.vaccine) selectedType = 'Vaccine';
 
-                            case PigMedAction.vaccine:
-                              await showDialog(
-                                context: context,
-                                builder: (context) => VaccineIntakeDialog(
-                                  accentColor: accentColor,
-                                ),
-                              );
-                              break;
+                          // 🔹 Grab your live medicines array from the loaded Cubit state
+                          final medicineState = context.read<MedicineCubit>().state;
+                          List<Medicine> availableMedicines = [];
+
+                          if (medicineState is MedicineLoaded) {
+                            availableMedicines = medicineState.medicines;
                           }
+
+                          await showDialog(
+                            context: context,
+                            builder: (dialogContext) => BlocProvider.value(
+                              value: context.read<MedicineCubit>(), // 🔹 Feeds the cubit instance directly into dialog scope
+                              child: MedicineIntakeDialog(
+                                accentColor: accentColor,
+                                intakeType: selectedType,
+                                availableMedicines: availableMedicines,
+                              ),
+                            ),
+                          );
                         },
                         itemBuilder: (context) => [
                           const PopupMenuItem(
                             value: PigMedAction.medicine,
-                            child: Text('Medicine / Vitamins'),
+                            child: Text('Medicine'),
+                          ),
+                          const PopupMenuItem(
+                            value: PigMedAction.vitamin,
+                            child: Text('Vitamins'),
                           ),
                           const PopupMenuItem(
                             value: PigMedAction.vaccine,

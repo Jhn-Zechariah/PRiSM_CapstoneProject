@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/core/widgets/text.dart';
+import 'package:prism_app/core/widgets/theme_seting.dart';
 import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
@@ -23,7 +25,7 @@ import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dar
 
 class AppNav extends StatefulWidget {
   // 🔹 CHANGED: Change VoidCallback to a function that accepts the current theme state
-  final Function(bool isCurrentDark) onThemeToggle;
+  final Function(ThemeMode selectedMode) onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
 
@@ -43,6 +45,7 @@ class _AppNavState extends State<AppNav> {
     Icon(Symbols.yoshoku, size: 30, color: Colors.white),
     Icon(Symbols.mixture_med, size: 30, color: Colors.white),
   ];
+
 
   @override
   Widget build(BuildContext context) {
@@ -185,13 +188,34 @@ class _AppNavState extends State<AppNav> {
               );
             }),
             _drawerTile(
-              isDark ? Icons.wb_sunny : Icons.nightlight_round,
-              isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                  () {
-                widget.onThemeToggle(isDark);
-                Navigator.pop(context);
+              Icons.brightness_6,
+              "Theme Settings",
+                  () async { // 🔹 1. Add 'async' here!
+                Navigator.pop(context); // Close the drawer first
+
+                // 🔹 2. Ask SharedPreferences what the user actually saved last time
+                final prefs = await SharedPreferences.getInstance();
+                final savedThemeIndex = prefs.getInt('theme_mode') ?? 0; // Default to 0 (System)
+                final actualCurrentTheme = ThemeMode.values[savedThemeIndex];
+
+                // 🔹 3. Only show the dialog if the widget is still on screen
+                if (context.mounted) {
+                  showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return ThemeSettingsDialog(
+                        // 🔹 4. Pass the real saved theme instead of ThemeMode.system!
+                        currentTheme: actualCurrentTheme,
+                        onThemeSelected: (selectedMode) {
+                          widget.onThemeToggle(selectedMode);
+                        },
+                      );
+                    },
+                  );
+                }
               },
             ),
+
             const Spacer(),
             const Divider(color: Colors.white24),
             _drawerTile(Icons.logout, "Log Out", () {

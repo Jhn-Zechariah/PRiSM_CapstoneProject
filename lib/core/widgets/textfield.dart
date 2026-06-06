@@ -19,6 +19,10 @@ class CustomTextField extends StatelessWidget {
   final Color? borderColor;
   final int? maxLines;
 
+  // 🔹 New additions
+  final FocusNode? focusNode;
+  final String? hint;
+
   const CustomTextField({
     super.key,
     required this.controller,
@@ -37,6 +41,8 @@ class CustomTextField extends StatelessWidget {
     this.borderColor,
     this.readonly = false,
     this.maxLines,
+    this.focusNode, // 🔹 Added to constructor
+    this.hint,      // 🔹 Added to constructor
   });
 
   @override
@@ -51,15 +57,15 @@ class CustomTextField extends StatelessWidget {
 
     final resolvedFillColor =
         fillColor ??
-        (isDisabled
-            ? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[200])
-            : (isDarkMode ? const Color(0xFF1E1E1E) : Colors.white));
+            (isDisabled
+                ? (isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[200])
+                : (isDarkMode ? const Color(0xFF1E1E1E) : Colors.white));
 
     final resolvedBorderColor =
         borderColor ??
-        (isDisabled
-            ? (isDarkMode ? Colors.white12 : Colors.grey[300]!)
-            : (isDarkMode ? Colors.white24 : Colors.black26));
+            (isDisabled
+                ? (isDarkMode ? Colors.white12 : Colors.grey[300]!)
+                : (isDarkMode ? Colors.white24 : Colors.black26));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,7 +77,7 @@ class CustomTextField extends StatelessWidget {
             child: Text(
               label!,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w500,
                 color: isDisabled
                     ? (isDarkMode ? Colors.white54 : Colors.grey[600])
@@ -87,15 +93,23 @@ class CustomTextField extends StatelessWidget {
           borderRadius: BorderRadius.circular(border ?? 30),
           child: TextFormField(
             controller: controller,
+            focusNode: focusNode, // 🔹 Connected FocusNode
             obscureText: obscureText,
             readOnly: readonly,
             onTap: onTap,
             validator: validator,
             enabled: enabled,
             keyboardType: keyboardType,
+            maxLines: maxLines, // 🔹 Connected maxLines
             style: TextStyle(fontSize: 14, color: resolvedTextColor),
             decoration: InputDecoration(
               labelText: labelText,
+              hintText: hint, // 🔹 Connected Hint Text
+              hintStyle: TextStyle(
+                color: isDisabled
+                    ? (isDarkMode ? Colors.white30 : Colors.grey[400])
+                    : (isDarkMode ? Colors.white54 : Colors.black45),
+              ),
               labelStyle: TextStyle(
                 color: isDarkMode ? Colors.white60 : Colors.black54,
               ),
@@ -105,11 +119,11 @@ class CustomTextField extends StatelessWidget {
               fillColor: resolvedFillColor,
               prefixIcon: prefixIcon != null
                   ? Icon(
-                      prefixIcon,
-                      color: isDisabled
-                          ? (isDarkMode ? Colors.white30 : Colors.grey[400])
-                          : (isDarkMode ? Colors.white60 : Colors.black54),
-                    )
+                prefixIcon,
+                color: isDisabled
+                    ? (isDarkMode ? Colors.white30 : Colors.grey[400])
+                    : (isDarkMode ? Colors.white60 : Colors.black54),
+              )
                   : null,
               suffixIcon: suffixIcon,
 
@@ -128,7 +142,6 @@ class CustomTextField extends StatelessWidget {
                 ),
               ),
 
-              // 👇 FIXED: Added Error Borders to maintain the rounded shape!
               errorBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(border ?? 30),
                 borderSide: const BorderSide(color: Colors.red),

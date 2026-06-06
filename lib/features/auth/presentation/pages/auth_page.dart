@@ -8,7 +8,7 @@ import '../cubits/auth_cubit.dart';
 import '../cubits/auth_states.dart';
 
 class AuthPage extends StatefulWidget {
-  final Function(bool isCurrentDark) onThemeToggle;
+  final Function(ThemeMode) onThemeToggle;
   const AuthPage({super.key, required this.onThemeToggle});
 
   @override
@@ -26,7 +26,6 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return BlocConsumer<AuthCubit, AuthState>(
       listener: (context, state) {
@@ -53,13 +52,13 @@ class _AuthPageState extends State<AuthPage> {
         if (showLoginPage) {
           return LoginScreen(
             // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
-            onThemeToggle: () => widget.onThemeToggle(isDarkMode),
+            onThemeToggle: () => widget.onThemeToggle,
             togglePages: togglePages,
           );
         } else {
           return SignupScreen(
             // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
-            onThemeToggle: () => widget.onThemeToggle(isDarkMode),
+            onThemeToggle: () => widget.onThemeToggle,
             togglePages: togglePages,
           );
         }
