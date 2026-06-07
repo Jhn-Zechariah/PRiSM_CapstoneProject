@@ -7,6 +7,7 @@ import 'package:prism_app/core/widgets/snackbar.dart';
 
 import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/dropdown.dart';
+import '../../../../core/widgets/error_dialog.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
@@ -136,46 +137,30 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Missing Information', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF002D44))),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _onSave() async {
     // 🔹 1. Validate required fields before proceeding
     if (_nameController.text.trim().isEmpty) {
-      _showErrorDialog('Please enter a ${_nameLabel.replaceAll(':', '').toLowerCase()}.');
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Please enter a ${_nameLabel.replaceAll(':', '').toLowerCase()}.'
+      );
       return;
     }
 
     if (_qtyController.text.trim().isEmpty) {
-      _showErrorDialog('Please enter a valid amount.');
+      CustomErrorDialog.show(context: context, message: 'Please enter a valid amount.');
       return;
     }
 
-    // Prevent negative (or completely invalid) numbers for Quantity
     final double parsedQty = double.tryParse(_qtyController.text) ?? -1.0;
     if (parsedQty < 0) {
-      _showErrorDialog('Amount cannot be a negative number.');
+      CustomErrorDialog.show(context: context, message: 'Amount cannot be a negative number.');
       return;
     }
 
-    // 🔹 NEW: Prevent negative numbers for Re-order Level
     final double parsedReorder = double.tryParse(_reorderController.text) ?? 0.0;
     if (parsedReorder < 0) {
-      _showErrorDialog('Re-order alert level cannot be a negative number.');
+      CustomErrorDialog.show(context: context, message: 'Re-order alert level cannot be a negative number.');
       return;
     }
 

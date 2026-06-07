@@ -75,7 +75,7 @@ class _meds_StocksState extends State<meds_Stocks> {
   void _showAddStockDialog(BuildContext context, Medicine item) {
     showDialog(
       context: context,
-      builder: (BuildContext context) => AddNewMedStockDialog(medicine: item,),
+      builder: (BuildContext context) => AddNewMedStockDialog(medicine: item),
     );
   }
 
@@ -86,9 +86,6 @@ class _meds_StocksState extends State<meds_Stocks> {
           .collection('medicines')
           .doc(medId)
           .collection('medicine_stock')
-      // String dates (YYYY-MM-DD) sort perfectly.
-      // descending: true gets the furthest (latest) date.
-      // Change to false if you want the nearest expiring date instead.
           .orderBy('expiry_date')
           .limit(1)
           .get();

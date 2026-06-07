@@ -165,9 +165,7 @@ class _pig_medsState extends State<pig_meds> {
                               // 🔹 Pass the active pig to the card
                               pig: activePigs[index],
                               accentColor: colors[index % colors.length],
-                              onAdd: () {
-                                // TODO: open add medication dialog
-                              },
+                              onAdd: () {},
                             );
                           },
                         );
