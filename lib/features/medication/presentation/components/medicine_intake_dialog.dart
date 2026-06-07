@@ -1,22 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/widgets/error_dialog.dart';
 import '../../../../core/widgets/textfield.dart';
-import '../../../../core/widgets/dropdown.dart'; // Ensure CustomDropdown is imported
+import '../../../../core/widgets/dropdown.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
+import '../../domain/model/app_medicine_intake.dart'; // 🔹 Added Intake Model Import
 import '../cubits/medicine_cubit.dart';
-import 'meds_combo_box.dart'; // The new component we just made
+import 'meds_combo_box.dart';
 
 class MedicineIntakeDialog extends StatefulWidget {
   final Color accentColor;
   final String intakeType;
   final List<Medicine> availableMedicines;
+  final String pigId; // 🔹 Added pigId to constructor
 
   const MedicineIntakeDialog({
     super.key,
     required this.accentColor,
     required this.intakeType,
     required this.availableMedicines,
+    required this.pigId, // 🔹 Required parameter
   });
 
   @override
@@ -56,7 +60,6 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
 
     return widget.availableMedicines.where((med) {
       final matchesCategory = med.category.toLowerCase() == targetCategory;
-      // 🔹 Check if totalStock is greater than 0 (Adjust property name if your model uses 'qty' or 'amount')
       final hasStock = med.totalStock > 0;
 
       return matchesCategory && hasStock;
@@ -75,7 +78,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
   }
 
   // Helper to format dropdown strings consistently
-  String _formatBatch(MedicineStock batch) => '${batch.expiryDate} (Qty: ${batch.amount})';
+  String _formatBatch(MedicineStock batch) => '${batch.expiryDate} | (${batch.amount.round()} ${_dosageUnit})';
 
   Future<void> _selectDate() async {
     final tomorrow = DateTime.now().add(const Duration(days: 1));
@@ -96,16 +99,78 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     }
   }
 
+  // 🔹 Fully Updated _onSave with CustomErrorDialog Validation
   void _onSave() {
+    // 1. Validation: Ensure Medicine is selected
+    if (_selectedMedicine == null || _selectedMedicine?.medId == null) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Please select a medicine first.'
+      );
+      return;
+    }
+
+    // 2. Validation: Ensure Batch is selected
+    if (_selectedStockBatch == null) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Please select a stock batch.'
+      );
+      return;
+    }
+
+    final dosageText = _dosageController.text.trim();
+
+    // 3. Validation: Ensure Dosage is not empty
+    if (dosageText.isEmpty) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Please enter a dosage amount.'
+      );
+      return;
+    }
+
+    // Parse the text into numbers for math validation
+    final dosageAmount = double.tryParse(dosageText) ?? 0.0;
+    final availableStock = double.tryParse(_selectedStockBatch!.amount.toString()) ?? 0.0;
+
+    // 4. Validation: No zero or negative dosage
+    if (dosageAmount <= 0) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Dosage must be greater than zero.'
+      );
+      return;
+    }
+
+    // 5. Validation: Dosage cannot exceed available batch stock
+    if (dosageAmount > availableStock) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Dosage ($dosageAmount) exceeds available stock ($availableStock).'
+      );
+      return;
+    }
+
+    // --- All Validations Passed! Create the Model ---
+    final newRecord = MedicineIntake(
+      pigId: widget.pigId,
+      type: widget.intakeType.toLowerCase(),
+      category: _selectedMedicine!.category,
+      medName: _selectedMedicine!.name, // Ensure your Medicine model uses 'name'
+      dosage: dosageText,
+      unitOfMeasurement: _dosageUnit,
+      status: _selectedStatus,
+      nextSchedule: _scheduleController.text.isEmpty ? null : _scheduleController.text,
+      purpose: _purposeController.text.isEmpty ? null : _purposeController.text,
+      dateTaken: DateTime.now(),
+    );
+
+    // Pass the prepared data back to the parent screen
     Navigator.pop(context, {
-      'type': widget.intakeType.toLowerCase(),
-      'medicineId': _selectedMedicine?.medId,
-      'stockDocId': _selectedStockBatch?.id,
-      'expiryDate': _selectedStockBatch?.expiryDate ?? 'Manual Input',
-      'dosage': _dosageController.text,
-      'status': _selectedStatus,
-      'nextSchedule': _scheduleController.text,
-      'purpose': _purposeController.text,
+      'intake': newRecord,
+      'selectedStock': _selectedStockBatch,
+      'medicineId': _selectedMedicine!.medId,
     });
   }
 
@@ -201,7 +266,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                           const SizedBox(width: 5),
                           Padding(
                             padding: const EdgeInsets.only(bottom: 14),
-                            child: Text(_dosageUnit, style: TextStyle(fontWeight: FontWeight.bold)),
+                            child: Text('| $_dosageUnit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                           ),
                           const SizedBox(width: 16),
                           Expanded(

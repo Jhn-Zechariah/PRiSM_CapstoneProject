@@ -5,6 +5,7 @@ import 'package:prism_app/core/widgets/button.dart';
 import 'package:prism_app/core/widgets/snackbar.dart';
 
 import '../../../../core/widgets/confirmation_box.dart';
+import '../../../../core/widgets/error_dialog.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
@@ -62,8 +63,8 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
 
 
   String get _amount {
-    if (selectedType == 'Capsule') return 'Tablet/s:';
-    if (selectedType == 'Fluid') return 'Amount (mL):';
+    if (widget.medicine.measurementUnit == 'tablet') return 'Tablet/s:';
+    if (widget.medicine.measurementUnit == 'mL') return 'Amount (mL):';
     return 'Amount (g):';
   }
 
@@ -96,45 +97,31 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Missing Information', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF002D44))),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _onSave() async {
-    // 1. Validate Amount
     if (_qtyController.text.trim().isEmpty) {
-      _showErrorDialog('Please enter the stock amount.');
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Please enter the stock amount.'
+      );
       return;
     }
+
     final double parsedQty = double.tryParse(_qtyController.text) ?? -1.0;
     if (parsedQty <= 0) {
-      _showErrorDialog('Amount must be greater than zero.');
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Amount must be greater than zero.'
+      );
       return;
     }
 
-    // 2. Validate Expiry Date
-    if (_expiryController.text.trim().isEmpty) {
-      _showErrorDialog('Please select an expiry date.');
-      return;
-    }
-
-    // 3. Validate Reorder Level
+// 3. Validate Reorder Level
     final double parsedReorder = double.tryParse(_reorderController.text) ?? 0.0;
     if (parsedReorder < 0) {
-      _showErrorDialog('Re-order alert level cannot be negative.');
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Re-order alert level cannot be negative.'
+      );
       return;
     }
 
