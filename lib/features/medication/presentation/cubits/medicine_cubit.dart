@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // 🔹 Added for real-time user detection
 import '../../domain/model/app_medicine.dart';
+import '../../domain/model/app_medicine_intake.dart';
 import '../../domain/model/app_medicine_stock.dart';
 import '../../domain/repo/medicine_repo.dart';
 import 'medicine_states.dart';
@@ -105,9 +106,38 @@ class MedicineCubit extends Cubit<MedicineState> {
     }
   }
 
+  // 🔹 ADDED: New method for handling medicine intakes
+  Future<void> addIntakeAndReduceStock({
+    required MedicineIntake intake,
+    required MedicineStock selectedStock,
+    required String medicineId,
+  }) async {
+    try {
+      emit(MedicineLoading());
+
+      await repository.addIntakeAndReduceStock(
+        intake: intake,
+        selectedStock: selectedStock,
+        medicineId: medicineId,
+      );
+
+      emit(MedicineSaveSuccess());
+
+      // 🔹 Instantly refresh the UI stream so the reduced stock numbers update everywhere
+      listenToMedicines();
+    } catch (e, stackTrace) {
+      print("🔥 FIRESTORE SAVE ERROR: $e");
+      print("🔥 STACKTRACE: $stackTrace");
+      final errorMessage = e.toString().replaceAll('Exception: ', '');
+      emit(MedicineError(errorMessage));
+    }
+  }
+
   @override
   Future<void> close() {
     _medicineSubscription?.cancel();
     return super.close();
   }
+
+
 }

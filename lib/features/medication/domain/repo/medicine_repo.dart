@@ -1,4 +1,5 @@
 import '../model/app_medicine.dart';
+import '../model/app_medicine_intake.dart';
 import '../model/app_medicine_stock.dart';
 
 abstract class MedicineRepository {
@@ -25,4 +26,10 @@ abstract class MedicineRepository {
     required MedicineStock newStock,
   });
 
+  // 🔹 ADDED: The new intake method
+  Future<void> addIntakeAndReduceStock({
+    required MedicineIntake intake,
+    required MedicineStock selectedStock,
+    required String medicineId,
+  });
 }

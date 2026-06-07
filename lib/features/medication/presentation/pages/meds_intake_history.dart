@@ -248,17 +248,6 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                                       children: [
                                         Expanded(
                                           child: Text(
-                                            'Date:',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              color: isDark
-                                                  ? Colors.white60
-                                                  : Colors.black54,
-                                            ),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Text(
                                             'Medicine:',
                                             style: TextStyle(
                                               fontSize: 13,
@@ -268,11 +257,6 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                                             ),
                                           ),
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
                                         Expanded(
                                           child: Text(
                                             'Dosage:',
@@ -284,9 +268,12 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                                             ),
                                           ),
                                         ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
                                         Expanded(
                                           child: Text(
-                                            'Notes:',
+                                            'Date:',
                                             style: TextStyle(
                                               fontSize: 13,
                                               color: isDark
@@ -295,7 +282,17 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                                             ),
                                           ),
                                         ),
-                                      ],
+                                    const SizedBox(height: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Notes:',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: isDark
+                                              ? Colors.white60
+                                              : Colors.black54,
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),

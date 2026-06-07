@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../domain/model/app_medicine.dart';
+import '../domain/model/app_medicine_intake.dart';
 import '../domain/model/app_medicine_stock.dart';
 import '../domain/repo/medicine_repo.dart';
 
@@ -143,6 +144,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
       // 🔹 NO MATCH FOUND: Create a brand new batch document
       final newStockRef = stockCollectionRef.doc();
 
+
       batch.set(newStockRef, {
         'amount': newStock.amount,
         'expiry_date': newStock.expiryDate,
@@ -156,10 +158,73 @@ class FirestoreMedicineRepo implements MedicineRepository {
 
     batch.update(medRef, {
       'total_stock': newTotalStock,
-      'reorder_level': medicine.reorderLevel,
     });
 
     // 5. Commit everything to Firestore safely at the same time
+    await batch.commit();
+  }
+
+  @override
+  Future<void> addIntakeAndReduceStock({
+    required MedicineIntake intake,
+    required MedicineStock selectedStock,
+    required String medicineId,
+  }) async {
+    final double dosageAmount = double.tryParse(intake.dosage) ?? 0.0;
+    final double currentStockAmount = double.tryParse(selectedStock.amount.toString()) ?? 0.0;
+    final String? stockDocId = selectedStock.id;
+
+    if (dosageAmount <= 0) throw Exception('Dosage must be greater than zero.');
+    if (dosageAmount > currentStockAmount) throw Exception('Insufficient stock for this batch.');
+    if (stockDocId == null) throw Exception('No stock batch selected.');
+
+    final double newStockAmount = currentStockAmount - dosageAmount;
+    final WriteBatch batch = _firestore.batch();
+
+    // A. Create Intake Record
+    final intakeRef = _firestore
+        .collection('pigs')
+        .doc(intake.pigId)
+        .collection('medicine_intakes')
+        .doc();
+
+    final intakeWithId = intake.copyWith(id: intakeRef.id);
+    batch.set(intakeRef, intakeWithId.toMap());
+
+    // B. Reduce Batch Stock OR Delete if empty
+    final stockRef = _firestore
+        .collection('medicines')
+        .doc(medicineId)
+        .collection('medicine_stock')
+        .doc(stockDocId);
+
+    if (newStockAmount <= 0) {
+      // 🔹 If the stock reaches 0, delete the batch completely
+      batch.delete(stockRef);
+    } else {
+      // 🔹 Otherwise, just update the remaining amount
+      batch.update(stockRef, {'amount': newStockAmount});
+    }
+
+    // C. Reduce Total Parent Medicine Stock
+    final parentMedicineRef = _firestore
+        .collection('medicines')
+        .doc(medicineId);
+
+    batch.update(parentMedicineRef, {
+      'total_stock': FieldValue.increment(-dosageAmount)
+    });
+
+    // 🔹 D. Update Pig's Last Intake Data (Denormalization)
+    final pigRef = _firestore.collection('pigs').doc(intake.pigId);
+
+    batch.update(pigRef, {
+      'lastIntakeDate': Timestamp.fromDate(intake.dateTaken),
+      'lastIntakeName': intake.medName,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // Execute all operations together
     await batch.commit();
   }
 
