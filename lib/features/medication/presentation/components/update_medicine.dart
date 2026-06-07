@@ -5,6 +5,7 @@ import 'package:prism_app/core/widgets/snackbar.dart';
 
 import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/dropdown.dart';
+import '../../../../core/widgets/error_dialog.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
@@ -13,7 +14,7 @@ import '../cubits/medicine_states.dart';
 
 class UpdateMedicineDialog extends StatefulWidget {
   final Color accentColor;
-  final Medicine medicine; // 🔹 Passed from the MedicineCard click
+  final Medicine medicine;
 
   const UpdateMedicineDialog({
     super.key,
@@ -36,7 +37,6 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
 
   String _unitLabel = 'tablet';
 
-  // State for fetching and selecting stocks
   List<MedicineStock> _availableStocks = [];
   MedicineStock? _selectedStock;
   String? _selectedExpiryDate;
@@ -45,7 +45,6 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
   @override
   void initState() {
     super.initState();
-    // 🔹 Pre-fill data from the parent Medicine object
     _nameController.text = widget.medicine.name;
     _reorderController.text = widget.medicine.reorderLevel.round().toString();
     _unitLabel = widget.medicine.measurementUnit;
@@ -53,8 +52,13 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
     _fetchStocks();
   }
 
+  String get _amount {
+    if (widget.medicine.measurementUnit == 'tablet') return 'Tablet/s:';
+    if (widget.medicine.measurementUnit == 'mL') return 'Amount (mL):';
+    return 'Amount (g):';
+  }
+
   Future<void> _fetchStocks() async {
-    // 🔹 Added "?? ''" to safely handle the null check
     final stocks = await context.read<MedicineCubit>().getStocksForMedicine(widget.medicine.medId ?? '');
 
     if (mounted) {
@@ -62,24 +66,27 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
         _availableStocks = stocks;
         _isFetchingStocks = false;
 
-        // Auto-select the first stock batch if available
         if (stocks.isNotEmpty) {
-          _onStockSelected(stocks.last.expiryDate);
+          // 🔹 Map empty string to 'No Expiry Date' for the initial selection
+          final initialExpiry = stocks.last.expiryDate.trim().isEmpty
+              ? 'No Expiry Date'
+              : stocks.last.expiryDate;
+          _onStockSelected(initialExpiry);
         }
       });
     }
   }
 
-  void _onStockSelected(String? expiryDate) {
-    if (expiryDate == null) return;
+  void _onStockSelected(String? displayValue) {
+    if (displayValue == null || displayValue == 'No Stock') return;
 
-    // Find the actual stock object based on the selected expiry date
-    final stock = _availableStocks.firstWhere((s) => s.expiryDate == expiryDate);
+    // 🔹 Swap 'No Expiry Date' back to '' to find the exact merged batch
+    final searchValue = displayValue == 'No Expiry Date' ? '' : displayValue;
+    final stock = _availableStocks.firstWhere((s) => s.expiryDate == searchValue);
 
     setState(() {
-      _selectedExpiryDate = expiryDate;
+      _selectedExpiryDate = displayValue;
       _selectedStock = stock;
-      // 🔹 Auto-fill the inputs with this specific batch's data
       _qtyController.text = stock.amount.round().toString();
       _expiryController.text = stock.expiryDate;
     });
@@ -119,43 +126,31 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Invalid Input', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF002D44))),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _onSave() async {
     if (_nameController.text.trim().isEmpty) {
-      _showErrorDialog('Please enter a medicine name.');
+      CustomErrorDialog.show(context: context, message: 'Please enter a medicine name.');
       return;
     }
 
     if (_selectedStock == null) {
-      _showErrorDialog('No stock batch selected to update.');
+      CustomErrorDialog.show(context: context, message: 'No stock batch selected to update.');
+      return;
+    }
+
+    if (_qtyController.text.trim().isEmpty) {
+      CustomErrorDialog.show(context: context, message: 'Please enter the stock amount.');
       return;
     }
 
     final double parsedQty = double.tryParse(_qtyController.text) ?? -1.0;
-    if (parsedQty < 0) {
-      _showErrorDialog('Amount cannot be a negative number.');
+    if (parsedQty <= 0) {
+      CustomErrorDialog.show(context: context, message: 'Amount must be greater than zero.');
       return;
     }
 
     final double parsedReorder = double.tryParse(_reorderController.text) ?? 0.0;
     if (parsedReorder < 0) {
-      _showErrorDialog('Re-order alert level cannot be a negative number.');
+      CustomErrorDialog.show(context: context, message: 'Re-order alert level cannot be negative.');
       return;
     }
 
@@ -171,7 +166,6 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
     );
 
     if (confirmed == true && mounted) {
-      // Create the updated objects
       final updatedMedicine = widget.medicine.copyWith(
         name: _nameController.text.trim(),
         reorderLevel: parsedReorder,
@@ -182,15 +176,13 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
         expiryDate: _expiryController.text.trim(),
       );
 
-      // We need the document ID of the specific stock batch (Assuming your model holds it as 'id')
-      // If your model uses a different field name for the doc ID, change `.id` to that.
       final stockDocId = _selectedStock!.id ?? '';
       final oldStockAmount = _selectedStock!.amount;
 
       context.read<MedicineCubit>().updateMedicineItem(
         medicine: updatedMedicine,
         updatedStock: updatedStock,
-        stockDocId: stockDocId, // 👈 Identifies which exact batch to update in Firestore
+        stockDocId: stockDocId,
         oldStockAmount: oldStockAmount,
       );
     }
@@ -206,6 +198,17 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool hasStocks = _availableStocks.isNotEmpty;
+
+    // 🔹 Map empty dates to 'No Expiry Date' for the Dropdown items
+    final List<String> dropdownItems = hasStocks
+        ? _availableStocks.map((s) => s.expiryDate.trim().isEmpty ? 'No Expiry Date' : s.expiryDate).toList()
+        : ['No Stock'];
+
+    final String dropdownValue = hasStocks && _selectedExpiryDate != null
+        ? _selectedExpiryDate!
+        : 'No Stock';
+
     return BlocListener<MedicineCubit, MedicineState>(
       listener: (context, state) {
         if (state is MedicineLoading) {
@@ -216,7 +219,7 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
           CustomSnackbar.show(context: context, message: 'Item updated successfully!');
         } else if (state is MedicineError) {
           setState(() => _isLoading = false);
-          _showErrorDialog(state.message);
+          CustomErrorDialog.show(context: context, message: state.message);
         }
       },
       child: Dialog(
@@ -237,7 +240,6 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 🔹 1. Header (Always visible so the user can close it)
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -256,7 +258,6 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
                             ],
                           ),
 
-                          // 🔹 2. Show a big loader if fetching, otherwise show the full form
                           if (_isFetchingStocks)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 40.0),
@@ -275,20 +276,19 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                // Left Side: Dropdown (No longer needs its own loading check)
                                 Expanded(
                                   flex: 3,
                                   child: CustomDropdown(
                                     label: 'Select Batch (Expiry Date):',
-                                    value: _selectedExpiryDate ?? '',
+                                    value: dropdownValue,
                                     border: 8,
+                                    enabled: hasStocks,
                                     contentPadding: _fieldPadding,
-                                    items: _availableStocks.map((s) => s.expiryDate).toList(),
-                                    onChanged: _onStockSelected,
+                                    items: dropdownItems,
+                                    onChanged: hasStocks ? _onStockSelected : (val) {},
                                   ),
                                 ),
                                 const SizedBox(width: 12),
-                                // Right Side: Re-order Alert & Unit
                                 Expanded(
                                   flex: 2,
                                   child: Row(
@@ -321,9 +321,10 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
                               children: [
                                 Expanded(
                                   child: CustomTextField(
-                                    label: 'Amount:',
+                                    label: _amount,
                                     controller: _qtyController,
                                     border: 8,
+                                    enabled: hasStocks,
                                     keyboardType: TextInputType.number,
                                     contentPadding: _fieldPadding,
                                   ),
@@ -334,12 +335,13 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
                                     label: 'Expiry date:',
                                     controller: _expiryController,
                                     border: 8,
+                                    enabled: hasStocks,
                                     readonly: true,
-                                    onTap: _selectDate,
+                                    onTap: hasStocks ? _selectDate : () {},
                                     contentPadding: _fieldPadding,
                                     suffixIcon: IconButton(
                                       icon: const Icon(Icons.calendar_month_outlined, size: 20),
-                                      onPressed: _selectDate,
+                                      onPressed: hasStocks ? _selectDate : null,
                                     ),
                                   ),
                                 ),
@@ -355,7 +357,7 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
                               borderColor: false,
                               onPressed: _onSave,
                             ),
-                          ], // End of form spread
+                          ],
                         ],
                       ),
                     ),

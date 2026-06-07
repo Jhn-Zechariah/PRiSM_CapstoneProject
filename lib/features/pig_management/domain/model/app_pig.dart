@@ -14,6 +14,10 @@ class AppPig {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  // 🔹 Added denormalized fields for recent medication
+  final DateTime? lastIntakeDate;
+  final String? lastIntakeName;
+
   AppPig({
     required this.pigId,
     required this.displayId,
@@ -27,6 +31,8 @@ class AppPig {
     required this.status,
     this.createdAt,
     this.updatedAt,
+    this.lastIntakeDate, // 🔹 Optional parameter
+    this.lastIntakeName, // 🔹 Optional parameter
   });
 
   // Convert AppPig --> Firestore JSON
@@ -44,6 +50,8 @@ class AppPig {
       'status': status,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(), // Always update this on save
+      'lastIntakeDate': lastIntakeDate != null ? Timestamp.fromDate(lastIntakeDate!) : null, // 🔹 Save to Firestore
+      'lastIntakeName': lastIntakeName, // 🔹 Save to Firestore
     };
   }
 
@@ -62,6 +70,9 @@ class AppPig {
       status: json['status'] as String? ?? 'Unknown',
       createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (json['updatedAt'] as Timestamp?)?.toDate(),
+      // 🔹 Read from Firestore safely
+      lastIntakeDate: (json['lastIntakeDate'] as Timestamp?)?.toDate(),
+      lastIntakeName: json['lastIntakeName'] as String?,
     );
   }
 }
