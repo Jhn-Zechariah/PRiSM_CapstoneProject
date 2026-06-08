@@ -143,7 +143,7 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
         id: '',
         medicineId: widget.medicine.medId ?? '',
         amount: parsedQty,
-        expiryDate: _expiryController.text.trim(),
+        expiryDate: _expiryController.text.trim().isEmpty ? 'No Expiry Date Set' : _expiryController.text.trim(),
       );
 
       // Carry over any updates to the reorder level

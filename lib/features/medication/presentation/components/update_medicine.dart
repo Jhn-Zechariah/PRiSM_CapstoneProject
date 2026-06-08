@@ -68,9 +68,7 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
 
         if (stocks.isNotEmpty) {
           // 🔹 Map empty string to 'No Expiry Date' for the initial selection
-          final initialExpiry = stocks.last.expiryDate.trim().isEmpty
-              ? 'No Expiry Date'
-              : stocks.last.expiryDate;
+          final initialExpiry = stocks.last.expiryDate;
           _onStockSelected(initialExpiry);
         }
       });
@@ -81,14 +79,14 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
     if (displayValue == null || displayValue == 'No Stock') return;
 
     // 🔹 Swap 'No Expiry Date' back to '' to find the exact merged batch
-    final searchValue = displayValue == 'No Expiry Date' ? '' : displayValue;
+    final searchValue = displayValue;
     final stock = _availableStocks.firstWhere((s) => s.expiryDate == searchValue);
 
     setState(() {
       _selectedExpiryDate = displayValue;
       _selectedStock = stock;
       _qtyController.text = stock.amount.round().toString();
-      _expiryController.text = stock.expiryDate;
+      _expiryController.text = stock.expiryDate == 'No Expiry Date Set' ? '' : stock.expiryDate;
     });
   }
 

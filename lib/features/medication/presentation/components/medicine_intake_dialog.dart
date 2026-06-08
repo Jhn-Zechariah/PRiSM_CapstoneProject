@@ -55,7 +55,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     final type = widget.intakeType.toLowerCase();
 
     if (type == 'medicine') targetCategory = 'medicine';
-    else if (type == 'vitamin') targetCategory = 'vitamins';
+    else if (type == 'vitamin') targetCategory = 'vitamin';
     else if (type == 'vaccine') targetCategory = 'vaccine';
 
     return widget.availableMedicines.where((med) {
