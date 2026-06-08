@@ -62,7 +62,7 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
   }
 
   String get _nameLabel {
-    if (selectedCategory == 'Vitamins') return 'Vitamins Name:';
+    if (selectedCategory == 'Vitamin') return 'Vitamin Name:';
     if (selectedCategory == 'Vaccine') return 'Vaccine Name:';
     return 'Medicine Name:';
   }
@@ -74,14 +74,14 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
   }
 
   List<String> get _typeOptions {
-    if (selectedCategory == 'Vitamins') return ['Powder', 'Fluid'];
+    if (selectedCategory == 'Vitamin') return ['Powder', 'Fluid'];
     return ['Capsule', 'Fluid'];
   }
 
   void _syncLabels() {
     if (selectedCategory == 'Vaccine' || selectedType == 'Fluid') {
       _unitLabel = 'mL';
-    } else if (selectedCategory == 'Vitamins') {
+    } else if (selectedCategory == 'Vitamin') {
       _unitLabel = 'g   ';
     } else {
       _unitLabel = 'tablet';
@@ -92,7 +92,7 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
     if (newCategory == null) return;
     setState(() {
       selectedCategory = newCategory;
-      if (newCategory == 'Vitamins') {
+      if (newCategory == 'Vitamin') {
         selectedType = 'Powder';
       } else if (newCategory == 'Vaccine') {
         selectedType = 'Fluid';
@@ -310,7 +310,7 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
                                   value: selectedCategory,
                                   border: 8,
                                   contentPadding: _fieldPadding,
-                                  items: const ['Medicine', 'Vitamins', 'Vaccine'],
+                                  items: const ['Medicine', 'Vitamin', 'Vaccine'],
                                   onChanged: _onCategoryChanged,
                                 ),
                               ),

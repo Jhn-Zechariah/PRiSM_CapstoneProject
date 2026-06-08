@@ -86,12 +86,12 @@ class _meds_StocksState extends State<meds_Stocks> {
           .collection('medicines')
           .doc(medId)
           .collection('medicine_stock')
-          .orderBy('expiry_date')
+          .orderBy('expiryDate')
           .limit(1)
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
-        return querySnapshot.docs.first['expiry_date'] ?? 'N/A';
+        return querySnapshot.docs.first['expiryDate'] ?? 'N/A';
       }
       return 'N/A';
     } catch (e) {

@@ -32,4 +32,6 @@ abstract class MedicineRepository {
     required MedicineStock selectedStock,
     required String medicineId,
   });
+
+  Stream<List<MedicineIntake>> streamIntakes();
 }

@@ -14,8 +14,8 @@ class MedicineStock {
   // Convert to Map for saving to Firestore
   Map<String, dynamic> toMap() {
     return {
-      'medicine_id': medicineId,
-      'expiry_date': expiryDate,
+      'medicineId': medicineId,
+      'expiryDate': expiryDate,
       'amount': amount,
     };
   }
@@ -24,8 +24,8 @@ class MedicineStock {
   factory MedicineStock.fromMap(Map<String, dynamic> map, String documentId) {
     return MedicineStock(
       id: documentId,
-      medicineId: map['medicine_id'] ?? '',
-      expiryDate: map['expiry_date'] ?? '',
+      medicineId: map['medicineId'] ?? '',
+      expiryDate: map['expiryDate'] ?? '',
       amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
     );
   }

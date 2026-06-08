@@ -155,7 +155,6 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     // --- All Validations Passed! Create the Model ---
     final newRecord = MedicineIntake(
       pigId: widget.pigId,
-      type: widget.intakeType.toLowerCase(),
       category: _selectedMedicine!.category,
       medName: _selectedMedicine!.name, // Ensure your Medicine model uses 'name'
       dosage: dosageText,
