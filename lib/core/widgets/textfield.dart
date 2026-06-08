@@ -100,7 +100,7 @@ class CustomTextField extends StatelessWidget {
             validator: validator,
             enabled: enabled,
             keyboardType: keyboardType,
-            maxLines: maxLines, // 🔹 Connected maxLines
+            maxLines: maxLines ?? 1, // 🔹 Connected maxLines
             style: TextStyle(fontSize: 14, color: resolvedTextColor),
             decoration: InputDecoration(
               labelText: labelText,
