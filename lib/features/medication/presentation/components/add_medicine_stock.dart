@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/button.dart';
@@ -14,7 +13,7 @@ import '../cubits/medicine_states.dart';
 
 class AddNewMedStockDialog extends StatefulWidget {
   final Color accentColor;
-  final Medicine medicine; // 🔹 You need to declare the variable right here!
+  final Medicine medicine;
 
   const AddNewMedStockDialog({
     super.key,
@@ -43,7 +42,6 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
   String selectedCategory = 'Medicine';
   String selectedType = 'Capsule';
 
-
   @override
   void initState() {
     super.initState();
@@ -61,23 +59,19 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
     super.dispose();
   }
 
-
   String get _amount {
     if (widget.medicine.measurementUnit == 'tablet') return 'Tablet/s:';
     if (widget.medicine.measurementUnit == 'mL') return 'Amount (mL):';
     return 'Amount (g):';
   }
 
-
-
-
   Future<void> _selectDate() async {
-    final DateTime now = DateTime.now(); // 🔹 Get the current date and time
+    final DateTime now = DateTime.now();
 
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: now, // Default to today
-      firstDate: now,   // 🔹 This disables all past dates!
+      initialDate: now,
+      firstDate: now,
       lastDate: DateTime(2101),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
@@ -100,8 +94,8 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
   Future<void> _onSave() async {
     if (_qtyController.text.trim().isEmpty) {
       CustomErrorDialog.show(
-          context: context,
-          message: 'Please enter the stock amount.'
+        context: context,
+        message: 'Please enter the stock amount.',
       );
       return;
     }
@@ -109,23 +103,22 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
     final double parsedQty = double.tryParse(_qtyController.text) ?? -1.0;
     if (parsedQty <= 0) {
       CustomErrorDialog.show(
-          context: context,
-          message: 'Amount must be greater than zero.'
+        context: context,
+        message: 'Amount must be greater than zero.',
       );
       return;
     }
 
-// 3. Validate Reorder Level
-    final double parsedReorder = double.tryParse(_reorderController.text) ?? 0.0;
+    final double parsedReorder =
+        double.tryParse(_reorderController.text) ?? 0.0;
     if (parsedReorder < 0) {
       CustomErrorDialog.show(
-          context: context,
-          message: 'Re-order alert level cannot be negative.'
+        context: context,
+        message: 'Re-order alert level cannot be negative.',
       );
       return;
     }
 
-    // 4. Confirm with User
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => const CustomConfirmDialog(
@@ -138,7 +131,6 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
     );
 
     if (confirmed == true && mounted) {
-      // Create the new stock object (ID is empty because Firestore will generate it)
       final newStock = MedicineStock(
         id: '',
         medicineId: widget.medicine.medId ?? '',
@@ -146,12 +138,10 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
         expiryDate: _expiryController.text.trim(),
       );
 
-      // Carry over any updates to the reorder level
       final updatedMedicine = widget.medicine.copyWith(
         reorderLevel: parsedReorder,
       );
 
-      // Trigger the backend via Cubit
       context.read<MedicineCubit>().addNewStockBatch(
         medicine: updatedMedicine,
         newStock: newStock,
@@ -226,25 +216,30 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
-                                  color: Theme.of(context).textTheme.bodyLarge?.color,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyLarge?.color,
                                 ),
                               ),
                               IconButton(
                                 icon: Icon(
                                   Icons.close,
-                                  color: Theme.of(context).textTheme.bodyMedium?.color,
+                                  color: Theme.of(
+                                    context,
+                                  ).textTheme.bodyMedium?.color,
                                 ),
                                 onPressed: () => Navigator.pop(context),
                               ),
                             ],
                           ),
 
-
                           const SizedBox(height: 12),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Expanded(
+                              // 🔹 Fixed narrow width for quantity field
+                              SizedBox(
+                                width: 110,
                                 child: CustomTextField(
                                   label: _amount,
                                   controller: _qtyController,
@@ -254,6 +249,7 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                                 ),
                               ),
                               const SizedBox(width: 12),
+                              // 🔹 Expiry date fills remaining space
                               Expanded(
                                 child: _labeledField(
                                   label: 'Expiry date:',
@@ -264,7 +260,10 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                                     onTap: _selectDate,
                                     contentPadding: _fieldPadding,
                                     suffixIcon: IconButton(
-                                      icon: const Icon(Icons.calendar_month_outlined, size: 20),
+                                      icon: const Icon(
+                                        Icons.calendar_month_outlined,
+                                        size: 20,
+                                      ),
                                       onPressed: _selectDate,
                                     ),
                                   ),

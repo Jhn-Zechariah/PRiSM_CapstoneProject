@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-
 class MedicineCard extends StatelessWidget {
   final String name;
   final String unit;
@@ -10,7 +9,7 @@ class MedicineCard extends StatelessWidget {
   final String status;
   final VoidCallback? onTap;
   final VoidCallback? onEditMedicine; // 🔹 Added callback for Edit
-  final VoidCallback? onAddStock;     // 🔹 Added callback for Add Stock
+  final VoidCallback? onAddStock; // 🔹 Added callback for Add Stock
 
   const MedicineCard({
     super.key,
@@ -22,7 +21,7 @@ class MedicineCard extends StatelessWidget {
     required this.status,
     this.onTap,
     this.onEditMedicine, // 🔹 Added
-    this.onAddStock,     // 🔹 Added
+    this.onAddStock, // 🔹 Added
   });
 
   Color _getStatusColor() {
@@ -38,8 +37,6 @@ class MedicineCard extends StatelessWidget {
         return Colors.grey;
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -124,9 +121,9 @@ class MedicineCard extends StatelessWidget {
 
             const SizedBox(height: 8),
 
-            _buildInfoText("Category",    category,        theme),
-            _buildInfoText("Stocks",      stock.toString() + " " + unit, theme),
-            _buildInfoText("Expiry date", expiryDate,      theme),
+            _buildInfoText("Category", category, theme),
+            _buildInfoText("Stocks", stock.toString() + " " + unit, theme),
+            _buildInfoText("Expiry date", expiryDate, theme),
 
             const SizedBox(height: 10),
 
