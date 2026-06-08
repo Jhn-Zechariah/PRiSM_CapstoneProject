@@ -1,7 +1,6 @@
 class MedicineIntake {
   final String? id;
   final String pigId;
-  final String type;
   final String category;
   final String medName;
   final String dosage;
@@ -14,7 +13,6 @@ class MedicineIntake {
   MedicineIntake({
     this.id,
     required this.pigId,
-    required this.type,
     required this.category,
     required this.medName,
     required this.dosage,
@@ -28,7 +26,6 @@ class MedicineIntake {
   MedicineIntake copyWith({
     String? id,
     String? pigId,
-    String? type,
     String? category,
     String? medName,
     String? dosage,
@@ -41,7 +38,6 @@ class MedicineIntake {
     return MedicineIntake(
       id: id ?? this.id,
       pigId: pigId ?? this.pigId,
-      type: type ?? this.type,
       category: category ?? this.category,
       medName: medName ?? this.medName,
       dosage: dosage ?? this.dosage,
@@ -57,7 +53,6 @@ class MedicineIntake {
     return MedicineIntake(
       id: documentId ?? map['id'] as String?,
       pigId: map['pigId'] ?? '',
-      type: map['type'] ?? '',
       category: map['category'] ?? '',
       medName: map['medName'] ?? '',
       dosage: map['dosage'] ?? '',
@@ -74,7 +69,6 @@ class MedicineIntake {
   Map<String, dynamic> toMap() {
     return {
       'pigId': pigId,
-      'type': type,
       'category': category,
       'medName': medName,
       'dosage': dosage,

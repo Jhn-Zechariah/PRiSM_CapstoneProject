@@ -28,8 +28,8 @@ class Medicine {
       'type': type,
       'category': category,
       'measurement_unit': measurementUnit,
-      'reorder_level': reorderLevel,
-      'total_stock': totalStock,
+      'reorderLevel': reorderLevel,
+      'totalStock': totalStock,
     };
   }
 
@@ -42,8 +42,8 @@ class Medicine {
       type: map['type'] ?? 'Unknown',
       category: map['category'] ?? 'Medicine',
       measurementUnit: map['measurement_unit'] ?? '',
-      reorderLevel: (map['reorder_level'] as num?)?.toDouble() ?? 0.0,
-      totalStock: (map['total_stock'] as num?)?.toDouble() ?? 0.0,
+      reorderLevel: (map['reorderLevel'] as num?)?.toDouble() ?? 0.0,
+      totalStock: (map['totalStock'] as num?)?.toDouble() ?? 0.0,
     );
   }
   // 🔹 Creates a copy of the Medicine with updated fields

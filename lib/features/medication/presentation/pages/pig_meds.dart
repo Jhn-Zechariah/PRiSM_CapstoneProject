@@ -33,6 +33,13 @@ List<AppPig> _getActivePigs(List<AppPig> allPigs) {
 class _pig_medsState extends State<pig_meds> {
   int _selectedTab = 1;
 
+  // 🔹 Define colors here so they stay synchronized across the file
+  final List<Color> _accentColors = const [
+    Colors.red,
+    Color(0xFF003366),
+    Colors.orange,
+  ];
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -49,9 +56,9 @@ class _pig_medsState extends State<pig_meds> {
             title: 'Healthcare',
             icon: Symbols.vaccines,
             trailing: IconButton(
-              icon: const Icon(Icons.add, size: 28),
-             disabledColor: Colors.transparent,
-              onPressed: null
+                icon: const Icon(Icons.add, size: 28),
+                disabledColor: Colors.transparent,
+                onPressed: null
             ),
           ),
 
@@ -76,22 +83,21 @@ class _pig_medsState extends State<pig_meds> {
                     onPressed: () {
                       final state = context.read<PigCubit>().state;
                       if (state is PigLoaded) {
-                        final colors = [
-                          Colors.red,
-                          const Color(0xFF003366),
-                          Colors.orange,
-                        ];
-
-
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => MedsIntakeHistoryScreen(
                               pigs: state.allPigs.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final pig = entry.value;
+
                                 return PigMedOption(
-                                  id: entry.value.displayId,
-                                  status: entry.value.status, // 👈 MUST ADD THIS LINE
-                                  accentColor: colors[entry.key % colors.length],
+                                  id: pig.pigId,
+                                  displayId: pig.displayId,
+                                  status: pig.status,
+                                  breed: pig.breed,
+                                  // 🔹 FIXED: Dynamically matches the exact color array layout index
+                                  accentColor: _accentColors[index % _accentColors.length],
                                 );
                               }).toList(),
                             ),
@@ -131,40 +137,33 @@ class _pig_medsState extends State<pig_meds> {
                       }
 
                       if (state is PigLoaded) {
-                        // 🔹 FIX: Apply the filter here so the list only gets active pigs
                         final activePigs = _getActivePigs(state.allPigs);
 
-                        // 🔹 Check if the filtered list is empty
                         if (activePigs.isEmpty) {
                           return Center(
                             child: Text(
                               'No active pigs found.',
                               style: TextStyle(
-                                color: isDarkMode
-                                    ? Colors.white70
-                                    : Colors.black54,
+                                color: isDarkMode ? Colors.white70 : Colors.black54,
                                 fontSize: 16,
                               ),
                             ),
                           );
                         }
 
-                        final colors = [
-                          Colors.red,
-                          const Color(0xFF003366),
-                          Colors.orange,
-                        ];
-
                         return ListView.separated(
-                          // 🔹 Use activePigs.length here
                           itemCount: activePigs.length,
-                          separatorBuilder: (_, __) =>
-                          const SizedBox(height: 12),
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
                           itemBuilder: (context, index) {
+                            // 🔹 Finding the global index from allPigs so colors don't change when filtering
+                            final globalIndex = state.allPigs.indexOf(activePigs[index]);
+                            final itemColor = _accentColors[globalIndex != -1
+                                ? (globalIndex % _accentColors.length)
+                                : (index % _accentColors.length)];
+
                             return PigMedCard(
-                              // 🔹 Pass the active pig to the card
                               pig: activePigs[index],
-                              accentColor: colors[index % colors.length],
+                              accentColor: itemColor,
                               onAdd: () {},
                             );
                           },
