@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart'; // 🔹 Added for intake collectionGroup query
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // 🔹 Added for real-time user detection
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_intake.dart';
 import '../../domain/model/app_medicine_stock.dart';
@@ -10,10 +11,13 @@ import 'medicine_states.dart';
 class MedicineCubit extends Cubit<MedicineState> {
   final MedicineRepository repository;
   StreamSubscription? _medicineSubscription;
+  StreamSubscription? _intakeSubscription; // 🔹 Added subscription for intakes
 
   MedicineCubit({required this.repository}) : super(MedicineInitial());
 
-  // 🔹 Automatically captures logged in user to start streaming their data
+  // ----------------------------------------------------------------------
+  // 🔹 MEDICINE STREAM LOGIC
+  // ----------------------------------------------------------------------
   void listenToMedicines() {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -24,7 +28,6 @@ class MedicineCubit extends Cubit<MedicineState> {
     emit(MedicineLoading());
     _medicineSubscription?.cancel();
 
-    // Pass the active user ID into our repository stream filter
     _medicineSubscription = repository.streamMedicines(currentUser.uid).listen(
           (medicines) {
         emit(MedicineLoaded(medicines));
@@ -35,6 +38,28 @@ class MedicineCubit extends Cubit<MedicineState> {
     );
   }
 
+  // ----------------------------------------------------------------------
+  // 🔹 MEDICINE INTAKE STREAM LOGIC (MERGED HERE)
+  // ----------------------------------------------------------------------
+  void listenToIntakes() {
+    emit(MedicineLoading());
+
+    _intakeSubscription?.cancel();
+
+    // 🔹 Now perfectly abstracting the stream from the repository layer
+    _intakeSubscription = repository.streamIntakes().listen(
+          (intakes) {
+        emit(MedicineIntakesLoaded(intakes));
+      },
+      onError: (error) {
+        emit(MedicineError(error.toString()));
+      },
+    );
+  }
+
+  // ----------------------------------------------------------------------
+  // 🔹 CRUD LOGIC
+  // ----------------------------------------------------------------------
   Future<void> saveMedicineWithStock({
     required Medicine medicine,
     required MedicineStock initialBatch,
@@ -50,7 +75,6 @@ class MedicineCubit extends Cubit<MedicineState> {
     }
   }
 
-// 🔹 Fetch the list of stocks for the dropdown
   Future<List<MedicineStock>> getStocksForMedicine(String medId) async {
     try {
       return await repository.getMedicineStocks(medId);
@@ -60,7 +84,6 @@ class MedicineCubit extends Cubit<MedicineState> {
     }
   }
 
-  // 🔹 Send the update to Firestore
   Future<void> updateMedicineItem({
     required Medicine medicine,
     required MedicineStock updatedStock,
@@ -78,10 +101,9 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-
       listenToMedicines();
     } catch (e) {
-      emit(MedicineError( e.toString()));
+      emit(MedicineError(e.toString()));
     }
   }
 
@@ -98,15 +120,12 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-
-      // 🔹 Instantly refresh the UI stream just like we did for updates!
       listenToMedicines();
     } catch (e) {
       emit(MedicineError(e.toString()));
     }
   }
 
-  // 🔹 ADDED: New method for handling medicine intakes
   Future<void> addIntakeAndReduceStock({
     required MedicineIntake intake,
     required MedicineStock selectedStock,
@@ -122,8 +141,6 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-
-      // 🔹 Instantly refresh the UI stream so the reduced stock numbers update everywhere
       listenToMedicines();
     } catch (e, stackTrace) {
       print("🔥 FIRESTORE SAVE ERROR: $e");
@@ -136,8 +153,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   @override
   Future<void> close() {
     _medicineSubscription?.cancel();
+    _intakeSubscription?.cancel(); // 🔹 Ensure the intake stream is closed too
     return super.close();
   }
-
-
 }

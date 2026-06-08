@@ -21,6 +21,24 @@ class FirestoreMedicineRepo implements MedicineRepository {
   }
 
   @override
+  Stream<List<MedicineIntake>> streamIntakes() {
+    return _firestore
+        .collectionGroup('medicine_intakes')
+        .snapshots()
+        .map((snapshot) {
+      final intakes = snapshot.docs.map((doc) {
+        // Just pass it straight to your model
+        return MedicineIntake.fromMap(doc.data(), documentId: doc.id);
+      }).toList();
+
+      // Sort locally in Dart (Descending: Newest first)
+      intakes.sort((a, b) => b.dateTaken.compareTo(a.dateTaken));
+
+      return intakes;
+    });
+  }
+
+  @override
   Future<void> addMedicineWithInitialStock({
     required Medicine medicine,
     required MedicineStock initialBatch,
@@ -64,7 +82,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
 
     // 1. Check if another document already uses the NEW expiry date
     final querySnapshot = await stockCollectionRef
-        .where('expiry_date', isEqualTo: updatedStock.expiryDate)
+        .where('expiryDate', isEqualTo: updatedStock.expiryDate)
         .get();
 
     // Filter out the current document we are updating to avoid matching itself
@@ -90,7 +108,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
       // 🔹 NORMAL CASE: No conflicts found. Update the current batch document normally.
       batch.update(currentStockRef, {
         'amount': updatedStock.amount,
-        'expiry_date': updatedStock.expiryDate,
+        'expiryDate': updatedStock.expiryDate,
       });
     }
 
@@ -101,8 +119,8 @@ class FirestoreMedicineRepo implements MedicineRepository {
 
     batch.update(medRef, {
       'name': medicine.name,
-      'reorder_level': medicine.reorderLevel,
-      'total_stock': newTotalStock,
+      'reorderLevel': medicine.reorderLevel,
+      'totalStock': newTotalStock,
     });
 
     // 3. Fire all operations atomically
@@ -120,7 +138,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
 
     // 2. Query Firestore to see if this EXACT expiry date already exists
     final querySnapshot = await stockCollectionRef
-        .where('expiry_date', isEqualTo: newStock.expiryDate)
+        .where('expiryDate', isEqualTo: newStock.expiryDate)
         .limit(1)
         .get();
 
@@ -147,8 +165,8 @@ class FirestoreMedicineRepo implements MedicineRepository {
 
       batch.set(newStockRef, {
         'amount': newStock.amount,
-        'expiry_date': newStock.expiryDate,
-        'medicine_id': medicine.medId,
+        'expiryDate': newStock.expiryDate,
+        'medicineId': medicine.medId,
       });
     }
 
@@ -157,7 +175,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
     final double newTotalStock = medicine.totalStock + newStock.amount;
 
     batch.update(medRef, {
-      'total_stock': newTotalStock,
+      'totalStock': newTotalStock,
     });
 
     // 5. Commit everything to Firestore safely at the same time
@@ -212,7 +230,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .doc(medicineId);
 
     batch.update(parentMedicineRef, {
-      'total_stock': FieldValue.increment(-dosageAmount)
+      'totalStock': FieldValue.increment(-dosageAmount)
     });
 
     // 🔹 D. Update Pig's Last Intake Data (Denormalization)

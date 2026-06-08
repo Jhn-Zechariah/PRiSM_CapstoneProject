@@ -1,4 +1,5 @@
 import '../../domain/model/app_medicine.dart';
+import '../../domain/model/app_medicine_intake.dart';
 
 abstract class MedicineState {}
 
@@ -18,4 +19,11 @@ class MedicineSaveSuccess extends MedicineState {}
 class MedicineError extends MedicineState {
   final String message;
   MedicineError(this.message);
+}
+
+// Add this below your existing MedicineLoaded state
+class MedicineIntakesLoaded extends MedicineState {
+  final List<MedicineIntake> intakes;
+
+  MedicineIntakesLoaded(this.intakes);
 }
