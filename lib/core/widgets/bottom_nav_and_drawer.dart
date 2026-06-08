@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:prism_app/core/widgets/text.dart';
+import 'package:prism_app/core/widgets/theme_seting.dart';
 import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
@@ -18,14 +20,12 @@ import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
-
-// ── ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
 import '../../features/monitoring/presentation/cubits/temperature_monitoring_cubit.dart';
 import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
 
 class AppNav extends StatefulWidget {
   // 🔹 CHANGED: Change VoidCallback to a function that accepts the current theme state
-  final Function(bool isCurrentDark) onThemeToggle;
+  final Function(ThemeMode selectedMode) onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
 
@@ -187,13 +187,42 @@ class _AppNavState extends State<AppNav> {
               );
             }),
             _drawerTile(
+<<<<<<< HEAD
               isDark ? Symbols.brightness_7 : Symbols.brightness_5,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
               () {
                 widget.onThemeToggle(isDark);
                 Navigator.pop(context);
+=======
+              Icons.brightness_6,
+              "Theme Settings",
+                  () async { // 🔹 1. Add 'async' here!
+                Navigator.pop(context); // Close the drawer first
+
+                // 🔹 2. Ask SharedPreferences what the user actually saved last time
+                final prefs = await SharedPreferences.getInstance();
+                final savedThemeIndex = prefs.getInt('theme_mode') ?? 0; // Default to 0 (System)
+                final actualCurrentTheme = ThemeMode.values[savedThemeIndex];
+
+                // 🔹 3. Only show the dialog if the widget is still on screen
+                if (context.mounted) {
+                  showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return ThemeSettingsDialog(
+                        // 🔹 4. Pass the real saved theme instead of ThemeMode.system!
+                        currentTheme: actualCurrentTheme,
+                        onThemeSelected: (selectedMode) {
+                          widget.onThemeToggle(selectedMode);
+                        },
+                      );
+                    },
+                  );
+                }
+>>>>>>> 02723b2818e25bc40e3c1bc03cdaa9bab52cf587
               },
             ),
+
             const Spacer(),
             const Divider(color: Colors.white24),
             _drawerTile(Icons.logout, "Log Out", () {

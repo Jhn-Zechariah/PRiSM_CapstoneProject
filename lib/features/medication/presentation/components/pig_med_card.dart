@@ -1,19 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/medication/presentation/components/medicine_intake_dialog.dart';
-import 'package:prism_app/features/medication/presentation/components/vaccine_intake_dialog.dart';
 
-enum PigMedAction { medicine, vaccine }
+import '../../domain/model/app_medicine.dart';
+import '../../domain/model/app_medicine_stock.dart';
+import '../../domain/model/app_medicine_intake.dart';
+import '../cubits/medicine_cubit.dart';
+import '../cubits/medicine_states.dart';
+
+enum PigMedAction { medicine, vaccine, vitamin }
 
 class PigMedCard extends StatelessWidget {
   final dynamic pig;
   final Color accentColor;
   final VoidCallback onAdd;
+  final MedicineIntake? recentIntake; // 🔹 Added this to accept the recent intake data
 
   const PigMedCard({
     super.key,
     required this.pig,
     required this.accentColor,
     required this.onAdd,
+    this.recentIntake, // 🔹 Optional, so it defaults to null if there are no records
   });
 
   @override
@@ -35,6 +43,13 @@ class PigMedCard extends StatelessWidget {
         ? Colors.white.withValues(alpha: 0.1)
         : Colors.black.withValues(alpha: 0.06);
 
+    // 🔹 Logic to format the recent intake display
+    String recentIntakeDisplay = 'None';
+    if (pig.lastIntakeDate != null && pig.lastIntakeName != null) {
+      final dateString = "${pig.lastIntakeDate!.toLocal()}".split(' ')[0];
+      recentIntakeDisplay = '$dateString • ${pig.lastIntakeName}';
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 2),
       decoration: BoxDecoration(
@@ -46,12 +61,12 @@ class PigMedCard extends StatelessWidget {
         boxShadow: isDarkMode
             ? null
             : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
@@ -77,7 +92,7 @@ class PigMedCard extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
-                              pig.displayId,
+                              '${pig.breed} | ${pig.displayId}',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -95,7 +110,7 @@ class PigMedCard extends StatelessWidget {
                                 children: [
                                   const TextSpan(text: 'Recent intake: '),
                                   TextSpan(
-                                    text: 'None',
+                                    text: recentIntakeDisplay, // 🔹 Now displays the formatted data
                                     style: TextStyle(
                                       fontWeight: FontWeight.w500,
                                       color: subtleTextColor,
@@ -111,30 +126,50 @@ class PigMedCard extends StatelessWidget {
                       // + button — fully theme-aware
                       PopupMenuButton<PigMedAction>(
                         onSelected: (action) async {
-                          switch (action) {
-                            case PigMedAction.medicine:
-                              await showDialog(
-                                context: context,
-                                builder: (context) => MedicineIntakeDialog(
-                                  accentColor: accentColor,
-                                ),
-                              );
-                              break;
+                          String selectedType = '';
+                          if (action == PigMedAction.medicine) selectedType = 'Medicine';
+                          if (action == PigMedAction.vitamin) selectedType = 'Vitamin';
+                          if (action == PigMedAction.vaccine) selectedType = 'Vaccine';
 
-                            case PigMedAction.vaccine:
-                              await showDialog(
-                                context: context,
-                                builder: (context) => VaccineIntakeDialog(
-                                  accentColor: accentColor,
-                                ),
-                              );
-                              break;
+                          // Grab your live medicines array from the loaded Cubit state
+                          final medicineState = context.read<MedicineCubit>().state;
+                          List<Medicine> availableMedicines = [];
+
+                          if (medicineState is MedicineLoaded) {
+                            availableMedicines = medicineState.medicines;
+                          }
+
+                          // Open the dialog and await the result map
+                          final result = await showDialog<Map<String, dynamic>>(
+                            context: context,
+                            builder: (dialogContext) => BlocProvider.value(
+                              value: context.read<MedicineCubit>(),
+                              child: MedicineIntakeDialog(
+                                accentColor: accentColor,
+                                intakeType: selectedType,
+                                availableMedicines: availableMedicines,
+                                pigId: pig.pigId,
+                              ),
+                            ),
+                          );
+
+                          // If the dialog returned data (user hit Save), trigger the Cubit
+                          if (result != null && context.mounted) {
+                            context.read<MedicineCubit>().addIntakeAndReduceStock(
+                              intake: result['intake'] as MedicineIntake,
+                              selectedStock: result['selectedStock'] as MedicineStock,
+                              medicineId: result['medicineId'] as String,
+                            );
                           }
                         },
                         itemBuilder: (context) => [
                           const PopupMenuItem(
                             value: PigMedAction.medicine,
-                            child: Text('Medicine / Vitamins'),
+                            child: Text('Medicine'),
+                          ),
+                          const PopupMenuItem(
+                            value: PigMedAction.vitamin,
+                            child: Text('Vitamins'),
                           ),
                           const PopupMenuItem(
                             value: PigMedAction.vaccine,
