@@ -7,6 +7,7 @@ class AppPig {
   final String breed;
   final DateTime birthDate;
   final String sex;
+  final double? birthWeightKg;
   final double currentWeightKg;
   final String notes;
   final String stage;
@@ -14,7 +15,6 @@ class AppPig {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  // 🔹 Added denormalized fields for recent medication
   final DateTime? lastIntakeDate;
   final String? lastIntakeName;
 
@@ -25,17 +25,17 @@ class AppPig {
     required this.breed,
     required this.birthDate,
     required this.sex,
+    this.birthWeightKg, // 🔹 Added
     required this.currentWeightKg,
     required this.notes,
     required this.stage,
     required this.status,
     this.createdAt,
     this.updatedAt,
-    this.lastIntakeDate, // 🔹 Optional parameter
-    this.lastIntakeName, // 🔹 Optional parameter
+    this.lastIntakeDate,
+    this.lastIntakeName,
   });
 
-  // Convert AppPig --> Firestore JSON
   Map<String, dynamic> toJson() {
     return {
       'pigId': pigId,
@@ -44,33 +44,33 @@ class AppPig {
       'breed': breed,
       'birthDate': Timestamp.fromDate(birthDate),
       'sex': sex,
+      'birthWeightKg': birthWeightKg, // 🔹 Added
       'currentWeightKg': currentWeightKg,
       'notes': notes,
       'stage': stage,
       'status': status,
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(), // Always update this on save
-      'lastIntakeDate': lastIntakeDate != null ? Timestamp.fromDate(lastIntakeDate!) : null, // 🔹 Save to Firestore
-      'lastIntakeName': lastIntakeName, // 🔹 Save to Firestore
+      'updatedAt': FieldValue.serverTimestamp(),
+      'lastIntakeDate': lastIntakeDate != null ? Timestamp.fromDate(lastIntakeDate!) : null,
+      'lastIntakeName': lastIntakeName,
     };
   }
 
-  // Convert Firestore JSON --> AppPig
   factory AppPig.fromJson(Map<String, dynamic> json, String documentId) {
     return AppPig(
-      pigId: documentId, // Use the actual document ID
+      pigId: documentId,
       userId: json['userId'] ?? '',
       displayId: json['displayId'] as String? ?? '',
       breed: json['breed'] as String? ?? 'Unknown',
       birthDate: (json['birthDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       sex: json['sex'] as String? ?? 'Unknown',
+      birthWeightKg: (json['birthWeightKg'] as num?)?.toDouble() ?? 0.0, // 🔹 Added
       currentWeightKg: (json['currentWeightKg'] as num?)?.toDouble() ?? 0.0,
       notes: json['notes'] as String? ?? '',
       stage: json['stage'] as String? ?? 'Unknown',
       status: json['status'] as String? ?? 'Unknown',
       createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (json['updatedAt'] as Timestamp?)?.toDate(),
-      // 🔹 Read from Firestore safely
       lastIntakeDate: (json['lastIntakeDate'] as Timestamp?)?.toDate(),
       lastIntakeName: json['lastIntakeName'] as String?,
     );

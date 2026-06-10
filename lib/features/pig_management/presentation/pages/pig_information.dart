@@ -153,6 +153,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         birthDate:
             DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,
+        birthWeightKg: double.parse(_weightController.text),
         currentWeightKg: double.parse(_weightController.text),
         notes: 'Pig Registered ',
         stage: _selectedStage!,

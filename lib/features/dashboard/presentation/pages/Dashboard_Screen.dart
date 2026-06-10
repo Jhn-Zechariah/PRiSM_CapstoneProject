@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
+import '../../../auth/presentation/cubits/profile_cubit.dart';
 
 const String esp32Ip = "192.168.1.100";
 
@@ -35,6 +37,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+
+    // 🔹 Trigger user data load (which now includes saving the FCM token)
+    context.read<ProfileCubit>().loadUserData();
     _fetchData();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
   }
@@ -218,7 +223,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Icon(
                 isLive ? Icons.wifi : Icons.wifi_off,
                 size: 12,
-                color: isLive ? Colors.green : Colors.red,
+              color: isLive ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 4),
               Text(
@@ -366,8 +371,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildTemperatureGraph(bool isDark) {
-    // TODO: Replace with real IoT data from your cubit/state, e.g.:
-    // spots = myState.temperatureReadings.map((r) => FlSpot(r.hour.toDouble(), r.temp)).toList();
     final List<FlSpot> spots = [
       const FlSpot(0, 36.5),
       const FlSpot(1, 36.8),
@@ -414,7 +417,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               Container(
@@ -438,8 +440,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
 
           const SizedBox(height: 4),
-
-          // Axis hint labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -450,7 +450,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           const SizedBox(height: 8),
 
-          // Chart
           SizedBox(
             height: 180,
             child: LineChart(
@@ -478,7 +477,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   drawVerticalLine: false,
                   horizontalInterval: 1,
                   getDrawingHorizontalLine: (_) => FlLine(
-                    // FIX: Colors.black08 does not exist — use withValues instead
                     color: isDark
                         ? Colors.white.withValues(alpha: 0.06)
                         : Colors.black.withValues(alpha: 0.06),
