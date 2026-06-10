@@ -28,7 +28,8 @@ class MedsIntakeHistoryScreen extends StatefulWidget {
   const MedsIntakeHistoryScreen({super.key, required this.pigs});
 
   @override
-  State<MedsIntakeHistoryScreen> createState() => _MedsIntakeHistoryScreenState();
+  State<MedsIntakeHistoryScreen> createState() =>
+      _MedsIntakeHistoryScreenState();
 }
 
 class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
@@ -65,8 +66,16 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _currentFilter,
-            icon: Icon(Icons.filter_list, size: 18, color: isDark ? Colors.white : Colors.black87),
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87),
+            icon: Icon(
+              Icons.filter_list,
+              size: 18,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
             dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
             items: const [
               DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
@@ -86,14 +95,29 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _selectedFilter,
-            icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF2563EB)),
-            style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w600),
+            icon: const Icon(
+              Icons.keyboard_arrow_down,
+              size: 18,
+              color: Color(0xFF2563EB),
+            ),
+            style: const TextStyle(
+              color: Color(0xFF2563EB),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
             dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
             isDense: true,
             items: [
               const DropdownMenuItem<String>(
                 value: 'All',
-                child: Text('All Pigs', style: TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500)),
+                child: Text(
+                  'All Pigs',
+                  style: TextStyle(
+                    color: Color(0xFF2563EB),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
               ...displayPigs.map((pig) {
                 return DropdownMenuItem(
@@ -101,10 +125,22 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                   child: Row(
                     children: [
                       Container(
-                        width: 8, height: 8, margin: const EdgeInsets.only(right: 6),
-                        decoration: BoxDecoration(color: pig.accentColor, shape: BoxShape.circle),
+                        width: 8,
+                        height: 8,
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: pig.accentColor,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                      Text('${pig.breed} | ${pig.displayId}', style: const TextStyle(color: Color(0xFF2563EB), fontSize: 13, fontWeight: FontWeight.w500)),
+                      Text(
+                        '${pig.breed} | ${pig.displayId}',
+                        style: const TextStyle(
+                          color: Color(0xFF2563EB),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -124,13 +160,18 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final validPigIds = _filteredPigsByStatus.where((p) {
-      if (_selectedFilter == 'All') return true;
-      return p.id == _selectedFilter;
-    }).map((p) => p.id).toSet();
+    final validPigIds = _filteredPigsByStatus
+        .where((p) {
+          if (_selectedFilter == 'All') return true;
+          return p.id == _selectedFilter;
+        })
+        .map((p) => p.id)
+        .toSet();
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
+      backgroundColor: isDark
+          ? const Color(0xFF121212)
+          : const Color(0xFFF5F5F5),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -146,66 +187,85 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
               Expanded(
                 child: validPigIds.isEmpty
                     ? Center(
-                  child: Text(
-                    _currentFilter == 'Active' ? 'No active pigs found.' : 'No inactive pigs found.',
-                    style: TextStyle(color: isDark ? Colors.white54 : Colors.black54),
-                  ),
-                )
-                    : BlocBuilder<MedicineCubit, MedicineState>(
-                  builder: (context, state) {
-                    if (state is MedicineLoading || state is MedicineInitial) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (state is MedicineError) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text(
-                            'Error: ${state.message}',
-                            style: TextStyle(color: Colors.red.shade400),
-                            textAlign: TextAlign.center,
+                        child: Text(
+                          _currentFilter == 'Active'
+                              ? 'No active pigs found.'
+                              : 'No inactive pigs found.',
+                          style: TextStyle(
+                            color: isDark ? Colors.white54 : Colors.black54,
                           ),
                         ),
-                      );
-                    }
+                      )
+                    : BlocBuilder<MedicineCubit, MedicineState>(
+                        builder: (context, state) {
+                          if (state is MedicineLoading ||
+                              state is MedicineInitial) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
 
-                    if (state is MedicineIntakesLoaded) {
-                      final filteredIntakes = state.intakes.where((intake) {
-                        return validPigIds.contains(intake.pigId);
-                      }).toList();
+                          if (state is MedicineError) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Text(
+                                  'Error: ${state.message}',
+                                  style: TextStyle(color: Colors.red.shade400),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            );
+                          }
 
-                      if (filteredIntakes.isEmpty) {
-                        return Center(
-                          child: Text(
-                            'No intake records found for the selected filter.',
-                            style: TextStyle(color: isDark ? Colors.white54 : Colors.black54),
-                          ),
-                        );
-                      }
+                          if (state is MedicineIntakesLoaded) {
+                            final filteredIntakes = state.intakes.where((
+                              intake,
+                            ) {
+                              return validPigIds.contains(intake.pigId);
+                            }).toList();
 
-                      return ListView.builder(
-                        itemCount: filteredIntakes.length,
-                        itemBuilder: (context, index) {
-                          final intake = filteredIntakes[index];
+                            if (filteredIntakes.isEmpty) {
+                              return Center(
+                                child: Text(
+                                  'No intake records found for the selected filter.',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              );
+                            }
 
-                          final matchedPig = widget.pigs.firstWhere(
-                                (p) => p.id == intake.pigId,
-                            orElse: () => PigMedOption(id: intake.pigId, displayId: 'Unknown', breed: 'Unknown', status: 'Unknown', accentColor: Colors.grey),
-                          );
+                            return ListView.builder(
+                              itemCount: filteredIntakes.length,
+                              itemBuilder: (context, index) {
+                                final intake = filteredIntakes[index];
 
-                          return IntakeHistoryCard(
-                            intake: intake,
-                            displayId: matchedPig.breed,
-                            accentColor: matchedPig.accentColor,
-                            isDark: isDark,
-                          );
+                                final matchedPig = widget.pigs.firstWhere(
+                                  (p) => p.id == intake.pigId,
+                                  orElse: () => PigMedOption(
+                                    id: intake.pigId,
+                                    displayId: 'Unknown',
+                                    breed: 'Unknown',
+                                    status: 'Unknown',
+                                    accentColor: Colors.grey,
+                                  ),
+                                );
+
+                                return IntakeHistoryCard(
+                                  intake: intake,
+                                  displayId: matchedPig.breed,
+                                  accentColor: matchedPig.accentColor,
+                                  isDark: isDark,
+                                );
+                              },
+                            );
+                          }
+                          return const SizedBox.shrink();
                         },
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
+                      ),
               ),
             ],
           ),
@@ -232,7 +292,8 @@ class IntakeHistoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final date = intake.dateTaken;
-    final formattedDate = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final formattedDate =
+        "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
 
     return Container(
       width: double.infinity,
@@ -240,7 +301,9 @@ class IntakeHistoryCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isDark ? Colors.white10 : Colors.grey.shade300),
+        border: Border.all(
+          color: isDark ? Colors.white10 : Colors.grey.shade300,
+        ),
       ),
       child: IntrinsicHeight(
         child: Row(
@@ -250,7 +313,10 @@ class IntakeHistoryCard extends StatelessWidget {
               width: 10,
               decoration: BoxDecoration(
                 color: accentColor,
-                borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  bottomLeft: Radius.circular(12),
+                ),
               ),
             ),
             Expanded(
@@ -264,20 +330,27 @@ class IntakeHistoryCard extends StatelessWidget {
                       children: [
                         Text(
                           displayId,
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isDark ? Colors.white : Colors.black),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
-                            color: accentColor.withOpacity(0.15),
+                            color: accentColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             intake.status,
                             style: TextStyle(
-                                color: isDark ? Colors.white70 : accentColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold
+                              color: isDark ? Colors.white70 : accentColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
@@ -286,13 +359,24 @@ class IntakeHistoryCard extends StatelessWidget {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Expanded(child: _buildInfoRow('${intake.category}: ', intake.medName)),
-                        Expanded(child: _buildInfoRow('Dosage: ', '${intake.dosage} ${intake.unitOfMeasurement}')),
+                        Expanded(
+                          child: _buildInfoRow(
+                            '${intake.category}: ',
+                            intake.medName,
+                          ),
+                        ),
+                        Expanded(
+                          child: _buildInfoRow(
+                            'Dosage: ',
+                            '${intake.dosage} ${intake.unitOfMeasurement}',
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     _buildInfoRow('Date Taken: ', formattedDate),
-                    if (intake.purpose != null && intake.purpose!.isNotEmpty) ...[
+                    if (intake.purpose != null &&
+                        intake.purpose!.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       _buildInfoRow('Purpose: ', intake.purpose!),
                     ],
@@ -309,10 +393,19 @@ class IntakeHistoryCard extends StatelessWidget {
   Widget _buildInfoRow(String label, String value) {
     return RichText(
       text: TextSpan(
-        style: TextStyle(fontSize: 13, color: isDark ? Colors.white60 : Colors.black54),
+        style: TextStyle(
+          fontSize: 13,
+          color: isDark ? Colors.white60 : Colors.black54,
+        ),
         children: [
           TextSpan(text: label),
-          TextSpan(text: value, style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
         ],
       ),
     );
