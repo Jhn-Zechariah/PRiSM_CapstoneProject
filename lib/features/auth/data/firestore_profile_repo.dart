@@ -13,16 +13,13 @@ class FirebaseProfileRepo implements ProfileRepo {
       final user = firebaseAuth.currentUser;
       if (user == null) throw Exception('No user logged in.');
 
-      // 1. Update Firebase Auth Profile
       await user.updateDisplayName(newUsername);
-      await user.reload(); // Refresh the user to get the new data
+      await user.reload();
 
-      // 2. Update Firestore Document (Using your 'admins' collection)
-      await firestore.collection('admins').doc(user.uid).update({
+      await firestore.collection('admins').doc(user.uid).set({
         'username': newUsername,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
-
+      }, SetOptions(merge: true));
     } catch (e) {
       throw Exception('Failed to update username: $e');
     }
@@ -35,22 +32,18 @@ class FirebaseProfileRepo implements ProfileRepo {
       final user = firebaseAuth.currentUser;
       if (user == null || user.email == null) throw Exception('No user logged in.');
 
-      // 1. Re-authenticate with current password first
       final credential = EmailAuthProvider.credential(
         email: user.email!,
         password: currentPassword,
       );
       await user.reauthenticateWithCredential(credential);
 
-      // 2. Update Firebase Auth Email
       await user.verifyBeforeUpdateEmail(newEmail);
 
-      // 3. Update Firestore Document
-      await firestore.collection('admins').doc(user.uid).update({
+      await firestore.collection('admins').doc(user.uid).set({
         'email': newEmail,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
-
+      }, SetOptions(merge: true));
     } on FirebaseAuthException catch (e) {
       if (e.code == 'wrong-password') {
         throw Exception('Current password is incorrect.');
@@ -61,20 +54,16 @@ class FirebaseProfileRepo implements ProfileRepo {
     }
   }
 
-  // --- SET INITIAL PASSWORD (FOR GOOGLE USERS) ---
+  // --- SET INITIAL PASSWORD ---
   @override
   Future<void> setInitialPassword(String newPassword) async {
     try {
       final user = firebaseAuth.currentUser;
       if (user == null) throw Exception('No user logged in.');
-
-      // Because they signed in with Google, their session is inherently trusted.
-      // Firebase will automatically attach the email/password provider to their account!
       await user.updatePassword(newPassword);
-
     } on FirebaseAuthException catch (e) {
       if (e.code == 'requires-recent-login') {
-        throw Exception('Session expired. Please log out and log back in with Google before setting a password.');
+        throw Exception('Session expired. Please log out and log back in.');
       }
       throw Exception('Failed to set password: ${e.message}');
     } catch (e) {
@@ -89,16 +78,13 @@ class FirebaseProfileRepo implements ProfileRepo {
       final user = firebaseAuth.currentUser;
       if (user == null || user.email == null) throw Exception('No user logged in.');
 
-      // 1. Re-authenticate with current password first
       final credential = EmailAuthProvider.credential(
         email: user.email!,
         password: currentPassword,
       );
       await user.reauthenticateWithCredential(credential);
 
-      // 2. Update password
       await user.updatePassword(newPassword);
-
     } on FirebaseAuthException catch (e) {
       switch (e.code) {
         case 'wrong-password':
@@ -110,6 +96,35 @@ class FirebaseProfileRepo implements ProfileRepo {
       }
     } catch (e) {
       throw Exception('An unexpected error occurred: $e');
+    }
+  }
+
+  // --- UPDATE FCM TOKEN ---
+  @override
+  Future<void> updateFcmToken(String userId, String? token) async {
+    try {
+      // Use set with merge: true to ensure the field is created even if it doesn't exist
+      await firestore.collection('admins').doc(userId).set({
+        'fcmToken': token,
+        'tokenUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      print("✅ FCM Token successfully saved to Firestore for user: $userId");
+    } catch (e) {
+      print("❌ Error updating FCM token in Firestore: $e");
+    }
+  }
+
+  // --- UPDATE NOTIFICATION PREFERENCES ---
+  @override
+  Future<void> updateNotificationPreferences(String userId, Map<String, bool> preferences) async {
+    try {
+      await firestore.collection('admins').doc(userId).set({
+        'notificationPreferences': preferences,
+        'preferencesUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      print("✅ Notification preferences successfully synced to Firestore for user: $userId");
+    } catch (e) {
+      print("❌ Error updating notification preferences in Firestore: $e");
     }
   }
 }
