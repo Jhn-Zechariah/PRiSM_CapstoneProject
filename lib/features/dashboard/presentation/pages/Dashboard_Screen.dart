@@ -6,8 +6,9 @@ import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
+import '../../../../services/ml_service.dart';
 
-const String esp32Ip = "192.168.1.100";
+const String esp32Ip = "192.168.1.100"; // ← replace with your actual ESP32 IP
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -16,14 +17,17 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with SingleTickerProviderStateMixin {
   int selectedIndex = 2;
 
   Timer? _timer;
+  Timer? _toggleTimer;
   bool _isLoading = true;
   String _connectionStatus = "Connecting...";
 
   double _tempMax = 0;
+  double _humidity = 0;
   String _tempStatus = "Normal";
   bool _isActivated = false;
 
@@ -32,9 +36,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _mode = "—";
   String _pigStatus = "—";
 
+  String _mlCondition = "Analyzing...";
+  List<String> _mlRecommendations = [];
+  bool _mlLoading = true;
+
+  // ── Toggle animation state ─────────────────────────────────────────────────
+  bool _showingTemperature = true;
+  bool _isFading = false;
+
+  late final AnimationController _fadeController;
+  late final Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
+
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: 1.0,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    );
+
+    // Toggle between temp and humidity every 3 seconds
+    _toggleTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _crossfadeToggle();
+    });
+
+    // _fetchData already calls _fetchMLInsights after getting real sensor values
+    // Do NOT call _fetchMLInsights here — _tempMax and _humidity are still 0 at this point
     _fetchData();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
   }
@@ -42,9 +75,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _toggleTimer?.cancel();
+    _fadeController.dispose();
     super.dispose();
   }
 
+  Future<void> _crossfadeToggle() async {
+    if (!mounted) return;
+    setState(() => _isFading = true);
+    await _fadeController.reverse();
+    if (!mounted) return;
+    setState(() {
+      _showingTemperature = !_showingTemperature;
+    });
+    await _fadeController.forward();
+    if (!mounted) return;
+    setState(() => _isFading = false);
+  }
+
+  // ── ML Insights — called AFTER _fetchData updates _tempMax & _humidity ──────
+  Future<void> _fetchMLInsights() async {
+    try {
+      print('>>> Calling ML — temp: $_tempMax, humidity: $_humidity');
+      final result = await MlService.analyzeFarm(
+        temperatureC:
+            _tempMax, // real ESP32 value, already updated by _fetchData
+        humidityPct:
+            _humidity, // real ESP32 value, already updated by _fetchData
+        weightChangeKg: 0.25, // TODO: replace with real value from pig records
+        feedIntakeKg: 1.8, // TODO: replace with real value from feeding records
+      );
+      print('>>> ML result: $result');
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = result['condition'] ?? "Unknown";
+        _mlRecommendations = List<String>.from(result['recommendations'] ?? []);
+        _mlLoading = false;
+      });
+    } catch (e) {
+      print('>>> ML error: $e');
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = "Unavailable";
+        _mlRecommendations = [
+          "Could not reach ML server. Make sure the Python API is running.",
+        ];
+        _mlLoading = false;
+      });
+    }
+  }
+
+  // ── Fetch sensor data from ESP32, then call ML with real values ─────────────
   Future<void> _fetchData() async {
     try {
       final response = await http
@@ -53,8 +134,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+
+        // Step 1 — update sensor state with real ESP32 values
         setState(() {
           _tempMax = (data['tempMax'] as num?)?.toDouble() ?? _tempMax;
+          _humidity = (data['humidity'] as num?)?.toDouble() ?? _humidity;
           _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
           _isActivated = data['sprinkler'] as bool? ?? _isActivated;
           _sprinklerStatus = _isActivated ? "ON" : "OFF";
@@ -64,12 +148,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _isLoading = false;
           _connectionStatus = "Live";
         });
+
+        // Step 2 — NOW call ML: _tempMax and _humidity are real values
+        await _fetchMLInsights();
       }
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _connectionStatus = "No connection";
         _isLoading = false;
+        _mlCondition = "Unavailable";
+        _mlRecommendations = [
+          "ESP32 not connected. Check your sensor connection.",
+        ];
+        _mlLoading = false;
       });
     }
   }
@@ -237,37 +329,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildWeatherCard(bool isDark) {
+    final bool showTemp = _showingTemperature;
+    final String label = showTemp ? _tempStatus : "Humidity";
+    final String value = _isLoading
+        ? "—"
+        : showTemp
+        ? "${_tempMax.toStringAsFixed(1)}°"
+        : "${_humidity.toStringAsFixed(1)}%";
+    final IconData icon = showTemp
+        ? Icons.thermostat_outlined
+        : Icons.water_drop_outlined;
+    final Color iconColor = showTemp ? Colors.orange : Colors.blue;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _bentoDecoration(isDark),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _tempStatus,
-                style: TextStyle(
-                  color: isDark ? Colors.white60 : Colors.grey,
-                  fontSize: 12,
-                ),
-              ),
-              _isLoading
-                  ? const SizedBox(
-                      height: 40,
-                      width: 40,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(
-                      "${_tempMax.toStringAsFixed(1)}°",
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 14, color: iconColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          color: isDark ? Colors.white60 : Colors.grey,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-            ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                _isLoading
+                    ? const SizedBox(
+                        height: 40,
+                        width: 40,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : FadeTransition(
+                        opacity: _fadeAnimation,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (child, animation) {
+                            return SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0, 0.2),
+                                end: Offset.zero,
+                              ).animate(animation),
+                              child: FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            value,
+                            key: ValueKey(value),
+                            style: TextStyle(
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    _buildDot(isActive: showTemp, color: Colors.orange),
+                    const SizedBox(width: 4),
+                    _buildDot(isActive: !showTemp, color: Colors.blue),
+                  ],
+                ),
+              ],
+            ),
           ),
           ElevatedButton.icon(
             onPressed: () => _toggleSprinkler(!_isActivated),
@@ -289,13 +432,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Widget _buildDot({required bool isActive, required Color color}) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      width: isActive ? 16 : 6,
+      height: 6,
+      decoration: BoxDecoration(
+        color: isActive ? color : color.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(3),
+      ),
+    );
+  }
+
   Widget _buildQuickStatsRow(bool isDark) {
     return Row(
       children: [
         Expanded(
           child: _buildInfoCard(isDark, Symbols.bar_chart_4_bars, "Quick Stats", [
             "Max Temp: ${_isLoading ? '…' : '${_tempMax.toStringAsFixed(1)}°C'}",
-            "Sprinkler: $_sprinklerStatus",
+            "Humidity: ${_isLoading ? '…' : '${_humidity.toStringAsFixed(1)}%'}",
             "Pig Status: $_pigStatus",
           ], const Color(0xFFE53935)),
         ),
@@ -366,8 +521,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildTemperatureGraph(bool isDark) {
-    // TODO: Replace with real IoT data from your cubit/state, e.g.:
-    // spots = myState.temperatureReadings.map((r) => FlSpot(r.hour.toDouble(), r.temp)).toList();
     final List<FlSpot> spots = [
       const FlSpot(0, 36.5),
       const FlSpot(1, 36.8),
@@ -414,7 +567,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
               Container(
@@ -436,10 +588,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 4),
-
-          // Axis hint labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -447,10 +596,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Text("Hour", style: TextStyle(fontSize: 10, color: labelColor)),
             ],
           ),
-
           const SizedBox(height: 8),
-
-          // Chart
           SizedBox(
             height: 180,
             child: LineChart(
@@ -478,7 +624,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   drawVerticalLine: false,
                   horizontalInterval: 1,
                   getDrawingHorizontalLine: (_) => FlLine(
-                    // FIX: Colors.black08 does not exist — use withValues instead
                     color: isDark
                         ? Colors.white.withValues(alpha: 0.06)
                         : Colors.black.withValues(alpha: 0.06),
@@ -603,24 +748,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildRecommendationCard(bool isDark) {
+    // Determine badge color based on ML condition
+    Color conditionColor = Colors.amber; // default = Needs Attention
+    if (_mlCondition == "Good") conditionColor = Colors.green;
+    if (_mlCondition == "High Risk") conditionColor = Colors.red;
+
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: _bentoDecoration(isDark, accentColor: Colors.amber),
+      decoration: _bentoDecoration(isDark, accentColor: conditionColor),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Header row ──────────────────────────────────────────────────
           Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.15),
+                  color: conditionColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.lightbulb_outline,
                   size: 15,
-                  color: Colors.amber,
+                  color: conditionColor,
                 ),
               ),
               const SizedBox(width: 8),
@@ -632,16 +783,108 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: isDark ? Colors.white : Colors.black,
                 ),
               ),
+              const Spacer(),
+              // Condition badge — only shown when ML has responded
+              if (!_mlLoading)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(
-            "Based on current conditions, we recommend activating the sprinkler system for 15 minutes to maintain optimal humidity levels.",
-            style: TextStyle(
-              color: isDark ? Colors.white60 : const Color(0xFF707070),
-              fontSize: 12,
+
+          // ── Body ────────────────────────────────────────────────────────
+          if (_mlLoading)
+            // Still waiting for ML response
+            Row(
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  "Analyzing farm conditions...",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  ),
+                ),
+              ],
+            )
+          else if (_mlRecommendations.isEmpty)
+            Text(
+              "No recommendations at this time.",
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.white60 : const Color(0xFF707070),
+              ),
+            )
+          else
+            // Recommendation list from trained ML
+            ..._mlRecommendations.map(
+              (r) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        r,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white60
+                              : const Color(0xFF707070),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
+
+          // ── Source label ─────────────────────────────────────────────────
+          if (!_mlLoading && _mlCondition != "Unavailable")
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.memory,
+                    size: 11,
+                    color: isDark ? Colors.white30 : Colors.black26,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "Powered by PRISM trained ML · live sensor data",
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: isDark ? Colors.white30 : Colors.black38,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

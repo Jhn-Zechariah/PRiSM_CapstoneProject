@@ -7,6 +7,7 @@ class AppPig {
   final String breed;
   final DateTime birthDate;
   final String sex;
+  final double birthWeightKg;
   final double currentWeightKg;
   final String notes;
   final String stage;
@@ -25,6 +26,7 @@ class AppPig {
     required this.breed,
     required this.birthDate,
     required this.sex,
+    required this.birthWeightKg,
     required this.currentWeightKg,
     required this.notes,
     required this.stage,
@@ -44,13 +46,18 @@ class AppPig {
       'breed': breed,
       'birthDate': Timestamp.fromDate(birthDate),
       'sex': sex,
+      'birthWeightKg': birthWeightKg,
       'currentWeightKg': currentWeightKg,
       'notes': notes,
       'stage': stage,
       'status': status,
-      'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
+      'createdAt': createdAt != null
+          ? Timestamp.fromDate(createdAt!)
+          : FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(), // Always update this on save
-      'lastIntakeDate': lastIntakeDate != null ? Timestamp.fromDate(lastIntakeDate!) : null, // 🔹 Save to Firestore
+      'lastIntakeDate': lastIntakeDate != null
+          ? Timestamp.fromDate(lastIntakeDate!)
+          : null, // 🔹 Save to Firestore
       'lastIntakeName': lastIntakeName, // 🔹 Save to Firestore
     };
   }
@@ -64,6 +71,10 @@ class AppPig {
       breed: json['breed'] as String? ?? 'Unknown',
       birthDate: (json['birthDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       sex: json['sex'] as String? ?? 'Unknown',
+      birthWeightKg:
+          (json['birthWeightKg'] as num?)?.toDouble() ??
+          (json['currentWeightKg'] as num?)?.toDouble() ??
+          1.4,
       currentWeightKg: (json['currentWeightKg'] as num?)?.toDouble() ?? 0.0,
       notes: json['notes'] as String? ?? '',
       stage: json['stage'] as String? ?? 'Unknown',
