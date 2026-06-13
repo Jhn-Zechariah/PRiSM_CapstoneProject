@@ -49,48 +49,60 @@ exports.dailyLowStockCheck = onSchedule({
 });
 
 /**
- * Scheduled function to check expiration dates daily at 8:00 AM.
+ * Scheduled function to check expiration dates of stocks daily at 8:00 AM.
+ * Looks into sub-collection: medicines/{medId}/medicine_stock/
  */
 exports.dailyExpirationCheck = onSchedule({
     schedule: "0 8 * * *",
     timeZone: "Asia/Manila",
 }, async (event) => {
-    console.log("⏰ Commencing daily expiration audit...");
+    console.log("⏰ Commencing daily medicine expiration audit...");
     const firestore = admin.firestore();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     try {
-        const snapshot = await firestore.collection("medicines").get();
+        // 1. Get all medicines
+        const medicinesSnapshot = await firestore.collection("medicines").get();
 
-        for (const doc of snapshot.docs) {
-            const data = doc.data();
-            if (!data.expiryDate || !data.userId) continue;
+        for (const medDoc of medicinesSnapshot.docs) {
+            const medData = medDoc.data();
+            const userId = medData.userId;
 
-            const expiryDate = new Date(data.expiryDate);
-            expiryDate.setHours(0, 0, 0, 0);
-            const diffDays = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+            // 2. Access the 'medicine_stock' sub-collection
+            const stocksSnapshot = await firestore.collection(`medicines/${medDoc.id}/medicine_stock`).get();
 
-            let message = "";
-            if (diffDays < 0) {
-                message = `${data.name} is already expired.`;
-            } else if (diffDays <= 7) {
-                message = `${data.name} is about to expire in ${diffDays} day${diffDays === 1 ? "" : "s"}.`;
-            }
+            for (const stockDoc of stocksSnapshot.docs) {
+                const stockData = stockDoc.data();
+                if (!stockData.expiryDate) continue;
 
-            if (message) {
-                const userDoc = await firestore.collection("admins").doc(data.userId).get();
-                const userData = userDoc.data();
-                const prefs = userData?.notificationPreferences || {};
+                const expiryDate = new Date(stockData.expiryDate);
+                expiryDate.setHours(0, 0, 0, 0);
+                const diffDays = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
 
-                if (prefs.isNotifEnabled !== false && prefs.isMedExpAlert !== false && userData?.fcmToken) {
-                    await admin.messaging().send({
-                        notification: { title: "⚠️ Expiration Alert", body: message },
-                        token: userData.fcmToken,
-                        data: { type: "med_exp_alert" }
-                    });
+                let message = "";
+                if (diffDays <= 0) {
+                    message = `${medData.name} (Stock: ${stockData.amount}) is already expired.`;
+                } else if (diffDays <= 7) {
+                    message = `${medData.name} (Stock: ${stockData.amount}) is about to expire in ${diffDays} day${diffDays === 1 ? "" : "s"}.`;
+                }
+
+                if (message) {
+                    // 3. Get User Preferences
+                    const userDoc = await firestore.collection("admins").doc(userId).get();
+                    const userData = userDoc.data();
+                    const prefs = userData?.notificationPreferences || {};
+
+                    if (prefs.isNotifEnabled !== false && prefs.isMedExpAlert !== false && userData?.fcmToken) {
+                        await admin.messaging().send({
+                            notification: { title: "⚠️ Expiration Alert", body: message },
+                            token: userData.fcmToken,
+                            data: { type: "med_exp_alert", medId: medDoc.id, stockId: stockDoc.id }
+                        });
+                        console.log(`📩 Sent expiration alert for ${medData.name} to user ${userId}`);
+                    }
                 }
             }
         }
-    } catch (error) { console.error(error); }
+    } catch (error) { console.error("💥 Expiration check error:", error); }
 });
