@@ -20,6 +20,30 @@ class FirestoreMedicineRepo implements MedicineRepository {
     });
   }
 
+  // Add to FirestoreMedicineRepo
+  @override
+  Stream<List<MedicineIntake>> streamUpcomingIntakes() {
+    final now = DateTime.now();
+
+    return _firestore
+        .collectionGroup('medicine_intakes')
+        .where('nextSchedule', isNotEqualTo: null)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => MedicineIntake.fromMap(doc.data(), documentId: doc.id))
+          .where((intake) {
+        // 1. Filter: Only upcoming schedules (not null, not in the past)
+        if (intake.nextSchedule == null) return false;
+        final scheduleDate = DateTime.tryParse(intake.nextSchedule!);
+        return scheduleDate != null && scheduleDate.isAfter(now);
+      })
+          .toList()
+        ..sort((a, b) => DateTime.parse(a.nextSchedule!)
+            .compareTo(DateTime.parse(b.nextSchedule!)));
+    });
+  }
+
   @override
   Stream<List<MedicineIntake>> streamIntakes() {
     return _firestore

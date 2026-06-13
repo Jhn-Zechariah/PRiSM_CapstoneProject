@@ -26,7 +26,6 @@ abstract class MedicineRepository {
     required MedicineStock newStock,
   });
 
-  // 🔹 ADDED: The new intake method
   Future<void> addIntakeAndReduceStock({
     required MedicineIntake intake,
     required MedicineStock selectedStock,
@@ -34,4 +33,7 @@ abstract class MedicineRepository {
   });
 
   Stream<List<MedicineIntake>> streamIntakes();
+
+  /// Streams upcoming intakes for the specific user
+  Stream<List<MedicineIntake>> streamUpcomingIntakes();
 }

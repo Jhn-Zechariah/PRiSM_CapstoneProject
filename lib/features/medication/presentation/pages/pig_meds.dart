@@ -12,6 +12,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../../core/widgets/header.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
+import '../cubits/medicine_cubit.dart';
+import 'meds_intake_schedule.dart';
 
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
@@ -56,9 +58,17 @@ class _pig_medsState extends State<pig_meds> {
             title: 'Healthcare',
             icon: Symbols.vaccines,
             trailing: IconButton(
-                icon: const Icon(Icons.add, size: 28),
-                disabledColor: Colors.transparent,
-                onPressed: null
+              icon: const Icon(Icons.calendar_month_outlined, size: 28),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MedsIntakeScheduleScreen(
+                      intakeStream: context.read<MedicineCubit>().repository.streamUpcomingIntakes(),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
 
