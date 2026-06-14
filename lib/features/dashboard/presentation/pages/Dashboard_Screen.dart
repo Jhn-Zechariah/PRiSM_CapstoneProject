@@ -580,8 +580,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             ],
           ),
           const SizedBox(height: 8),
+<<<<<<< HEAD
 
           // Chart
+=======
+>>>>>>> bb81ec3b5f4451c4e9e0b5d73dcaacc5b99bbaee
           SizedBox(
             height: 180,
             child: LineChart(
