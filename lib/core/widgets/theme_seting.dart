@@ -135,17 +135,34 @@ class _ThemeSettingsDialogState extends State<ThemeSettingsDialog> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(label, style: TextStyle(fontSize: 14, color: textColor)),
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 14, color: textColor),
+              ),
             ),
-            Radio<ThemeMode>(
-              value: value,
+            RadioGroup<ThemeMode>(
               groupValue: _selectedTheme,
-              activeColor: Colors.orange[800], // Matches the title color
               onChanged: (ThemeMode? newValue) {
                 if (newValue != null) {
                   _handleThemeChange(newValue);
                 }
               },
+              child: Column(
+                // Or Row, ListView, etc.
+                children: [
+                  Radio<ThemeMode>(
+                    value: value,
+                    // The activeColor property is also updated via WidgetState/MaterialState
+                    fillColor: WidgetStateProperty.resolveWith<Color>((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return Colors.orange[800]!; // Matches your title color
+                      }
+                      return Colors.grey; // Default unselected color
+                    }),
+                  ),
+                  // ... your other Radio widgets for other themes go here
+                ],
+              ),
             ),
           ],
         ),
