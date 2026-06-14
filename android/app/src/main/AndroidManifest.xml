@@ -7,12 +7,17 @@
         android:label="PRiSM"
         android:name="${applicationName}"
 <<<<<<< HEAD
+<<<<<<< HEAD
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
 =======
         android:icon="@mipmap/ic_launcher">
 
 >>>>>>> 30b3bd071598680741248321b9be0b4c4f61fbd9
+=======
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+>>>>>>> bb81ec3b5f4451c4e9e0b5d73dcaacc5b99bbaee
         <activity
             android:name=".MainActivity"
             android:exported="true"
