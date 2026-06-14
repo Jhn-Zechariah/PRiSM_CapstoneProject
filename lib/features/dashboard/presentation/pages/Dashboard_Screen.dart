@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -29,7 +28,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   double _tempMax = 0;
   double _humidity = 0;
-  String _tempStatus = "Normal";
+  String _tempStatus = "Temperature";
   bool _isActivated = false;
 
   String _sprinklerStatus = "OFF";
@@ -41,7 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<String> _mlRecommendations = [];
   bool _mlLoading = true;
 
-  // ── Toggle animation state ─────────────────────────────────────────────────
+  // ── Toggle animation state ────────────────────────────────────────────────
   bool _showingTemperature = true;
   bool _isFading = false;
 
@@ -52,6 +51,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void initState() {
     super.initState();
 
+    // ✅ FIX 1: Always initialize _fadeController here
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -62,13 +62,14 @@ class _DashboardScreenState extends State<DashboardScreen>
       curve: Curves.easeInOut,
     );
 
-    // Toggle between temp and humidity every 3 seconds
+    // ✅ FIX 2: Start the toggle timer so weather card switches every 3 seconds
     _toggleTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _crossfadeToggle();
     });
 
-    // _fetchData already calls _fetchMLInsights after getting real sensor values
-    // Do NOT call _fetchMLInsights here — _tempMax and _humidity are still 0 at this point
+    // ✅ FIX 3: Do NOT call _fetchMLInsights() here directly —
+    // _tempMax and _humidity are still 0 at this point.
+    // _fetchData() will call _fetchMLInsights() AFTER getting real sensor values.
     _fetchData();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
   }
@@ -86,40 +87,45 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _isFading = true);
     await _fadeController.reverse();
     if (!mounted) return;
-    setState(() {
-      _showingTemperature = !_showingTemperature;
-    });
+    setState(() => _showingTemperature = !_showingTemperature);
     await _fadeController.forward();
     if (!mounted) return;
     setState(() => _isFading = false);
   }
 
-  // ── ML Insights — called AFTER _fetchData updates _tempMax & _humidity ──────
+  // ── ML Insights ───────────────────────────────────────────────────────────
+  // Called AFTER _fetchData() updates _tempMax & _humidity with real ESP32 values
   Future<void> _fetchMLInsights() async {
     try {
       print('>>> Calling ML — temp: $_tempMax, humidity: $_humidity');
       final result = await MlService.analyzeFarm(
-        temperatureC:
-            _tempMax, // real ESP32 value, already updated by _fetchData
-        humidityPct:
-            _humidity, // real ESP32 value, already updated by _fetchData
-        weightChangeKg: 0.25, // TODO: replace with real value from pig records
-        feedIntakeKg: 1.8, // TODO: replace with real value from feeding records
-      );
+        temperatureC: _tempMax, // real ESP32 value, updated by _fetchData
+        humidityPct: _humidity, // real ESP32 value, updated by _fetchData
+        weightChangeKg: 0.25, // TODO: replace with real pig records value
+        feedIntakeKg: 1.8, // TODO: replace with real feeding records value
+      ).timeout(const Duration(seconds: 6)); // ✅ timeout so it never hangs
+
       print('>>> ML result: $result');
       if (!mounted) return;
-      setState(() {
-        _mlCondition = result['condition'] ?? "Unknown";
-        _mlRecommendations = List<String>.from(result['recommendations'] ?? []);
-        _mlLoading = false;
-      });
+
+      final condition = result['condition'] ?? "";
+      final recs = List<String>.from(result['recommendations'] ?? []);
+
+      if (condition.isNotEmpty && recs.isNotEmpty) {
+        setState(() {
+          _mlCondition = condition;
+          _mlRecommendations = recs;
+          _mlLoading = false;
+        });
+      }
     } catch (e) {
       print('>>> ML error: $e');
       if (!mounted) return;
       setState(() {
         _mlCondition = "Unavailable";
         _mlRecommendations = [
-          "Could not reach ML server. Make sure the Python API is running.",
+          "Could not reach ML server.",
+          "Make sure the Python API is running: uvicorn prism_api:app --reload --host 0.0.0.0 --port 8000",
         ];
         _mlLoading = false;
       });
@@ -150,7 +156,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           _connectionStatus = "Live";
         });
 
-        // Step 2 — NOW call ML: _tempMax and _humidity are real values
+        // Step 2 — NOW call ML: _tempMax and _humidity are real sensor values
         await _fetchMLInsights();
       }
     } catch (_) {
@@ -226,7 +232,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
       child: SingleChildScrollView(
@@ -311,7 +316,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Icon(
                 isLive ? Icons.wifi : Icons.wifi_off,
                 size: 12,
-              color: isLive ? Colors.green : Colors.red,
+                color: isLive ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 4),
               Text(
@@ -379,18 +384,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                         opacity: _fadeAnimation,
                         child: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 300),
-                          transitionBuilder: (child, animation) {
-                            return SlideTransition(
-                              position: Tween<Offset>(
-                                begin: const Offset(0, 0.2),
-                                end: Offset.zero,
-                              ).animate(animation),
-                              child: FadeTransition(
-                                opacity: animation,
-                                child: child,
+                          transitionBuilder: (child, animation) =>
+                              SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.2),
+                                  end: Offset.zero,
+                                ).animate(animation),
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
                               ),
-                            );
-                          },
                           child: Text(
                             value,
                             key: ValueKey(value),
@@ -548,7 +552,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       const FlSpot(22, 37.0),
       const FlSpot(23, 36.8),
     ];
-
     final double minTemp = spots
         .map((s) => s.y)
         .reduce((a, b) => a < b ? a : b);
@@ -557,7 +560,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         .reduce((a, b) => a > b ? a : b);
     final double yMin = (minTemp - 1).floorToDouble();
     final double yMax = (maxTemp + 1).ceilToDouble();
-
     final Color lineColor = Colors.green;
     final Color axisColor = isDark ? Colors.white38 : Colors.black26;
     final Color labelColor = isDark ? Colors.white54 : Colors.black45;
@@ -660,9 +662,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                           20: '8PM',
                         };
                         final hour = value.toInt();
-                        if (!labels.containsKey(hour)) {
+                        if (!labels.containsKey(hour))
                           return const SizedBox.shrink();
-                        }
                         return SideTitleWidget(
                           meta: meta,
                           child: Text(
@@ -679,9 +680,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                       reservedSize: 36,
                       interval: 1,
                       getTitlesWidget: (value, meta) {
-                        if (value != value.roundToDouble()) {
+                        if (value != value.roundToDouble())
                           return const SizedBox.shrink();
-                        }
                         return SideTitleWidget(
                           meta: meta,
                           child: Text(
@@ -697,24 +697,20 @@ class _DashboardScreenState extends State<DashboardScreen>
                   touchTooltipData: LineTouchTooltipData(
                     getTooltipColor: (_) =>
                         isDark ? const Color(0xFF2A2A2A) : Colors.white,
-                    getTooltipItems: (touchedSpots) {
-                      return touchedSpots.map((spot) {
-                        return LineTooltipItem(
-                          () {
-                            final h = spot.x.toInt();
-                            final isPM = h >= 12;
-                            final hour12 = h % 12 == 0 ? 12 : h % 12;
-                            final period = isPM ? 'PM' : 'AM';
-                            return '$hour12:00 $period\n${spot.y.toStringAsFixed(1)}°C';
-                          }(),
-                          TextStyle(
-                            color: lineColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        );
-                      }).toList();
-                    },
+                    getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
+                      final h = spot.x.toInt();
+                      final isPM = h >= 12;
+                      final hour12 = h % 12 == 0 ? 12 : h % 12;
+                      final period = isPM ? 'PM' : 'AM';
+                      return LineTooltipItem(
+                        '$hour12:00 $period\n${spot.y.toStringAsFixed(1)}°C',
+                        TextStyle(
+                          color: lineColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ),
               ),
@@ -749,10 +745,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildRecommendationCard(bool isDark) {
-    // Determine badge color based on ML condition
+    // ✅ All 4 condition colors handled including Unavailable → grey
     Color conditionColor = Colors.amber; // default = Needs Attention
     if (_mlCondition == "Good") conditionColor = Colors.green;
     if (_mlCondition == "High Risk") conditionColor = Colors.red;
+    if (_mlCondition == "Unavailable") conditionColor = Colors.grey;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -760,7 +757,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header row ──────────────────────────────────────────────────
+          // ── Header row ─────────────────────────────────────────────────
           Row(
             children: [
               Container(
@@ -810,9 +807,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           const SizedBox(height: 10),
 
-          // ── Body ────────────────────────────────────────────────────────
+          // ── Body ───────────────────────────────────────────────────────
           if (_mlLoading)
-            // Still waiting for ML response
             Row(
               children: [
                 const SizedBox(
@@ -839,7 +835,6 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             )
           else
-            // Recommendation list from trained ML
             ..._mlRecommendations.map(
               (r) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 3),
@@ -864,7 +859,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ),
 
-          // ── Source label ─────────────────────────────────────────────────
+          // ── Source label ───────────────────────────────────────────────
           if (!_mlLoading && _mlCondition != "Unavailable")
             Padding(
               padding: const EdgeInsets.only(top: 10),
