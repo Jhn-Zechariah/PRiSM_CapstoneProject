@@ -57,7 +57,7 @@ class FirebasePigRepo implements PigRepo {
       await docRef.collection('weight_history').add({
         'weightKg': pig.currentWeightKg,
         'dateRecorded': FieldValue.serverTimestamp(),
-        'notes': 'Initial weight',
+        'notes': 'Birth weight',
       });
     } catch (e) {
       throw Exception("Error adding pig: $e");

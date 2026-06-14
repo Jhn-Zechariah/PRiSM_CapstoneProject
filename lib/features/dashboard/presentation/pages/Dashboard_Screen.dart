@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -310,7 +311,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Icon(
                 isLive ? Icons.wifi : Icons.wifi_off,
                 size: 12,
-                color: isLive ? Colors.green : Colors.red,
+              color: isLive ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 4),
               Text(
