@@ -8,6 +8,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // 🔹 Updated to filter streams by the specific logged-in farmer/user
+  @override
   Stream<List<Medicine>> streamMedicines(String userId) {
     return _firestore
         .collection('medicines')
@@ -17,6 +18,38 @@ class FirestoreMedicineRepo implements MedicineRepository {
       return snapshot.docs
           .map((doc) => Medicine.fromMap(doc.data(), doc.id))
           .toList();
+    });
+  }
+
+  // Add to FirestoreMedicineRepo
+  @override
+  Stream<List<MedicineIntake>> streamUpcomingIntakes() {
+    final now = DateTime.now();
+
+    // Create a DateTime representing 12:00 AM today.
+    final startOfToday = DateTime(now.year, now.month, now.day);
+
+    return _firestore
+        .collectionGroup('medicine_intakes')
+        .where('nextSchedule', isNotEqualTo: null)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => MedicineIntake.fromMap(doc.data(), documentId: doc.id))
+          .where((intake) {
+
+        if (intake.nextSchedule == null) return false;
+
+        final scheduleDate = DateTime.tryParse(intake.nextSchedule!);
+        if (scheduleDate == null) return false;
+
+        // Filter: Keep if the schedule is NOT before the start of today.
+        return !scheduleDate.isBefore(startOfToday);
+
+      })
+          .toList()
+        ..sort((a, b) => DateTime.parse(a.nextSchedule!)
+            .compareTo(DateTime.parse(b.nextSchedule!)));
     });
   }
 

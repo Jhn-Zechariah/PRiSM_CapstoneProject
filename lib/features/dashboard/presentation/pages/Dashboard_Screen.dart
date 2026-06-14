@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -50,24 +51,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-      value: 1.0,
-    );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeInOut,
-    );
-
-    // Toggle between temp and humidity every 3 seconds
-    _toggleTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _crossfadeToggle();
-    });
-
-    // _fetchData already calls _fetchMLInsights after getting real sensor values
-    // Do NOT call _fetchMLInsights here — _tempMax and _humidity are still 0 at this point
     _fetchData();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
   }
@@ -597,6 +580,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             ],
           ),
           const SizedBox(height: 8),
+
+          // Chart
           SizedBox(
             height: 180,
             child: LineChart(

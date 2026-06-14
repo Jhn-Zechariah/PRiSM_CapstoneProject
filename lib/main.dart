@@ -8,6 +8,7 @@ import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/firebase_options.dart';
 import 'package:prism_app/core/widgets/splash_screen.dart';
 import 'package:prism_app/core/theme/app_theme.dart';
+import 'core/services/notification_services.dart';
 import 'features/feeding/data/firestore_feeding_record_repo.dart';
 import 'features/feeding/presentation/cubits/feeding_record_cubit.dart';
 import 'features/medication/data/firestore_medicine_repo.dart';
@@ -18,6 +19,16 @@ import 'features/pig_management/presentation/cubits/pig_cubit.dart';
 import 'features/auth/presentation/cubits/profile_cubit.dart';
 
 void main() async {
+  print("🚀 APP STARTING..."); // LOUD LOG
+  WidgetsFlutterBinding.ensureInitialized();
+
+  print("🔥 INITIALIZING FIREBASE...");
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  print("🔔 INITIALIZING NOTIFICATIONS...");
+  final notificationService = NotificationService();
+  await notificationService.init();
+
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 

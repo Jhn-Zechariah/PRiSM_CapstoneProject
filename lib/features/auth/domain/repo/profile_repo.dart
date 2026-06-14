@@ -1,4 +1,3 @@
-
 abstract class ProfileRepo {
   // Updates the user's display name
   Future<void> updateUsername(String newUsername);
@@ -9,6 +8,12 @@ abstract class ProfileRepo {
   // Changes the password while the user is actively logged in
   Future<void> updatePassword(String currentPassword, String newPassword, String confirmPassword);
 
-  // Add this to your abstract class
+  // Sets initial password
   Future<void> setInitialPassword(String newPassword);
+
+  // Updates FCM token for notifications
+  Future<void> updateFcmToken(String userId, String? token);
+
+  // Updates specific notification preferences in Firestore
+  Future<void> updateNotificationPreferences(String userId, Map<String, bool> preferences);
 }
