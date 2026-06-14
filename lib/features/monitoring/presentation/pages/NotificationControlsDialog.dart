@@ -1,4 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/widgets/snackbar.dart';
+import '../../../auth/presentation/cubits/profile_cubit.dart';
 
 class NotificationControlsDialog extends StatefulWidget {
   const NotificationControlsDialog({super.key});
@@ -18,12 +23,76 @@ class _NotificationControlsDialogState
   bool isMedExpAlert = true;
   bool isSoundOn = true;
   bool isVibrateOn = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  // Load preferences from SharedPreferences
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      isNotifEnabled = prefs.getBool('isNotifEnabled') ?? true;
+      isHighTempAlert = prefs.getBool('isHighTempAlert') ?? true;
+      isHighHumidityAlert = prefs.getBool('isHighHumidityAlert') ?? true;
+      isLowStockAlert = prefs.getBool('isLowStockAlert') ?? true;
+      isVaxSchedAlert = prefs.getBool('isVaxSchedAlert') ?? true;
+      isMedExpAlert = prefs.getBool('isMedExpAlert') ?? true;
+      isSoundOn = prefs.getBool('isSoundOn') ?? true;
+      isVibrateOn = prefs.getBool('isVibrateOn') ?? true;
+      _isLoading = false;
+    });
+  }
+
+  // Save preferences to SharedPreferences AND sync to Firestore
+  Future<void> _savePreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isNotifEnabled', isNotifEnabled);
+    await prefs.setBool('isHighTempAlert', isHighTempAlert);
+    await prefs.setBool('isHighHumidityAlert', isHighHumidityAlert);
+    await prefs.setBool('isLowStockAlert', isLowStockAlert);
+    await prefs.setBool('isVaxSchedAlert', isVaxSchedAlert);
+    await prefs.setBool('isMedExpAlert', isMedExpAlert);
+    await prefs.setBool('isSoundOn', isSoundOn);
+    await prefs.setBool('isVibrateOn', isVibrateOn);
+
+    // 🔹 Synchronize preferences to Firestore for backend reference
+    if (mounted) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final profileCubit = context.read<ProfileCubit>();
+        await profileCubit.syncNotificationPreferences(user.uid, {
+          'isNotifEnabled': isNotifEnabled,
+          'isHighTempAlert': isHighTempAlert,
+          'isHighHumidityAlert': isHighHumidityAlert,
+          'isLowStockAlert': isLowStockAlert,
+          'isVaxSchedAlert': isVaxSchedAlert,
+          'isMedExpAlert': isMedExpAlert,
+          'isSoundOn': isSoundOn,
+          'isVibrateOn': isVibrateOn,
+        });
+      }
+
+      CustomSnackbar.show(
+        context: context,
+        message: "Notification preferences saved and synced!",
+      );
+      Navigator.pop(context);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.textTheme.bodyLarge?.color;
+
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -163,7 +232,7 @@ class _NotificationControlsDialogState
                 _buildActionButton(
                   'Save',
                   isNotifEnabled ? textColor : theme.disabledColor,
-                  isNotifEnabled ? () => Navigator.pop(context) : () {},
+                  isNotifEnabled ? _savePreferences : () {},
                 ),
               ],
             ),
