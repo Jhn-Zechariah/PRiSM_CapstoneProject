@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lottie/lottie.dart';
-import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
+import 'package:prism_app/features/auth/presentation/pages/auth_page.dart';
+
 import 'loading.dart';
 import '../../features/auth/presentation/cubits/auth_cubit.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
@@ -9,7 +10,8 @@ import 'bottom_nav_and_drawer.dart';
 
 class SplashScreen extends StatefulWidget {
   // 1. Define the parameter to receive the function from main.dart
-  final Function(ThemeMode) onThemeToggle;
+  final Future<void> Function(ThemeMode) onThemeToggle;
+
 
   const SplashScreen({super.key, required this.onThemeToggle});
 
@@ -56,30 +58,32 @@ class SplashScreenState extends State<SplashScreen>
 
     _navigated = true;
 
+    // 2. Pass the function to the LoginScreen so it can eventually reach the Dashboard
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => BlocConsumer<AuthCubit, AuthState>(
-          listener: (context, state) {
-            if (state is AuthError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(state.message)),
-              );
-            }
-          },
           builder: (context, state) {
-            // 🔹 FIX: Make sure there are NO parentheses after widget.onThemeToggle!
-            // It must be passed exactly as `widget.onThemeToggle` without (true) or (false)
-
+            // unauthenticated -> auth page (login/register)
             if (state is Unauthenticated) {
-              return LandingPage(onThemeToggle: widget.onThemeToggle);
+              return AuthPage(onThemeToggle: widget.onThemeToggle);
             }
 
+            //authenticated -> homepage/dashboard
             if (state is Authenticated) {
               return AppNav(onThemeToggle: widget.onThemeToggle);
             }
-
-            return const LoadingScreen();
+            //loading...
+            else {
+              return LoadingScreen();
+            }
+          },
+          listener: (context, state) {
+            if (state is AuthError) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(state.message)));
+            }
           },
         ),
       ),
