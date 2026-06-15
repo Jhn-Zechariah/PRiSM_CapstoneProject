@@ -1,3 +1,4 @@
+import 'dart:async'; // 👈 ADD THIS for Timer
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -16,10 +17,7 @@ import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
-
-// ── 🆕 ADD THESE CUBIT & REPOSITORY IMPORTS HERE ──────────────────
-import '../../features/monitoring/presentation/cubits/temperature_monitoring_cubit.dart';
-import '../../features/monitoring/data/firestore_temperature_monitoring_repo.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AppNav extends StatefulWidget {
   final VoidCallback onThemeToggle;
@@ -31,9 +29,13 @@ class AppNav extends StatefulWidget {
 }
 
 class _AppNavState extends State<AppNav> {
-  int selectedIndex = 2; // Default to Home
-  bool _showHumidity = false; // Controls Temperature vs Humidity sub-tab
-  bool _showPigMeds = false; // Controls Stock vs Pig Meds sub-tab
+  int selectedIndex = 2;
+  bool _showHumidity = false;
+  bool _showPigMeds = false;
+  bool _sprinklerActive = false;
+  double _tempMaxToday = 0;
+  double _humidityMaxToday = 0;
+  Timer? _humidityTimer;
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -44,44 +46,137 @@ class _AppNavState extends State<AppNav> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _preloadMaxValues();
+    _humidityTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _refreshHumidityMax(),
+    );
+  } // ✅ only ONE closing brace here
+
+  @override
+  void dispose() {
+    _humidityTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _preloadMaxValues() async {
+    try {
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+      final start = Timestamp.fromDate(startOfDay);
+      final end = Timestamp.fromDate(now);
+
+      final tempSnap = await FirebaseFirestore.instance
+          .collection('temperature_readings')
+          .where('timestamp', isGreaterThanOrEqualTo: start)
+          .where('timestamp', isLessThanOrEqualTo: end)
+          .get();
+
+      final humiditySnap = await FirebaseFirestore.instance
+          .collection('humidity_readings')
+          .where('timestamp', isGreaterThanOrEqualTo: start)
+          .where('timestamp', isLessThanOrEqualTo: end)
+          .get();
+
+      if (!mounted) return;
+
+      double maxTemp = 0;
+      for (final doc in tempSnap.docs) {
+        final val = (doc.data()['tempMax'] as num?)?.toDouble() ?? 0;
+        if (val > maxTemp) maxTemp = val;
+      }
+
+      double maxHumidity = 0;
+      for (final doc in humiditySnap.docs) {
+        final val = (doc.data()['humidityMax'] as num?)?.toDouble() ?? 0;
+        if (val > maxHumidity) maxHumidity = val;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        if (maxTemp > 0) _tempMaxToday = maxTemp;
+        if (maxHumidity > 0) _humidityMaxToday = maxHumidity;
+      });
+    } catch (e) {
+      debugPrint('Error preloading max values: $e');
+    }
+  }
+
+  Future<void> _refreshHumidityMax() async {
+    try {
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day);
+
+      final humiditySnap = await FirebaseFirestore.instance
+          .collection('humidity_readings')
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+          )
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+          .get();
+
+      if (!mounted) return;
+
+      double maxHumidity = 0;
+      for (final doc in humiditySnap.docs) {
+        final val = (doc.data()['humidityMax'] as num?)?.toDouble() ?? 0;
+        if (val > maxHumidity) maxHumidity = val;
+      }
+
+      if (!mounted) return;
+      if (maxHumidity > 0) setState(() => _humidityMaxToday = maxHumidity);
+    } catch (e) {
+      debugPrint('Error refreshing humidity max: $e');
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final List<Widget> screens = [
-      PigProfilesScreen(), // Index 0: Pig Profiles
-
-      // Index 1: Temperature / Humidity Monitor Option
+      PigProfilesScreen(),
       _showHumidity
           ? HumidityMonitoring(
-        onSwitchToTemperature: () {
-          setState(() => _showHumidity = false);
-        },
-      )
-          : BlocProvider(
-        // 🔹 🆕 Providing the cubit right here eliminates the ProviderNotFound crash!
-        create: (context) => TemperatureMonitoringCubit(
-          repo: FirestoreTemperatureMonitoringRepo(),
-        )..startMonitoring(), // Triggers automatic hardware background updates
-        child: TemperatureMonitoring(
-          onSwitchToHumidity: () {
-            setState(() => _showHumidity = true);
-          },
-        ),
+              onSwitchToTemperature: () {
+                setState(() => _showHumidity = false);
+              },
+              isActivated: _sprinklerActive,
+              onSprinklerChanged: (val) =>
+                  setState(() => _sprinklerActive = val),
+              onMaxHumidityChanged: (max) =>
+                  setState(() => _humidityMaxToday = max),
+            )
+          : TemperatureMonitoring(
+              onSwitchToHumidity: () {
+                setState(() => _showHumidity = true);
+              },
+              isActivated: _sprinklerActive,
+              onSprinklerChanged: (val) =>
+                  setState(() => _sprinklerActive = val),
+              onMaxTempChanged: (max) => setState(() => _tempMaxToday = max),
+            ),
+      DashboardScreen(
+        tempMaxToday: _tempMaxToday,
+        humidityMaxToday: _humidityMaxToday,
+        isActivated: _sprinklerActive,
+        onSprinklerChanged: (val) => setState(() => _sprinklerActive = val),
       ),
-
-      const DashboardScreen(), // Index 2: Home / Dashboard
-      const FeedingRecordsPage(), // Index 3: Feeding Records
-      _showPigMeds // Index 4: Pig Meds
+      const FeedingRecordsPage(),
+      _showPigMeds
           ? pig_meds(
-        onSwitchToStock: () {
-          setState(() => _showPigMeds = false);
-        },
-      )
+              onSwitchToStock: () {
+                setState(() => _showPigMeds = false);
+              },
+            )
           : meds_Stocks(
-        onSwitchToPigMeds: () {
-          setState(() => _showPigMeds = true);
-        },
-      ),
+              onSwitchToPigMeds: () {
+                setState(() => _showPigMeds = true);
+              },
+            ),
     ];
 
     return Scaffold(
@@ -125,7 +220,7 @@ class _AppNavState extends State<AppNav> {
                           type: TextType.email,
                           textColor: Colors.white,
                           fontSize: 11,
-                        )
+                        ),
                       ],
                     ),
                   ),
@@ -172,7 +267,7 @@ class _AppNavState extends State<AppNav> {
             _drawerTile(
               isDark ? Icons.wb_sunny : Icons.nightlight_round,
               isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-                  () {
+              () {
                 widget.onThemeToggle();
                 Navigator.pop(context);
               },
@@ -215,7 +310,6 @@ class _AppNavState extends State<AppNav> {
       onTap: (index) {
         setState(() {
           selectedIndex = index;
-          // Reset humidity sub-tab when leaving the thermostat tab
           if (index != 1) _showHumidity = false;
         });
       },

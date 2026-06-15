@@ -50,6 +50,7 @@ dependencies:
   cloud_firestore: ^6.3.0
   flutter_svg: ^2.2.4
   intl: ^0.20.2
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
