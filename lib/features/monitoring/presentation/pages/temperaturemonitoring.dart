@@ -1532,3 +1532,4 @@ class _TemperatureChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TemperatureChartPainter old) => true;
 }
+
