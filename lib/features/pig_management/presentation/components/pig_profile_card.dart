@@ -5,7 +5,7 @@ import '../pages/pig_information.dart';
 import '../pages/update_pig_weight_dialog.dart';
 import '../../domain/model/app_pig.dart';
 import '../cubits/pig_cubit.dart';
-import '../../../../services/ml_service.dart';
+import '../../../../core/services/ml_service.dart';
 
 enum PigMenuAction { info, updateWeight }
 
