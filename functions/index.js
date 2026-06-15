@@ -78,7 +78,7 @@ exports.dailyExpirationCheck = onSchedule({
                 const diffDays = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
 
                 let message = "";
-                if (diffDays < 0) {
+                if (diffDays <= 0) {
                     message = `${medData.name} (Stock: ${stockData.amount}) is already expired.`;
                 } else if (diffDays <= 7) {
                     message = `${medData.name} (Stock: ${stockData.amount}) is about to expire in ${diffDays} day${diffDays === 1 ? "" : "s"}.`;
