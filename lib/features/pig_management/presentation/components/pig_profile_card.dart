@@ -60,9 +60,13 @@ class _PigProfileCardState extends State<PigProfileCard> {
         _mlRecommendation = result['recommendation'] as String?;
         _mlLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      print('>>> ML pig error: $e');
       if (!mounted) return;
-      setState(() => _mlLoading = false);
+      setState(() {
+        _mlLoading = false;
+        _mlInsight = 'ML analysis unavailable. Check server connection.';
+      });
     }
   }
 
@@ -302,26 +306,8 @@ class _PigProfileCardState extends State<PigProfileCard> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 5),
 
                       // Notes box
-                      Container(
-                        width: double.infinity,
-                        constraints: const BoxConstraints(minHeight: 40),
-                        margin: const EdgeInsets.only(right: 12),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: isDarkMode
-                              ? const Color(0xFF2A2A2A)
-                              : const Color(0xFFE0E0E0),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.black12),
-                        ),
-                        child: Text(
-                          pig.notes,
-                          style: TextStyle(fontSize: 13, color: textColor),
-                        ),
-                      ),
                       const SizedBox(height: 10),
 
                       // ML Insights block
