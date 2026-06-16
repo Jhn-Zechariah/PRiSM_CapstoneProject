@@ -1,7 +1,6 @@
 """
-PRISM - Per-Pig Weight ML
+PRISM - Per-Pig Individual Weight Status ML
 Decision Tree Classifier: Normal / Underweight / Overweight
-Based on Average Daily Gain (ADG) vs. growth stage standards
 """
 
 import pandas as pd
@@ -9,47 +8,84 @@ import numpy as np
 from datetime import date
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report
 import joblib
+import os
 
-# ── 1. Growth stage standards (BAI PH + swine production guides) ─────────────
-GROWTH_STANDARDS = {
-    'starter':  {'age_range': (0,  70),  'weight_range': (1.5, 30),  'adg_target': 0.35},
-    'grower':   {'age_range': (71, 105), 'weight_range': (30,  60),  'adg_target': 0.60},
-    'finisher': {'age_range': (106,160), 'weight_range': (60,  100), 'adg_target': 0.75},
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. GROWTH STAGE STANDARDS
+#    Based on commercial swine benchmarks (Landrace x Yorkshire crossbreds)
+#    Common in Philippine commercial pig farming
+# ─────────────────────────────────────────────────────────────────────────────
+GROWTH_STAGES = {
+    'piglet': {
+        'age_range': (0, 21),
+        'weight_range_kg': (1.0, 6.5),
+        'adg_target_kg': 0.25,
+        'description': 'Birth to weaning',
+    },
+    'nursery': {
+        'age_range': (22, 70),
+        'weight_range_kg': (6.5, 25.0),
+        'adg_target_kg': 0.38,
+        'description': 'Post-weaning to starter',
+    },
+    'grower': {
+        'age_range': (71, 120),
+        'weight_range_kg': (25.0, 60.0),
+        'adg_target_kg': 0.65,
+        'description': 'Grower phase',
+    },
+    'finisher': {
+        'age_range': (121, 170),
+        'weight_range_kg': (60.0, 110.0),
+        'adg_target_kg': 0.80,
+        'description': 'Finisher phase — approaching market weight',
+    },
 }
 
+NORMAL_DEVIATION_PCT  =  15.0
+UNDERWEIGHT_THRESHOLD = -15.0
+OVERWEIGHT_THRESHOLD  =  15.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. UTILITY FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
 def get_growth_stage(age_days: int) -> str:
-    for stage, data in GROWTH_STANDARDS.items():
-        if data['age_range'][0] <= age_days <= data['age_range'][1]:
+    for stage, data in GROWTH_STAGES.items():
+        lo, hi = data['age_range']
+        if lo <= age_days <= hi:
             return stage
     return 'market_ready'
 
-# ── 2. Feature computation from raw pig record ───────────────────────────────
+
 def compute_pig_features(pig: dict) -> dict:
     """
     pig = {
-        'pig_id': 'PIG-001',
-        'birth_date': '2024-10-01',   # ISO format
-        'current_weight': 45.0,        # kg
-        'birth_weight': 1.5,           # kg
+        'pig_id':         'PIG-001',
+        'birth_date':     '2025-01-01',   # ISO format YYYY-MM-DD
+        'current_weight': 45.0,            # kg
+        'birth_weight':   1.4,             # kg
     }
     """
-    birth     = date.fromisoformat(pig['birth_date'])
-    age_days  = (date.today() - birth).days
-    stage     = get_growth_stage(age_days)
-    standard  = GROWTH_STANDARDS.get(stage)
+    birth    = date.fromisoformat(pig['birth_date'])
+    age_days = max((date.today() - birth).days, 1)
+    stage    = get_growth_stage(age_days)
+    std      = GROWTH_STAGES.get(stage)
 
-    adg = (pig['current_weight'] - pig['birth_weight']) / age_days if age_days > 0 else 0
+    adg = (pig['current_weight'] - pig['birth_weight']) / age_days
 
-    if standard:
-        target_mid        = sum(standard['weight_range']) / 2
-        weight_dev_pct    = ((pig['current_weight'] - target_mid) / target_mid) * 100
-        adg_dev_pct       = ((adg - standard['adg_target']) / standard['adg_target']) * 100
+    if std:
+        lo, hi       = std['weight_range_kg']
+        target_mid   = (lo + hi) / 2
+        weight_dev   = ((pig['current_weight'] - target_mid) / target_mid) * 100
+        adg_dev      = ((adg - std['adg_target_kg']) / std['adg_target_kg']) * 100
+        exp_lo, exp_hi = lo, hi
     else:
-        target_mid     = 100
-        weight_dev_pct = 0
-        adg_dev_pct    = 0
+        target_mid   = 110.0
+        weight_dev   = 0.0
+        adg_dev      = 0.0
+        exp_lo, exp_hi = 100.0, 120.0
 
     return {
         'pig_id':               pig['pig_id'],
@@ -57,122 +93,177 @@ def compute_pig_features(pig: dict) -> dict:
         'stage':                stage,
         'current_weight':       pig['current_weight'],
         'birth_weight':         pig['birth_weight'],
-        'adg':                  round(adg, 3),
-        'weight_deviation_pct': round(weight_dev_pct, 2),
-        'adg_deviation_pct':    round(adg_dev_pct, 2),
-        'standard':             standard,
+        'adg':                  round(adg, 4),
+        'weight_deviation_pct': round(weight_dev, 2),
+        'adg_deviation_pct':    round(adg_dev, 2),
+        'expected_weight_lo':   exp_lo,
+        'expected_weight_hi':   exp_hi,
+        'target_mid':           target_mid,
+        'std':                  std,
     }
 
-# ── 3. Train model ───────────────────────────────────────────────────────────
-df = pd.read_csv('prism_pig_weight_dataset.csv')
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. RULE-BASED LABELING (for training data generation)
+# ─────────────────────────────────────────────────────────────────────────────
+def label_pig_weight(row) -> str:
+    dev = row['weight_deviation_pct']
+    if dev < UNDERWEIGHT_THRESHOLD:
+        return 'Underweight'
+    elif dev > OVERWEIGHT_THRESHOLD:
+        return 'Overweight'
+    return 'Normal'
 
-FEATURES = ['age_days', 'current_weight_kg', 'adg_kg_per_day',
-            'weight_deviation_pct', 'adg_deviation_pct']
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. TRAIN MODEL
+# ─────────────────────────────────────────────────────────────────────────────
+FEATURES = [
+    'age_days', 'current_weight', 'birth_weight',
+    'adg', 'weight_deviation_pct', 'adg_deviation_pct',
+]
 
-X = df[FEATURES]
-y = df['weight_label']
+def train_pig_weight_model(
+    csv_path: str,
+    model_save_path: str = 'prism_pig_weight_model.pkl',
+):
+    df = pd.read_csv(csv_path)
+    df['weight_label'] = df.apply(label_pig_weight, axis=1)
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
+    X = df[FEATURES]
+    y = df['weight_label']
 
-model = DecisionTreeClassifier(
-    max_depth=5,
-    min_samples_leaf=3,
-    random_state=42
-)
-model.fit(X_train, y_train)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y,
+    )
 
-y_pred = model.predict(X_test)
-print("=== Per-Pig Weight Model Evaluation ===")
-print(f"Accuracy: {accuracy_score(y_test, y_pred):.2%}")
-print(classification_report(y_test, y_pred))
+    model = DecisionTreeClassifier(
+        max_depth=5,
+        min_samples_leaf=3,
+        class_weight='balanced',
+        random_state=42,
+    )
+    model.fit(X_train, y_train)
 
-joblib.dump(model, 'prism_pig_weight_model.pkl')
-print("Model saved → prism_pig_weight_model.pkl")
+    print('=== Per-Pig Weight Classifier ===')
+    print(classification_report(y_test, model.predict(X_test)))
 
-# ── 4. Insight & recommendation generator ───────────────────────────────────
-def generate_pig_insight(features: dict, classification: str) -> dict:
-    stage  = features['stage']
-    adg    = features['adg']
-    weight = features['current_weight']
-    std    = features['standard']
-    dev    = features['weight_deviation_pct']
+    joblib.dump(model, model_save_path)
+    print(f'Model saved → {model_save_path}')
+    return model
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. INFERENCE — returns single strings for insight + recommendation
+#    ✅ Flutter PigProfileCard expects:
+#       result['classification']  → String
+#       result['insight']         → String  (NOT a list)
+#       result['recommendation']  → String  (NOT a list)
+# ─────────────────────────────────────────────────────────────────────────────
+def generate_pig_output(
+    pig: dict,
+    model_path: str = 'prism_pig_weight_model.pkl',
+) -> dict:
+    """
+    pig = {
+        'pig_id':         'PIG-042',
+        'birth_date':     '2025-01-01',
+        'current_weight': 18.0,
+        'birth_weight':   1.4,
+    }
+    """
+    model  = joblib.load(model_path)
+    feats  = compute_pig_features(pig)
+    std    = feats['std'] or {}
+
+    input_df = pd.DataFrame([{f: feats[f] for f in FEATURES}])
+    classification = model.predict(input_df)[0]
+
+    age    = feats['age_days']
+    stage  = feats['stage']
+    weight = feats['current_weight']
+    adg    = feats['adg']
+    dev    = feats['weight_deviation_pct']
+    lo     = feats['expected_weight_lo']
+    hi     = feats['expected_weight_hi']
+    adg_target = std.get('adg_target_kg', 0) if std else 0
+
+    # ── Build insight and recommendation as single strings ────────────────
     if classification == 'Normal':
         insight = (
-            f"Pig is at {weight:.1f} kg — within the normal range for the {stage} stage. "
-            f"ADG is {adg:.3f} kg/day, which is on track."
+            f"Pig is {weight:.1f} kg at {age} days old — within the expected "
+            f"range of {lo:.1f}–{hi:.1f} kg for the {stage} stage. "
+            f"ADG is {adg:.3f} kg/day, on track with the target of {adg_target:.2f} kg/day."
         )
-        recommendation = "Continue current feeding and care routine. Monitor at next weigh-in."
+        recommendation = (
+            "Continue current feeding and care routine. "
+            "Record next weight at the scheduled weigh-in."
+        )
 
     elif classification == 'Underweight':
-        target = std['adg_target'] if std else 'N/A'
         insight = (
-            f"Pig is at {weight:.1f} kg — {abs(dev):.1f}% below the expected weight "
-            f"for the {stage} stage. ADG of {adg:.3f} kg/day is below the target of "
-            f"{target} kg/day."
+            f"Pig is {weight:.1f} kg at {age} days old — {abs(dev):.1f}% below "
+            f"the expected midpoint for the {stage} stage ({lo:.1f}–{hi:.1f} kg). "
+            f"ADG of {adg:.3f} kg/day is below the target of {adg_target:.2f} kg/day."
         )
-        recommendation = (
-            "Review feeding schedule and check feed quality. "
-            "Inspect for signs of illness, parasites, or bullying by pen mates. "
-            "Consider vitamin supplementation. Consult a vet if no improvement in 7 days."
-        )
+        if abs(dev) > 30:
+            recommendation = (
+                "Weight gap is significant. Review feed quality and quantity. "
+                "Check for signs of illness, parasites, or bullying by pen mates. "
+                "Consult a veterinarian if no improvement in 7 days."
+            )
+        else:
+            recommendation = (
+                "Review feeding schedule and ensure this pig has access to the feeder. "
+                "Check for signs of illness: lethargy, diarrhea, or labored breathing. "
+                "Consider vitamin supplementation."
+            )
 
-    elif classification == 'Overweight':
+    else:  # Overweight
         insight = (
-            f"Pig is at {weight:.1f} kg — {dev:.1f}% above the expected weight "
-            f"for the {stage} stage."
+            f"Pig is {weight:.1f} kg at {age} days old — {dev:.1f}% above "
+            f"the expected midpoint for the {stage} stage ({lo:.1f}–{hi:.1f} kg). "
+            f"Excess weight gain may indicate too-rich a feed or early market readiness."
         )
-        recommendation = (
-            "Adjust feed ration to prevent excess fat deposition. "
-            "Overweight finishers may have lower carcass quality at market. "
-            "Consider earlier market scheduling if weight exceeds 100 kg."
-        )
-    else:
-        insight = "Unable to classify pig weight status."
-        recommendation = "Please record accurate birth date and current weight."
+        if stage == 'finisher' and weight >= 100:
+            recommendation = (
+                f"Pig has reached {weight:.1f} kg. "
+                "Consider scheduling for market soon to optimize carcass quality. "
+                "Adjust feed ration to reduce excess fat deposition."
+            )
+        else:
+            recommendation = (
+                "Adjust feed ration to prevent excess fat deposition. "
+                "Monitor growth rate and review feed composition."
+            )
 
     return {
-        'pig_id':         features['pig_id'],
+        'pig_id':         feats['pig_id'],
+        'age_days':       age,
         'stage':          stage,
-        'age_days':       features['age_days'],
         'current_weight': weight,
-        'adg':            adg,
+        'adg_kg_per_day': adg,
+        'expected_range': f"{lo:.1f}–{hi:.1f} kg",
+        'deviation_pct':  round(dev, 1),
+        # ✅ Single strings — matches Flutter PigProfileCard expectations
         'classification': classification,
         'insight':        insight,
         'recommendation': recommendation,
     }
 
-# ── 5. Full analysis entry point ─────────────────────────────────────────────
-def analyze_pig(pig: dict) -> dict:
-    """
-    Main function called by PRISM API.
-    pig = { 'pig_id', 'birth_date', 'current_weight', 'birth_weight' }
-    """
-    model   = joblib.load('prism_pig_weight_model.pkl')
-    feats   = compute_pig_features(pig)
-
-    input_df = pd.DataFrame([{
-        'age_days':             feats['age_days'],
-        'current_weight_kg':    feats['current_weight'],
-        'adg_kg_per_day':       feats['adg'],
-        'weight_deviation_pct': feats['weight_deviation_pct'],
-        'adg_deviation_pct':    feats['adg_deviation_pct'],
-    }])
-
-    classification = model.predict(input_df)[0]
-    return generate_pig_insight(feats, classification)
-
-# ── 6. Example ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. EXAMPLE USAGE
+# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    pig_data = {
-        'pig_id':         'PIG-042',
-        'birth_date':     '2025-09-01',
-        'current_weight': 22.0,
-        'birth_weight':   1.5,
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path   = os.path.join(script_dir, 'dataset_pig_weights.csv')
+
+    model = train_pig_weight_model(csv_path)
+
+    test_pig = {
+        'pig_id':         'PIG-007',
+        'birth_date':     str(date.today().replace(day=1)),
+        'current_weight': 18.0,
+        'birth_weight':   1.4,
     }
-    result = analyze_pig(pig_data)
-    print("\n=== Sample Pig Analysis ===")
+    result = generate_pig_output(test_pig)
+    print('\n=== Sample Pig Output ===')
     for k, v in result.items():
-        print(f"{k}: {v}")
+        print(f'{k}: {v}')
