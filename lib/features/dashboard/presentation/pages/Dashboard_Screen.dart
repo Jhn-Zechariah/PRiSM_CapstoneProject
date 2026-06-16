@@ -6,9 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
-import '../../../../core/services/ml_service.dart';
-import '../../../../core/services/farm_data_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../../../../services/ml_service.dart';
 
 const String esp32Ip = "192.168.1.100"; // ← replace with your actual ESP32 IP
 
@@ -99,26 +97,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   // Called AFTER _fetchData() updates _tempMax & _humidity with real ESP32 values
   Future<void> _fetchMLInsights() async {
     try {
-      // Get the current logged-in user's ID
-      final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-
-      // Fetch all Firestore data + live sensor fallback in parallel
-      final mlInputs = await FarmDataService.getFarmMLInputs(
-        userId: userId,
-        fallbackTemp: _tempMax > 0 ? _tempMax : 28.0,
-        fallbackHumidity: _humidity > 0 ? _humidity : 75.0,
-      );
-
+      print('>>> Calling ML — temp: $_tempMax, humidity: $_humidity');
       final result = await MlService.analyzeFarm(
-        temperatureC: mlInputs['temperatureC']!,
-        humidityPct: mlInputs['humidityPct']!,
-        weightChangeKg: mlInputs['weightChangeKg']!,
-        feedIntakeKg: mlInputs['feedIntakeKg']!,
-      ).timeout(const Duration(seconds: 6));
+        temperatureC: _tempMax, // real ESP32 value, updated by _fetchData
+        humidityPct: _humidity, // real ESP32 value, updated by _fetchData
+        weightChangeKg: 0.25, // TODO: replace with real pig records value
+        feedIntakeKg: 1.8, // TODO: replace with real feeding records value
+      ).timeout(const Duration(seconds: 6)); // ✅ timeout so it never hangs
 
+      print('>>> ML result: $result');
       if (!mounted) return;
-      final condition = result['condition'] ?? '';
+
+      final condition = result['condition'] ?? "";
       final recs = List<String>.from(result['recommendations'] ?? []);
+
       if (condition.isNotEmpty && recs.isNotEmpty) {
         setState(() {
           _mlCondition = condition;
@@ -132,7 +124,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() {
         _mlCondition = "Unavailable";
         _mlRecommendations = [
-          "Could not reach ML server. Make sure the Python API is running.",
+          "Could not reach ML server.",
+          "Make sure the Python API is running: uvicorn prism_api:app --reload --host 0.0.0.0 --port 8000",
         ];
         _mlLoading = false;
       });
