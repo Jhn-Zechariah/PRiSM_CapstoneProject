@@ -7,6 +7,8 @@ class CustomButton extends StatelessWidget {
   final Color? backgroundColor;
   final double? border;
   final bool? borderColor;
+  final double? fontSize;
+  final double? elevation;
 
   const CustomButton({
     super.key,
@@ -16,6 +18,8 @@ class CustomButton extends StatelessWidget {
     this.backgroundColor,
     this.color,
     this.borderColor = true,
+    this.fontSize,
+    this.elevation,
   });
 
   @override
@@ -25,7 +29,7 @@ class CustomButton extends StatelessWidget {
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        elevation: 5, // Adjust for shadow depth
+        elevation: elevation ?? 5, // Adjust for shadow depth
         shadowColor: Colors.black,
         minimumSize: const Size(double.infinity, 50),
         backgroundColor: backgroundColor ?? (isDarkMode ? Colors.amber : Colors.blue),
@@ -38,7 +42,7 @@ class CustomButton extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        style: TextStyle(fontSize: (fontSize ?? 18), fontWeight: FontWeight.w600),
       ),
     );
   }

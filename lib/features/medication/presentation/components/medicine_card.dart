@@ -2,20 +2,26 @@ import 'package:flutter/material.dart';
 
 class MedicineCard extends StatelessWidget {
   final String name;
+  final String unit;
   final String category;
   final int stock;
   final String expiryDate;
   final String status;
-  final VoidCallback? onTap; // 🔹 Added
+  final VoidCallback? onTap;
+  final VoidCallback? onEditMedicine; // 🔹 Added callback for Edit
+  final VoidCallback? onAddStock; // 🔹 Added callback for Add Stock
 
   const MedicineCard({
     super.key,
     required this.name,
+    required this.unit,
     required this.category,
     required this.stock,
     required this.expiryDate,
     required this.status,
-    this.onTap, // 🔹 Added
+    this.onTap,
+    this.onEditMedicine, // 🔹 Added
+    this.onAddStock, // 🔹 Added
   });
 
   Color _getStatusColor() {
@@ -25,6 +31,7 @@ class MedicineCard extends StatelessWidget {
       case "average":
         return Colors.orange;
       case "low":
+      case 'no stock':
         return Colors.red;
       default:
         return Colors.grey;
@@ -37,7 +44,7 @@ class MedicineCard extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final statusColor = _getStatusColor();
 
-    return GestureDetector( // 🔹 Wrapped with GestureDetector
+    return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -68,19 +75,55 @@ class MedicineCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Icon(
-                  Icons.grid_view,
-                  size: 18,
-                  color: colorScheme.onSurfaceVariant,
+
+                // 🔹 Replaced static Icon with PopupMenuButton
+                PopupMenuButton<String>(
+                  icon: Icon(
+                    Icons.more_vert, // Standard 3-dots menu icon
+                    size: 20,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onSelected: (String value) {
+                    if (value == 'edit') {
+                      onEditMedicine?.call();
+                    } else if (value == 'add_stock') {
+                      onAddStock?.call();
+                    }
+                  },
+                  itemBuilder: (BuildContext context) => [
+                    const PopupMenuItem<String>(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_outlined, size: 18),
+                          SizedBox(width: 10),
+                          Text('Edit Medicine'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem<String>(
+                      value: 'add_stock',
+                      child: Row(
+                        children: [
+                          Icon(Icons.add_box_outlined, size: 18),
+                          SizedBox(width: 10),
+                          Text('Add Stock'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
 
             const SizedBox(height: 8),
 
-            _buildInfoText("Category",    category,        theme),
-            _buildInfoText("Stocks",      stock.toString(), theme),
-            _buildInfoText("Expiry date", expiryDate,      theme),
+            _buildInfoText("Category", category, theme),
+            _buildInfoText("Stocks", stock.toString() + " " + unit, theme),
+            _buildInfoText("Expiry date", expiryDate, theme),
 
             const SizedBox(height: 10),
 

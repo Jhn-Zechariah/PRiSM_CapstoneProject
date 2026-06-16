@@ -168,41 +168,6 @@ class FirebaseAuthRepo implements AuthRepo {
     }
   }
 
-  //UPDATE PASSWORD
-  // @override
-  // Future<void> reauthAndUpdatePassword(
-  //     String currentPassword, String newPassword, String confirmPassword) async {
-  //   try {
-  //     final user = firebaseAuth.currentUser;
-  //     if (user == null || user.email == null) throw Exception('No user logged in.');
-  //
-  //     // re-authenticate with current password first
-  //     final credential = EmailAuthProvider.credential(
-  //       email: user.email!,
-  //       password: currentPassword,
-  //     );
-  //     await user.reauthenticateWithCredential(credential);
-  //
-  //     // now safe to update
-  //     if(newPassword == confirmPassword){
-  //       await user.updatePassword(newPassword);
-  //     }
-  //
-  //
-  //   } on FirebaseAuthException catch (e) {
-  //     switch (e.code) {
-  //       case 'wrong-password':
-  //         throw Exception('Current password is incorrect.');
-  //       case 'weak-password':
-  //         throw Exception('New password is too weak.');
-  //       case 'requires-recent-login':
-  //         throw Exception('Session expired. Please log in again.');
-  //       default:
-  //         throw Exception('Failed to update password: ${e.message}');
-  //     }
-  //   }
-  // }
-
   //GOOGLE SIGN IN
   @override
   Future<AppUser?> googleSignIn() async {

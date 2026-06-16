@@ -11,6 +11,9 @@ import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../../core/widgets/header.dart';
+import '../../../pig_management/domain/model/app_pig.dart';
+import '../cubits/medicine_cubit.dart';
+import 'meds_intake_schedule.dart';
 
 class pig_meds extends StatefulWidget {
   final VoidCallback? onSwitchToStock;
@@ -21,8 +24,23 @@ class pig_meds extends StatefulWidget {
   State<pig_meds> createState() => _pig_medsState();
 }
 
+// Filter for Active pigs only (ignores Sold/Deceased)
+List<AppPig> _getActivePigs(List<AppPig> allPigs) {
+  return allPigs.where((pig) {
+    final statusLower = pig.status.toLowerCase();
+    return statusLower != 'sold' && statusLower != 'deceased';
+  }).toList();
+}
+
 class _pig_medsState extends State<pig_meds> {
   int _selectedTab = 1;
+
+  // 🔹 Define colors here so they stay synchronized across the file
+  final List<Color> _accentColors = const [
+    Colors.red,
+    Color(0xFF003366),
+    Colors.orange,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -34,14 +52,27 @@ class _pig_medsState extends State<pig_meds> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const AppTopBar(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 11),
 
           CustomFeatureHeader(
             title: 'Healthcare',
             icon: Symbols.vaccines,
+            trailing: IconButton(
+              icon: const Icon(Icons.calendar_month_outlined, size: 28),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MedsIntakeScheduleScreen(
+                      intakeStream: context.read<MedicineCubit>().repository.streamUpcomingIntakes(),
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
 
-          const SizedBox(height: 17),
+          const SizedBox(height: 10),
 
           Expanded(
             child: Column(
@@ -62,20 +93,21 @@ class _pig_medsState extends State<pig_meds> {
                     onPressed: () {
                       final state = context.read<PigCubit>().state;
                       if (state is PigLoaded) {
-                        final colors = [
-                          Colors.red,
-                          const Color(0xFF003366),
-                          Colors.orange,
-                        ];
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => MedsIntakeHistoryScreen(
                               pigs: state.allPigs.asMap().entries.map((entry) {
+                                final index = entry.key;
+                                final pig = entry.value;
+
                                 return PigMedOption(
-                                  id: entry.value.displayId,
-                                  accentColor:
-                                      colors[entry.key % colors.length],
+                                  id: pig.pigId,
+                                  displayId: pig.displayId,
+                                  status: pig.status,
+                                  breed: pig.breed,
+                                  // 🔹 FIXED: Dynamically matches the exact color array layout index
+                                  accentColor: _accentColors[index % _accentColors.length],
                                 );
                               }).toList(),
                             ),
@@ -115,39 +147,34 @@ class _pig_medsState extends State<pig_meds> {
                       }
 
                       if (state is PigLoaded) {
-                        final pigs = state.allPigs;
+                        final activePigs = _getActivePigs(state.allPigs);
 
-                        if (pigs.isEmpty) {
+                        if (activePigs.isEmpty) {
                           return Center(
                             child: Text(
-                              'No pigs added yet. Click + to add one!',
+                              'No active pigs found.',
                               style: TextStyle(
-                                color: isDarkMode
-                                    ? Colors.white70
-                                    : Colors.black54,
+                                color: isDarkMode ? Colors.white70 : Colors.black54,
                                 fontSize: 16,
                               ),
                             ),
                           );
                         }
 
-                        final colors = [
-                          Colors.red,
-                          const Color(0xFF003366),
-                          Colors.orange,
-                        ];
-
                         return ListView.separated(
-                          itemCount: pigs.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 12),
+                          itemCount: activePigs.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 12),
                           itemBuilder: (context, index) {
+                            // 🔹 Finding the global index from allPigs so colors don't change when filtering
+                            final globalIndex = state.allPigs.indexOf(activePigs[index]);
+                            final itemColor = _accentColors[globalIndex != -1
+                                ? (globalIndex % _accentColors.length)
+                                : (index % _accentColors.length)];
+
                             return PigMedCard(
-                              pig: pigs[index],
-                              accentColor: colors[index % colors.length],
-                              onAdd: () {
-                                // TODO: open add medication dialog
-                              },
+                              pig: activePigs[index],
+                              accentColor: itemColor,
+                              onAdd: () {},
                             );
                           },
                         );
