@@ -1,26 +1,31 @@
 import 'package:flutter/material.dart';
 
-class MedicineIntakeDialog extends StatefulWidget {
+class VaccineIntakeDialog extends StatefulWidget {
   final Color accentColor;
 
-  const MedicineIntakeDialog({super.key, required this.accentColor});
+  const VaccineIntakeDialog({super.key, required this.accentColor});
 
   @override
-  State<MedicineIntakeDialog> createState() => _MedicineIntakeDialogState();
+  State<VaccineIntakeDialog> createState() => _VaccineIntakeDialogState();
 }
 
-class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
-  final _medsController = TextEditingController();
+class _VaccineIntakeDialogState extends State<VaccineIntakeDialog> {
+  final _vaccineController = TextEditingController();
   final _dosageController = TextEditingController();
   final _scheduleController = TextEditingController();
   final _purposeController = TextEditingController();
   String? _selectedStatus;
 
-  final List<String> _statusOptions = ['Ongoing', 'Completed', 'Discontinued'];
+  final List<String> _statusOptions = [
+    'Scheduled',
+    'Administered',
+    'Overdue',
+    'Skipped',
+  ];
 
   @override
   void dispose() {
-    _medsController.dispose();
+    _vaccineController.dispose();
     _dosageController.dispose();
     _scheduleController.dispose();
     _purposeController.dispose();
@@ -53,8 +58,8 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
 
   void _onSave() {
     Navigator.pop(context, {
-      'type': 'medicine',
-      'name': _medsController.text,
+      'type': 'vaccine',
+      'name': _vaccineController.text,
       'dosage': _dosageController.text,
       'status': _selectedStatus,
       'nextSchedule': _scheduleController.text,
@@ -215,16 +220,16 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Meds/vit
-                      Text('Meds/vit:', style: _labelStyle(context)),
+                      // Vaccine
+                      Text('Vaccine:', style: _labelStyle(context)),
                       const SizedBox(height: 4),
                       _buildField(
-                        controller: _medsController,
-                        hint: 'Medicine/vitamins',
+                        controller: _vaccineController,
+                        hint: 'Vaccine',
                       ),
                       const SizedBox(height: 12),
 
-                      // Dosage + Status
+                      // Dosage + Vaccination Status
                       Row(
                         children: [
                           Expanded(
@@ -245,7 +250,10 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Status:', style: _labelStyle(context)),
+                                Text(
+                                  'Vaccination Status:',
+                                  style: _labelStyle(context),
+                                ),
                                 const SizedBox(height: 4),
                                 _buildDropdown(),
                               ],
@@ -316,15 +324,15 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                         child: ElevatedButton(
                           onPressed: _onSave,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amber,
-                            foregroundColor: Colors.black,
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                           child: const Text(
-                            'Save',
+                            'Save Record',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,

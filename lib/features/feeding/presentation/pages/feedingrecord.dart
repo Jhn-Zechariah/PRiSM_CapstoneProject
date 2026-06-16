@@ -75,7 +75,7 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
               builder: (context, state) {
                 if (state is PigLoading) {
                   return const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFF5A623)),
+                    child: CircularProgressIndicator(color: Color(0xFFF2563EB)),
                   );
                 } else if (state is PigError) {
                   return Center(
@@ -102,7 +102,8 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                             if (activePigs.isEmpty) return;
 
                             // 1. Grab the Cubit context safely
-                            final feedingCubit = context.read<FeedingRecordCubit>();
+                            final feedingCubit = context
+                                .read<FeedingRecordCubit>();
 
                             showDialog(
                               context: context,
@@ -111,7 +112,9 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                                   value: feedingCubit,
                                   child: SelectPigFeedPopup(
                                     pigs: activePigs,
-                                    pigColor: const Color(0xFFF5A623), // 🔥 Replaced Colors.blue with your matching accent theme color
+                                    pigColor: const Color(
+                                      0xFFF2563EB,
+                                    ), //  Replaced Colors.blue with your matching accent theme color
                                   ),
                                 );
                               },
@@ -138,7 +141,9 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                                 create: (context) => FeedingHistoryCubit(
                                   repo: FirestoreFeedingRecordRepo(),
                                 )..loadGlobalFeedingHistory(),
-                                child: FeedingHistoryPage(availablePigs: allPigs), // 👈 Passed pigs list here
+                                child: FeedingHistoryPage(
+                                  availablePigs: allPigs,
+                                ), //  Passed pigs list here
                               ),
                             ),
                           );
@@ -151,31 +156,35 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                       Expanded(
                         child: activePigs.isEmpty
                             ? Center(
-                          child: Text(
-                            'No active pigs available for feeding.',
-                            style: TextStyle(
-                              color: isDarkMode ? Colors.white54 : Colors.black54,
-                            ),
-                          ),
-                        )
+                                child: Text(
+                                  'No active pigs available for feeding.',
+                                  style: TextStyle(
+                                    color: isDarkMode
+                                        ? Colors.white54
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              )
                             : ListView.builder(
-                          itemCount: activePigs.length,
-                          itemBuilder: (context, index) {
-                            final pig = activePigs[index];
-                            final isExpanded = _expandedIndex == index;
+                                itemCount: activePigs.length,
+                                itemBuilder: (context, index) {
+                                  final pig = activePigs[index];
+                                  final isExpanded = _expandedIndex == index;
 
-                            return FeedingCard(
-                              pig: pig, // 👈 Pass the object here!
-                              color: _getColorForPig(index),
-                              isExpanded: isExpanded,
-                              onToggleExpand: () {
-                                setState(() {
-                                  _expandedIndex = isExpanded ? -1 : index;
-                                });
-                              },
-                            );
-                          },
-                        ),
+                                  return FeedingCard(
+                                    pig: pig, //  Pass the object here!
+                                    color: _getColorForPig(index),
+                                    isExpanded: isExpanded,
+                                    onToggleExpand: () {
+                                      setState(() {
+                                        _expandedIndex = isExpanded
+                                            ? -1
+                                            : index;
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
                       ),
                     ],
                   );

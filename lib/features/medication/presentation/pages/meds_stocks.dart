@@ -1,15 +1,20 @@
 // ignore_for_file: camel_case_types
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // 🔹 Added for subcollection query
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
-import 'package:prism_app/features/medication/presentation/components/medicine_card_widget.dart';
+import 'package:prism_app/features/medication/presentation/components/medicine_card.dart';
+import 'package:prism_app/features/medication/presentation/components/add_medicine_stock.dart';
+import 'package:prism_app/features/medication/presentation/components/update_medicine.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:prism_app/features/medication/presentation/pages/addnewitem.dart';
-import 'package:prism_app/features/medication/presentation/pages/updateitem.dart';
+import 'package:prism_app/features/medication/presentation/components/add_initial_medicine.dart';
 import '../../../../core/widgets/header.dart';
 import '../../../../core/widgets/search_bar.dart';
-
+import '../../domain/model/app_medicine.dart';
+import '../cubits/medicine_cubit.dart';
+import '../cubits/medicine_states.dart';
 
 class meds_Stocks extends StatefulWidget {
   final VoidCallback? onSwitchToPigMeds;
@@ -23,33 +28,26 @@ class meds_Stocks extends StatefulWidget {
 class _meds_StocksState extends State<meds_Stocks> {
   int _selectedTab = 0;
   TextEditingController searchController = TextEditingController();
-
-  List<Map<String, dynamic>> _allMedicines = [];
-  List<Map<String, dynamic>> medicines = [];
-  bool isLoading = false;
+  String _searchQuery = "";
 
   @override
   void initState() {
     super.initState();
-    fetchMedicines();
+    // 🔹 Start listening to live Firestore data using the new Cubit
+    context.read<MedicineCubit>().listenToMedicines();
   }
 
-  Future<void> fetchMedicines({String query = ""}) async {
-    setState(() => isLoading = true);
-
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    final search = query.toLowerCase();
-    setState(() {
-      medicines = _allMedicines.where((med) {
-        return (med["name"] ?? "").toString().toLowerCase().contains(search);
-      }).toList();
-      isLoading = false;
-    });
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 
-  String _calculateStatus(int stock, int reorder) {
+  // 🔹 Updated to accept double for compatibility with the new Medicine model
+  String _calculateStatus(double stock, double reorder) {
     if (stock <= 0) {
+      return "No Stock";
+    } else if (stock <= (reorder * 0.5)) {
       return "Low";
     } else if (stock <= reorder) {
       return "Average";
@@ -58,65 +56,49 @@ class _meds_StocksState extends State<meds_Stocks> {
     }
   }
 
-  void _showAddNewItemDialog() async {
-    final result = await showDialog<Map<String, dynamic>>(
+  // 🔹 Use the same dialog, but pass null for a new item
+  void _showAddNewItemDialog() {
+    showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return const AddNewItemDialog();
-      },
+      builder: (BuildContext context) => const AddNewMedDialog(),
     );
+  }
 
-    if (result != null) {
-      final int stock   = result["stock"]   ?? 0;
-      final int reorder = result["reorder"] ?? 0;
+  void _showUpdateDialog(BuildContext context, Medicine item) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) => UpdateMedicineDialog(medicine: item,),
+    );
+  }
 
-      _allMedicines.add({
-        "name":        result["name"]        ?? "Unknown",
-        "category":    result["category"]    ?? "Medicine",
-        "type":        result["type"]        ?? "Capsule",
-        "stock":       stock,
-        "dosage":      result["dosage"]      ?? "",
-        "expiry":      result["expiry"]      ?? "N/A",
-        "reorder":     reorder,
-        "description": result["description"] ?? "",
-        "status":      _calculateStatus(stock, reorder),
-      });
+  // 🔹 I also added a placeholder for your Add Stock feature!
+  void _showAddStockDialog(BuildContext context, Medicine item) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) => AddNewMedStockDialog(medicine: item),
+    );
+  }
 
-      setState(() {
-        medicines = List.from(_allMedicines);
-        isLoading = false;
-      });
+  // 🔹 Helper method to fetch the latest expiry date from the nested subcollection
+  Future<String> _getLatestExpiryDate(String medId) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('medicines')
+          .doc(medId)
+          .collection('medicine_stock')
+          .orderBy('expiryDate')
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        return querySnapshot.docs.first['expiryDate'] ?? 'N/A';
+      }
+      return 'N/A';
+    } catch (e) {
+      return 'Error';
     }
   }
 
-  void _showUpdateDialog(Map<String, dynamic> med, int masterIndex) async {
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (BuildContext context) {
-        return UpdateItemDialog(item: med);
-      },
-    );
-
-    if (result != null && masterIndex >= 0) {
-      final int stock   = result["stock"]   ?? 0;
-      final int reorder = result["reorder"] ?? 0;
-
-      setState(() {
-        _allMedicines[masterIndex] = {
-          "name":        result["name"]        ?? "Unknown",
-          "category":    result["category"]    ?? "Medicine",
-          "type":        result["type"]        ?? "Capsule",
-          "stock":       stock,
-          "dosage":      result["dosage"]      ?? "",
-          "expiry":      result["expiry"]      ?? "N/A",
-          "reorder":     reorder,
-          "description": result["description"] ?? "",
-          "status":      _calculateStatus(stock, reorder),
-        };
-        medicines = List.from(_allMedicines);
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -130,7 +112,6 @@ class _meds_StocksState extends State<meds_Stocks> {
           const AppTopBar(),
           const SizedBox(height: 11),
 
-          // ── Cleaned Global Header Implementation ───────────────────
           CustomFeatureHeader(
             title: 'Healthcare',
             icon: Symbols.vaccines,
@@ -158,51 +139,99 @@ class _meds_StocksState extends State<meds_Stocks> {
                     }
                   },
                 ),
-
                 const SizedBox(height: 12),
 
                 MedicineSearchBar(
                   controller: searchController,
                   onChanged: (value) {
-                    fetchMedicines(query: value);
+                    setState(() {
+                      _searchQuery = value.toLowerCase();
+                    });
                   },
                   onClear: () {
                     searchController.clear();
-                    fetchMedicines();
+                    setState(() {
+                      _searchQuery = "";
+                    });
                   },
                 ),
-
                 const SizedBox(height: 12),
 
+                // 🔹 BlocBuilder connected to the new MedicineCubit
+                // 🔹 Changed to BlocConsumer to listen for successes AND build the list
                 Expanded(
-                  child: isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : medicines.isEmpty
-                      ? Center(
-                    child: Text(
-                      "No medicines found",
-                      style: TextStyle(
-                        color: isDarkMode ? Colors.white54 : Colors.black54,
-                      ),
-                    ),
-                  )
-                      : ListView.builder(
-                    itemCount: medicines.length,
-                    itemBuilder: (context, index) {
-                      final med = medicines[index];
+                  child: BlocConsumer<MedicineCubit, MedicineState>(
+                    listener: (context, state) {
+                      // 🔹 Force the page to refresh the data when an item is added/updated
+                      if (state is MedicineSaveSuccess) {
+                        context.read<MedicineCubit>().listenToMedicines();
+                      }
+                    },
+                    buildWhen: (previous, current) {
+                      // 🔹 Tell the UI ONLY to rebuild if the state actually contains list data.
+                      // This prevents the screen from going blank during 'MedicineSaveSuccess'.
+                      return current is MedicineLoading ||
+                          current is MedicineLoaded ||
+                          current is MedicineError;
+                    },
+                    builder: (context, state) {
+                      if (state is MedicineLoading) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                      final masterIndex = _allMedicines.indexWhere(
-                            (m) => m["name"] == med["name"],
-                      );
+                      if (state is MedicineLoaded) {
+                        final filteredItems = state.medicines.where((med) {
+                          return med.name.toLowerCase().contains(_searchQuery);
+                        }).toList();
 
-                      return MedicineCard(
-                        name:       med["name"]     ?? "Unknown",
-                        category:   med["category"] ?? "General",
-                        stock:      med["stock"]    ?? 0,
-                        expiryDate: med["expiry"]   ?? "N/A",
-                        status:     med["status"]   ?? "Low",
-                        onTap: () => _showUpdateDialog(med, masterIndex),
-                      );
+                        if (filteredItems.isEmpty) {
+                          return Center(
+                            child: Text(
+                              _searchQuery.isNotEmpty ? "No medicines matched your search." : "No medicines found.",
+                              style: TextStyle(
+                                color: isDarkMode ? Colors.white54 : Colors.black54,
+                              ),
+                            ),
+                          );
+                        }
+
+                        return ListView.builder(
+                          itemCount: filteredItems.length,
+                          itemBuilder: (context, index) {
+                            final item = filteredItems[index];
+
+                            return FutureBuilder<String>(
+                              future: _getLatestExpiryDate(item.medId ?? ''),
+                              builder: (context, snapshot) {
+                                String displayExpiry = 'Loading...';
+                                if (snapshot.connectionState == ConnectionState.done) {
+                                  displayExpiry = snapshot.data ?? 'N/A';
+                                }
+
+                                return MedicineCard(
+                                  name: item.name,
+                                  category: item.category,
+                                  stock: item.totalStock.round(),
+                                  expiryDate: displayExpiry,
+                                  status: _calculateStatus(item.totalStock, item.reorderLevel),
+                                  unit: item.measurementUnit,
+                                  onTap: () {},
+                                  onEditMedicine: () => _showUpdateDialog(context, item),
+                                  onAddStock:  () => _showAddStockDialog(context, item),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      }
+
+                      if (state is MedicineError) {
+                        return Center(
+                          child: Text('Error: ${state.message}', style: const TextStyle(color: Colors.red)),
+                        );
+                      }
+
+                      return const SizedBox.shrink();
                     },
                   ),
                 ),
