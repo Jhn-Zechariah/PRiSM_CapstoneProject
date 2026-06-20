@@ -95,12 +95,27 @@ class _SprinklerMemory {
 
   static Future<void> load() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('sprinkler_state')
-          .doc('latest')
-          .get();
-      if (doc.exists) {
-        final data = doc.data()!;
+      DocumentSnapshot? doc;
+      try {
+        doc = await FirebaseFirestore.instance
+            .collection('sprinkler_state')
+            .doc('latest')
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        doc = null;
+      }
+      if (doc == null || !doc.exists) {
+        try {
+          doc = await FirebaseFirestore.instance
+              .collection('sprinkler_state')
+              .doc('latest')
+              .get(const GetOptions(source: Source.server));
+        } catch (_) {
+          doc = null;
+        }
+      }
+      if (doc != null && doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
         lastActivated = data['lastActivated'] as String? ?? '--';
         date = data['date'] as String? ?? '--';
         duration = data['duration'] as String? ?? '--';
@@ -124,7 +139,7 @@ class TemperatureMonitoring extends StatefulWidget {
     this.onSwitchToHumidity,
     required this.isActivated,
     required this.onSprinklerChanged,
-    this.onMaxTempChanged, // 👈 ADD THIS LINE
+    this.onMaxTempChanged,
   });
 
   @override
@@ -137,8 +152,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   bool _isSprinklerLoading = false;
   bool _isLoading = true;
 
-  String _connectionStatus = "Connecting...";
-  int _failStreak = 0;
+  String _connectionStatus = "No connection";
+  String _sensorStatus = "Sensor Offline";
 
   Timer? _durationTimer;
   DateTime? _sprinklerActivatedAt;
@@ -158,8 +173,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   int _sessionSeedCount = 0;
 
   String get _tempStatus {
+    if (_currentTemp == null) return "";
     final t = _displayMax;
-    if (t == null) return "Normal";
+    if (t == null) return "";
     if (t >= 40.5) return "Critical";
     if (t >= 38.5) return "Elevated";
     return "Normal";
@@ -173,6 +189,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
   DateTime? _customStart;
   DateTime? _customEnd;
+  DateTime? _lastSeededTimestamp;
 
   @override
   void initState() {
@@ -215,9 +232,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Future<void> _initData() async {
-    await _loadChartFromFirestore(); // wait for full history first
+    await _loadChartFromFirestore();
     if (!mounted) return;
-    await _fetchData(); // then do first live fetch
+    // Show cached data immediately — no spinner while waiting for network
+    setState(() => _isLoading = false);
+    await _fetchData();
     if (!mounted) return;
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
   }
@@ -273,33 +292,35 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
       final docs = snapshot.docs;
       if (docs.isEmpty) {
-          setState(() {
-            _chartData.clear();
-            _nextChartIndex = 0;
-            if (rangeIndexAtLoad == 2) {
-              // Fresh day — reset session so live readings start clean
-              _sessionSum = 0;
-              _sessionCount = 0;
-              _sessionSeedSum = 0;
-              _sessionSeedCount = 0;
-              _sessionMax = null;
-              _sessionMin = null;
-              _displayMax = null;
-              _displayAvg = null;
-              _displayMin = null;
-            } else {
-              _displayMax = null;
-              _displayAvg = null;
-              _displayMin = null;
-            }
-          });
-          return;
-        }
+        setState(() {
+          _chartData.clear();
+          _nextChartIndex = 0;
+          if (rangeIndexAtLoad == 2) {
+            // Fresh day — reset session so live readings start clean
+            _sessionSum = 0;
+            _sessionCount = 0;
+            _sessionSeedSum = 0;
+            _sessionSeedCount = 0;
+            _sessionMax = null;
+            _sessionMin = null;
+            _lastSeededTimestamp = null;
+            _displayMax = null;
+            _displayAvg = null;
+            _displayMin = null;
+          } else {
+            _displayMax = null;
+            _displayAvg = null;
+            _displayMin = null;
+          }
+        });
+        return;
+      }
 
       final allData = <Map<String, double>>[];
       final allMaxValues = <double>[];
       final allMinValues = <double>[];
       final allAvgValues = <double>[];
+      DateTime? lastDocTimestamp;
 
       for (final doc in docs) {
         final d = doc.data();
@@ -315,6 +336,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         allMaxValues.add(max);
         allMinValues.add(min);
         allAvgValues.add(avg);
+
+        final docTs = (d['timestamp'] as Timestamp?)?.toDate();
+        if (docTs != null) lastDocTimestamp = docTs;
       }
 
       if (allMaxValues.isEmpty) {
@@ -343,23 +367,36 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         // Seed counter so live points continue after history without index collision
         _nextChartIndex = allData.length;
 
-        if (rangeIndexAtLoad == 2) {
-          // Reset ALL session accumulators so there's no double-counting
+       if (rangeIndexAtLoad == 2) {
           _sessionSum = 0;
           _sessionCount = 0;
+          // Use the last seeded document's own Firestore timestamp as the
+          // cutoff — comparing against the SAME clock that live readings'
+          // `ts` come from, instead of the local device clock.
+          _lastSeededTimestamp = lastDocTimestamp;
+
           _sessionSeedSum = allAvgValues.reduce((a, b) => a + b);
           _sessionSeedCount = allAvgValues.length;
 
-          // Reset max/min so live readings don't bleed in from other tabs
           _sessionMax = historicalMax;
           _sessionMin = historicalMin;
 
+          SensorMemory.resetIfNewDay();
+          final mergedMax = [
+            _sessionMax ?? 0,
+            SensorMemory.lastTempMaxToday,
+          ].reduce((a, b) => a > b ? a : b);
+
+          if (mergedMax > 0) {
+            _sessionMax = mergedMax;
+            SensorMemory.lastTempMaxToday = mergedMax;
+            SensorMemory.save();
+          }
           _displayMax = _sessionMax;
-          widget.onMaxTempChanged?.call(_displayMax!);
+          if (_displayMax != null) widget.onMaxTempChanged?.call(_displayMax!);
           _displayMin = _sessionMin;
           _displayAvg = _sessionSeedSum / _sessionSeedCount;
         } else {
-          // This Week / This Month / Custom — pure Firestore stats
           _displayMax = historicalMax;
           _displayMin = historicalMin;
           _displayAvg = historicalAvg;
@@ -367,6 +404,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       });
     } catch (e) {
       debugPrint('Firestore load error: $e');
+      // Don't wipe existing display values on network failure —
+      // keep whatever was already showing
+      return;
     }
   }
   // ── ESP32 fetch ─────────────────────────────────────────────────────────────
@@ -376,8 +416,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       final doc = await FirebaseFirestore.instance
           .collection('sensor_live')
           .doc('current')
-          .get();
-
+          .get(const GetOptions(source: Source.server));
       if (!doc.exists) return;
       final data = doc.data()!;
 
@@ -388,46 +427,78 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       if (tempMax == null || tempAvg == null || tempMin == null) return;
       if (tempMax < 0 || tempMin < 0 || tempAvg < 0) return;
 
+      final ts = (data['timestamp'] as Timestamp?)?.toDate();
+      final nowUtc = DateTime.now().toUtc();
+      final tsUtc = ts?.toUtc();
+      final diffSeconds = tsUtc != null
+          ? nowUtc.difference(tsUtc).inSeconds
+          : -1;
+      final isStale = ts == null || diffSeconds > 15;
+
       setState(() {
-        _currentTemp = tempMax;
         _isLoading = false;
-        _connectionStatus = "Live";
-        _failStreak = 0;
 
-        if (_selectedTimeRange == 2) {
-          _sessionSum += tempAvg;
-          _sessionCount += 1;
+        if (isStale) {
+          // Stale — only hide the live temp card value
+          _currentTemp = null;
+          _connectionStatus = "No connection";
+          _sensorStatus = "Sensor Offline";
+          // Do NOT touch _displayMax/_displayMin/_displayAvg —
+          // they keep showing the last known review data
+        } else {
+          // Fresh live data — update everything
+          _currentTemp = tempMax;
+          _connectionStatus = "Live";
+          _sensorStatus = "Sensor Online";
 
-          if (_sessionMax == null || tempMax > _sessionMax!)
-            _sessionMax = tempMax;
-          if (_sessionMin == null || tempMin < _sessionMin!)
-            _sessionMin = tempMin;
+         if (_selectedTimeRange == 2) {
+            final isNewReading = _lastSeededTimestamp == null ||
+                ts.isAfter(_lastSeededTimestamp!);
 
-          _displayMax = _sessionMax;
-          widget.onMaxTempChanged?.call(_displayMax!);
-          _displayMin = _sessionMin;
-          _displayAvg =
-              (_sessionSeedSum + _sessionSum) /
-              (_sessionSeedCount + _sessionCount);
+            if (isNewReading) {
+              _sessionSum += tempAvg;
+              _sessionCount += 1;
+            }
 
-          _chartData.add({
-            'index': _nextChartIndex.toDouble(),
-            'temp': tempAvg,
-          });
-          _nextChartIndex++;
+            if (_sessionMax == null || tempMax > _sessionMax!) {
+              _sessionMax = tempMax;
+            }
+            SensorMemory.resetIfNewDay();
+            if (tempMax > SensorMemory.lastTempMaxToday) {
+              SensorMemory.lastTempMaxToday = tempMax;
+              SensorMemory.save();
+            }
+            if (SensorMemory.lastTempMaxToday > (_sessionMax ?? 0)) {
+              _sessionMax = SensorMemory.lastTempMaxToday;
+            }
+            if (_sessionMin == null || tempMin < _sessionMin!) {
+              _sessionMin = tempMin;
+            }
+
+            _displayMax = _sessionMax;
+            widget.onMaxTempChanged?.call(_displayMax!);
+            _displayMin = _sessionMin;
+
+            final totalSum = _sessionSeedSum + _sessionSum;
+            final totalCount = _sessionSeedCount + _sessionCount;
+            _displayAvg = totalCount > 0 ? totalSum / totalCount : null;
+
+            _chartData.add({
+              'index': _nextChartIndex.toDouble(),
+              'temp': tempAvg,
+            });
+            _nextChartIndex++;
+          }
         }
       });
 
       await _saveToFirestore(tempMax, tempAvg, tempMin);
     } catch (_) {
       setState(() {
-        _failStreak++;
-        if (_failStreak == 1) {
-          _connectionStatus = "Reconnecting...";
-        } else if (_failStreak >= 4) {
-          _connectionStatus = "No connection";
-        }
+        _connectionStatus = "No connection";
+        _sensorStatus = "Sensor Offline";
         _isLoading = false;
+        _currentTemp = null;
       });
     }
   }
@@ -540,9 +611,79 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     ],
   );
 
+  Widget _buildConnectionBadge() {
+    final Color badgeColor;
+    final Color bgColor;
+    if (_connectionStatus == "Live") {
+      badgeColor = Colors.green;
+      bgColor = Colors.green.shade100;
+    } else if (_connectionStatus == "Reconnecting...") {
+      badgeColor = Colors.orange;
+      bgColor = Colors.orange.shade100;
+    } else {
+      badgeColor = Colors.red;
+      bgColor = Colors.red.shade100;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 8, color: badgeColor),
+          const SizedBox(width: 4),
+          Text(
+            _connectionStatus,
+            style: TextStyle(fontSize: 11, color: badgeColor),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _confirmSprinkler() async {
     if (_isSprinklerLoading) return;
+
     final isOn = sprinklerNotifier.value;
+
+    // Block activation when sensor is offline (deactivation always allowed)
+    if (_sensorStatus != "Sensor Online" && !isOn) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.sensors_off, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Sensor Offline'),
+            ],
+          ),
+          content: const Text(
+            'Cannot activate the sprinkler while the sensor is offline. Please ensure the sensor is online and try again.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('OK', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final action = isOn ? 'Deactivate' : 'Activate';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -652,54 +793,61 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   Widget _buildTitle() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = isDark ? Colors.white : Colors.black;
-    return Row(
-      children: [
-        Icon(Icons.thermostat, size: 32, color: color),
-        const SizedBox(width: 12),
-        Text(
-          'Temperature',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w900,
-            color: color,
-          ),
-        ),
-        const Spacer(),
-        _buildConnectionBadge(),
-      ],
-    );
-  }
+    final sensorOnline = _sensorStatus == "Sensor Online";
+    final sensorColor = sensorOnline ? Colors.green : Colors.red;
 
-  Widget _buildConnectionBadge() {
-    final Color badgeColor;
-    final Color bgColor;
-    if (_connectionStatus == "Live") {
-      badgeColor = Colors.green;
-      bgColor = Colors.green.shade100;
-    } else if (_connectionStatus == "Reconnecting...") {
-      badgeColor = Colors.orange;
-      bgColor = Colors.orange.shade100;
-    } else {
-      badgeColor = Colors.red;
-      bgColor = Colors.red.shade100;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 8, color: badgeColor),
-          const SizedBox(width: 4),
-          Text(
-            _connectionStatus,
-            style: TextStyle(fontSize: 11, color: badgeColor),
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.thermostat, size: 32, color: color),
+            const SizedBox(width: 12),
+            Text(
+              'Temperature',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _buildConnectionBadge(),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: sensorColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: sensorColor, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    sensorOnline ? Icons.sensors : Icons.sensors_off,
+                    size: 12,
+                    color: sensorColor,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    sensorOnline ? "Sensor Online" : "Sensor Offline",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: sensorColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -995,9 +1143,19 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
           IntrinsicHeight(
             child: Row(
               children: [
-                _buildReviewStat('Average', avgLabel, const Color(0xFFE8622A), isDark),
+                _buildReviewStat(
+                  'Average',
+                  avgLabel,
+                  const Color(0xFFE8622A),
+                  isDark,
+                ),
                 VerticalDivider(color: _dividerColor(isDark), thickness: 1),
-                _buildReviewStat('Lowest', minLabel, const Color(0xFF1B3A4B), isDark),
+                _buildReviewStat(
+                  'Lowest',
+                  minLabel,
+                  const Color(0xFF1B3A4B),
+                  isDark,
+                ),
                 VerticalDivider(color: _dividerColor(isDark), thickness: 1),
                 _buildReviewStat('Highest', maxLabel, Colors.red, isDark),
               ],
@@ -1008,7 +1166,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
-  Widget _buildReviewStat(String label, String value, Color valueColor, bool isDark) {
+  Widget _buildReviewStat(
+    String label,
+    String value,
+    Color valueColor,
+    bool isDark,
+  ) {
     return Expanded(
       child: Column(
         children: [
@@ -1034,7 +1197,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
- Widget _buildInsights(bool isDark) {
+  Widget _buildInsights(bool isDark) {
     final accentAlpha = isDark ? 0.25 : 0.15;
     final shadowAlpha = isDark ? 0.12 : 0.06;
     return Container(
@@ -1419,10 +1582,8 @@ class _TemperatureChartPainter extends CustomPainter {
     final double chartWidth = size.width - leftPadding;
     final double chartHeight = size.height - bottomPadding - topPadding;
     if (chartWidth <= 0 || chartHeight <= 0) return;
-    // AFTER
-    const double yMin = 20.0; // ← changed
+    const double yMin = 20.0;
     const double yMax = 45.0;
-    // ← added 20
 
     final gridPaint = Paint()
       ..color = isDark
@@ -1532,4 +1693,3 @@ class _TemperatureChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TemperatureChartPainter old) => true;
 }
-

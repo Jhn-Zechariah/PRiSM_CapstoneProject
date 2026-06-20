@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // 🔹 Imported shared_preferences
@@ -25,12 +26,16 @@ void main() async {
   print("🔥 INITIALIZING FIREBASE...");
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // Disable Firestore cache so sensor offline is always detected correctly
+  // Enable persistence so cached data survives hot restart and offline opens
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
+
   print("🔔 INITIALIZING NOTIFICATIONS...");
   final notificationService = NotificationService();
   await notificationService.init();
-
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // 🔹 1. Load the saved theme mode BEFORE the app runs
   final prefs = await SharedPreferences.getInstance();
