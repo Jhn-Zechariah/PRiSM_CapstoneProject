@@ -96,7 +96,7 @@ class _SprinklerMemory {
       final doc = await FirebaseFirestore.instance
           .collection('sprinkler_state')
           .doc('latest')
-          .get();
+          .get(const GetOptions(source: Source.server));
       if (doc.exists) {
         final data = doc.data()!;
         lastActivated = data['lastActivated'] as String? ?? '--';
@@ -118,14 +118,14 @@ class HumidityMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToTemperature;
   final bool isActivated;
   final ValueChanged<bool> onSprinklerChanged;
-  final ValueChanged<double>? onMaxHumidityChanged; // 👈 ADD THIS
+  final ValueChanged<double>? onMaxHumidityChanged;
 
   const HumidityMonitoring({
     super.key,
     this.onSwitchToTemperature,
     required this.isActivated,
     required this.onSprinklerChanged,
-    this.onMaxHumidityChanged, // 👈 ADD THIS
+    this.onMaxHumidityChanged,
   });
 
   @override
@@ -138,8 +138,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   bool _isSprinklerLoading = false;
   bool _isLoading = true;
 
-  String _connectionStatus = "Connecting...";
-  int _failStreak = 0;
+  String _connectionStatus = "No connection";
+  String _sensorStatus = "Sensor Offline";
 
   // ── THEME HELPERS ──────────────────────────────────────────────────
   Color _cardBg(bool isDark) => isDark ? const Color(0xFF1E1E1E) : Colors.white;
@@ -185,8 +185,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   double? _currentHumidity;
 
   // Display stats shown in the review card.
-  // Populated from Firestore for historical ranges, or from the live session
-  // accumulator for "Today". Never overwritten by a raw ESP32 snapshot.
   double? _displayMax;
   double? _displayMin;
   double? _displayAvg;
@@ -200,8 +198,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   int _sessionSeedCount = 0;
 
   String get _humidityStatus {
-    final h = _currentHumidity;
-    if (h == null) return "Normal";
+    if (_currentHumidity == null) return "";
+    final h = _currentHumidity!;
     if (h >= 80) return "High";
     if (h <= 40) return "Low";
     return "Normal";
@@ -215,6 +213,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
   DateTime? _customStart;
   DateTime? _customEnd;
+  DateTime? _lastSeededTimestamp;
 
   @override
   void initState() {
@@ -256,27 +255,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Future<void> _initData() async {
-    await _cleanBadFirestoreData();
     await _loadChartFromFirestore();
     if (!mounted) return;
+    setState(() => _isLoading = false);
     await _fetchData();
     if (!mounted) return;
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
-  }
-
-  Future<void> _cleanBadFirestoreData() async {
-    try {
-      final snapshot = await _db
-          .collection('temperature_readings')
-          .where('tempMin', isLessThan: 1.0)
-          .get();
-      for (final doc in snapshot.docs) {
-        await doc.reference.delete();
-      }
-      debugPrint('Cleaned ${snapshot.docs.length} bad documents');
-    } catch (e) {
-      debugPrint('Cleanup error: $e');
-    }
   }
 
   @override
@@ -298,6 +282,61 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       });
     } catch (e) {
       debugPrint('Firestore save error: $e');
+    }
+  }
+
+ /// Unlimited scan for accurate max/min/avg stats. Unlike the chart query
+  /// below (capped at 2000 docs for render performance), this has no limit
+  /// — so on high-volume days it won't silently drop later readings and
+  /// miss the true highest/lowest value, the way the capped chart query can.
+  Future<Map<String, double>?> _computeAccurateStats(
+    DateTimeRange range,
+  ) async {
+    try {
+      // No Source.server here — that forces a real network round-trip and
+      // makes the screen freeze for the full DNS/connect timeout when
+      // offline. Default source (cache-then-server) returns immediately
+      // from cache if offline, and the 4s timeout below is a safety net
+      // in case the connection is merely slow rather than fully absent.
+      final snapshot = await _db
+          .collection('humidity_readings')
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
+          )
+          .where(
+            'timestamp',
+            isLessThanOrEqualTo: Timestamp.fromDate(range.end),
+          )
+          .get()
+          .timeout(const Duration(seconds: 4));
+
+      if (snapshot.docs.isEmpty) return null;
+
+      double maxV = double.negativeInfinity;
+      double minV = double.infinity;
+      double sum = 0;
+      int count = 0;
+
+      for (final doc in snapshot.docs) {
+        final d = doc.data();
+        final rawAvg = d['humidityAvg'];
+        if (rawAvg == null) continue;
+        final avg = (rawAvg as num).toDouble();
+        final max = (d['humidityMax'] as num?)?.toDouble() ?? avg;
+        final min = (d['humidityMin'] as num?)?.toDouble() ?? avg;
+
+        if (max > maxV) maxV = max;
+        if (min < minV) minV = min;
+        sum += avg;
+        count++;
+      }
+
+      if (count == 0) return null;
+      return {'max': maxV, 'min': minV, 'avg': sum / count, 'count': count.toDouble()};
+    } catch (e) {
+      debugPrint('Accurate stats query error: $e');
+      return null;
     }
   }
 
@@ -326,32 +365,34 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
       final docs = snapshot.docs;
       if (docs.isEmpty) {
-          setState(() {
-            _chartData.clear();
-            _nextChartIndex = 0;
-            if (rangeIndexAtLoad == 2) {
-              _sessionSum = 0;
-              _sessionCount = 0;
-              _sessionSeedSum = 0;
-              _sessionSeedCount = 0;
-              _sessionMax = null;
-              _sessionMin = null;
-              _displayMax = null;
-              _displayAvg = null;
-              _displayMin = null;
-            } else {
-              _displayMax = null;
-              _displayAvg = null;
-              _displayMin = null;
-            }
-          });
-          return;
-        }
+        setState(() {
+          _chartData.clear();
+          _nextChartIndex = 0;
+          if (rangeIndexAtLoad == 2) {
+            _sessionSum = 0;
+            _sessionCount = 0;
+            _sessionSeedSum = 0;
+            _sessionSeedCount = 0;
+            _sessionMax = null;
+            _sessionMin = null;
+            _lastSeededTimestamp = null;
+            _displayMax = null;
+            _displayAvg = null;
+            _displayMin = null;
+          } else {
+            _displayMax = null;
+            _displayAvg = null;
+            _displayMin = null;
+          }
+        });
+        return;
+      }
 
       final allData = <Map<String, double>>[];
       final allMaxValues = <double>[];
       final allMinValues = <double>[];
       final allAvgValues = <double>[];
+      DateTime? lastDocTimestamp;
 
       for (final doc in docs) {
         final d = doc.data();
@@ -366,6 +407,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         allMaxValues.add(max);
         allMinValues.add(min);
         allAvgValues.add(avg);
+
+        final docTs = (d['timestamp'] as Timestamp?)?.toDate();
+        if (docTs != null) lastDocTimestamp = docTs;
       }
 
       if (allMaxValues.isEmpty) {
@@ -381,10 +425,22 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         return;
       }
 
-      final historicalMax = allMaxValues.reduce((a, b) => a > b ? a : b);
-      final historicalMin = allMinValues.reduce((a, b) => a < b ? a : b);
-      final historicalAvg =
+      // Capped-query results — used for chart points and as a fallback,
+      // but NOT trusted for max/min once the accurate query below returns.
+      final cappedMax = allMaxValues.reduce((a, b) => a > b ? a : b);
+      final cappedMin = allMinValues.reduce((a, b) => a < b ? a : b);
+      final cappedAvg =
           allAvgValues.reduce((a, b) => a + b) / allAvgValues.length;
+
+      // Run the unlimited accurate-stats query. This catches highs/lows
+      // that happen after the capped query's first 2000 docs on a
+      // high-volume day.
+      final accurate = await _computeAccurateStats(range);
+      final historicalMax = accurate?['max'] ?? cappedMax;
+      final historicalMin = accurate?['min'] ?? cappedMin;
+      final historicalAvg = accurate?['avg'] ?? cappedAvg;
+
+      if (!mounted || _selectedTimeRange != rangeIndexAtLoad) return;
 
       setState(() {
         _chartData
@@ -395,15 +451,34 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         _nextChartIndex = allData.length;
 
        if (rangeIndexAtLoad == 2) {
-          // Reset ALL session accumulators so there's no double-counting
           _sessionSum = 0;
           _sessionCount = 0;
+          // Use the last seeded document's own Firestore timestamp as the
+          // cutoff — comparing against the SAME clock that live readings'
+          // `ts` come from. Using DateTime.now() (local device clock) here
+          // caused undercounting/overcounting whenever the device clock
+          // drifted from Firestore's server time.
+          _lastSeededTimestamp = lastDocTimestamp;
+
           _sessionSeedSum = allAvgValues.reduce((a, b) => a + b);
           _sessionSeedCount = allAvgValues.length;
 
-          // Reset max/min so live readings don't bleed in from other tabs
           _sessionMax = historicalMax;
           _sessionMin = historicalMin;
+
+          // Merge with SensorMemory here — at SEED time, not just inside
+          // the live-fetch path — so this screen reflects the true known
+          // max even when offline (when _fetchData() never reaches its
+          // own merge logic because the network call throws first).
+          SensorMemory.resetIfNewDay();
+          if (SensorMemory.lastHumidityMaxToday > (_sessionMax ?? 0)) {
+            _sessionMax = SensorMemory.lastHumidityMaxToday;
+          } else if ((_sessionMax ?? 0) > SensorMemory.lastHumidityMaxToday) {
+            // Firestore scan found a higher value than SensorMemory knew
+            // about — push it back so Dashboard picks it up too.
+            SensorMemory.lastHumidityMaxToday = _sessionMax!;
+            SensorMemory.save();
+          }
 
           _displayMax = _sessionMax;
           _displayMin = _sessionMin;
@@ -416,6 +491,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       });
     } catch (e) {
       debugPrint('Firestore load error: $e');
+      // Don't wipe existing display values on network failure —
+      // keep whatever was already showing
+      return;
     }
   }
 
@@ -423,10 +501,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
   Future<void> _fetchData() async {
     try {
+      // No Source.server — forcing a server round-trip means every 5s
+      // poll hangs through a full DNS timeout while offline, repeatedly
+      // freezing the screen. Default source + short timeout fails fast.
       final doc = await FirebaseFirestore.instance
           .collection('sensor_live')
           .doc('current')
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 4));
 
       if (!doc.exists) return;
       final data = doc.data()!;
@@ -434,43 +516,73 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       if (hRaw == null) return;
       final h = (hRaw as num).toDouble();
 
+      final ts = (data['timestamp'] as Timestamp?)?.toDate();
+      final nowUtc = DateTime.now().toUtc();
+      final tsUtc = ts?.toUtc();
+      final diffSeconds = tsUtc != null
+          ? nowUtc.difference(tsUtc).inSeconds
+          : -1;
+      final isStale = ts == null || diffSeconds > 15;
+
       setState(() {
-        _currentHumidity = h;
-        _failStreak = 0;
-        _connectionStatus = "Live";
         _isLoading = false;
 
-        if (_selectedTimeRange == 2) {
-          _sessionSum += h;
-          _sessionCount += 1;
+        if (isStale) {
+          _currentHumidity = null;
+          _connectionStatus = "No connection";
+          _sensorStatus = "Sensor Offline";
+          // _displayMax/_displayMin/_displayAvg left untouched
+        } else {
+          _currentHumidity = h;
+          _connectionStatus = "Live";
+          _sensorStatus = "Sensor Online";
+          if (_selectedTimeRange == 2) {
+            final isNewReading =
+                _lastSeededTimestamp == null ||
+                ts.isAfter(_lastSeededTimestamp!);
 
-          if (_sessionMax == null || h > _sessionMax!) {
-            _sessionMax = h;
+            if (isNewReading) {
+              _sessionSum += h;
+              _sessionCount += 1;
+            }
+
+            if (_sessionMax == null || h > _sessionMax!) {
+              _sessionMax = h;
+            }
+            SensorMemory.resetIfNewDay();
+            if (h > SensorMemory.lastHumidityMaxToday) {
+              SensorMemory.lastHumidityMaxToday = h;
+              SensorMemory.save();
+            }
+            if (SensorMemory.lastHumidityMaxToday > (_sessionMax ?? 0)) {
+              _sessionMax = SensorMemory.lastHumidityMaxToday;
+            }
             widget.onMaxHumidityChanged?.call(_sessionMax!);
+            if (_sessionMin == null || h < _sessionMin!) _sessionMin = h;
+
+            _displayMax = _sessionMax;
+            _displayMin = _sessionMin;
+
+            final totalSum = _sessionSeedSum + _sessionSum;
+            final totalCount = _sessionSeedCount + _sessionCount;
+            _displayAvg = totalCount > 0 ? totalSum / totalCount : null;
+
+            _chartData.add({
+              'index': _nextChartIndex.toDouble(),
+              'humidity': h,
+            });
+            _nextChartIndex++;
           }
-          if (_sessionMin == null || h < _sessionMin!) _sessionMin = h;
-
-          _displayMax = _sessionMax;
-          _displayMin = _sessionMin;
-          _displayAvg =
-              (_sessionSeedSum + _sessionSum) /
-              (_sessionSeedCount + _sessionCount);
-
-          _chartData.add({'index': _nextChartIndex.toDouble(), 'humidity': h});
-          _nextChartIndex++;
         }
       });
 
-      await _saveToFirestore(h);
+      if (!isStale) await _saveToFirestore(h);
     } catch (_) {
       setState(() {
-        _failStreak++;
-        if (_failStreak == 1) {
-          _connectionStatus = "Reconnecting...";
-        } else if (_failStreak >= 4) {
-          _connectionStatus = "No connection";
-        }
+        _connectionStatus = "No connection";
+        _sensorStatus = "Sensor Offline";
         _isLoading = false;
+        _currentHumidity = null;
       });
     }
   }
@@ -547,9 +659,75 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     }
   }
 
+  Widget _buildConnectionBadge() {
+    final Color badgeColor;
+    final Color bgColor;
+    if (_connectionStatus == "Live") {
+      badgeColor = Colors.green;
+      bgColor = Colors.green.shade100;
+    } else {
+      badgeColor = Colors.red;
+      bgColor = Colors.red.shade100;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, size: 8, color: badgeColor),
+          const SizedBox(width: 4),
+          Text(
+            _connectionStatus,
+            style: TextStyle(fontSize: 11, color: badgeColor),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _confirmSprinkler() async {
     if (_isSprinklerLoading) return;
     final isOn = sprinklerNotifier.value;
+
+    // Block activation when sensor is offline (deactivation always allowed)
+    if (_sensorStatus != "Sensor Online" && !isOn) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.sensors_off, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Sensor Offline'),
+            ],
+          ),
+          content: const Text(
+            'Cannot activate the sprinkler while the sensor is offline. Please ensure the sensor is online and try again.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('OK', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final action = isOn ? 'Deactivate' : 'Activate';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -659,54 +837,61 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   Widget _buildTitle() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = isDark ? Colors.white : Colors.black;
-    return Row(
-      children: [
-        Icon(Icons.water_drop_outlined, size: 32, color: color),
-        const SizedBox(width: 12),
-        Text(
-          'Humidity',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w900,
-            color: color,
-          ),
-        ),
-        const Spacer(),
-        _buildConnectionBadge(),
-      ],
-    );
-  }
+    final sensorOnline = _sensorStatus == "Sensor Online";
+    final sensorColor = sensorOnline ? Colors.green : Colors.red;
 
-  Widget _buildConnectionBadge() {
-    final Color badgeColor;
-    final Color bgColor;
-    if (_connectionStatus == "Live") {
-      badgeColor = Colors.green;
-      bgColor = Colors.green.shade100;
-    } else if (_connectionStatus == "Reconnecting...") {
-      badgeColor = Colors.orange;
-      bgColor = Colors.orange.shade100;
-    } else {
-      badgeColor = Colors.red;
-      bgColor = Colors.red.shade100;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.circle, size: 8, color: badgeColor),
-          const SizedBox(width: 4),
-          Text(
-            _connectionStatus,
-            style: TextStyle(fontSize: 11, color: badgeColor),
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.water_drop_outlined, size: 32, color: color),
+            const SizedBox(width: 12),
+            Text(
+              'Humidity',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _buildConnectionBadge(),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: sensorColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: sensorColor, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    sensorOnline ? Icons.sensors : Icons.sensors_off,
+                    size: 12,
+                    color: sensorColor,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    sensorOnline ? "Sensor Online" : "Sensor Offline",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: sensorColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
