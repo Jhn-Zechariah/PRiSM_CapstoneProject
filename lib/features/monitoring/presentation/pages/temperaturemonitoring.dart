@@ -413,10 +413,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
   Future<void> _fetchData() async {
     try {
+      // No Source.server — forcing a server round-trip means every 5s
+      // poll hangs through a full DNS timeout while offline, repeatedly
+      // freezing the screen. Default source + short timeout fails fast.
       final doc = await FirebaseFirestore.instance
           .collection('sensor_live')
           .doc('current')
-          .get(const GetOptions(source: Source.server));
+          .get()
+          .timeout(const Duration(seconds: 4));
       if (!doc.exists) return;
       final data = doc.data()!;
 
