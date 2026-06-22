@@ -2,87 +2,148 @@
 PRISM - FastAPI Backend
 Connects both ML models to the PRISM mobile/web app.
 
-Run with:  uvicorn prism_api:app --reload --port 8000
+Run with:  uvicorn prism_api:app --reload --host 0.0.0.0 --port 8000
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
 import joblib
-import numpy as np
 from datetime import date
 
 app = FastAPI(title="PRISM ML API", version="1.0.0")
 
-# ── Schemas ──────────────────────────────────────────────────────────────────
+# ── CORS — allows Flutter app to call this API from any device ────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
 class FarmReading(BaseModel):
-    temperature_c:    float   # barn ambient temp (°C)
-    humidity_pct:     float   # relative humidity (%)
-    weight_change_kg: float   # avg daily weight change (kg)
-    feed_intake_kg:   float   # avg daily feed intake (kg)
+    temperature_c:    float
+    humidity_pct:     float
+    weight_change_kg: float = 0.0
+    feed_intake_kg:   float = 0.0
     medicine_given:   Optional[int] = 0
 
 class PigRecord(BaseModel):
     pig_id:         str
-    birth_date:     str     # ISO format: YYYY-MM-DD
-    current_weight: float   # kg
-    birth_weight:   float   # kg
+    birth_date:     str    # ISO format: YYYY-MM-DD
+    current_weight: float  # kg
+    birth_weight:   float  # kg
 
-# ── Farm-level endpoint ───────────────────────────────────────────────────────
-FARM_FEATURES = ['temperature_c', 'humidity_pct', 'thi', 'weight_change_kg',
-                 'feed_intake_kg', 'temp_avg3', 'humidity_avg3']
+# ── Farm features (must match prism_farm_ml.py FEATURES list) ─────────────────
+FARM_FEATURES = [
+    'temperature_c', 'humidity_pct', 'thi',
+    'weight_change_kg', 'feed_intake_kg',
+    'temp_avg3', 'humidity_avg3'
+]
 
+# ── Pig features (must match prism_pig_weight_ml.py FEATURES list) ────────────
+PIG_FEATURES = [
+    'age_days', 'current_weight', 'birth_weight',
+    'adg', 'weight_deviation_pct', 'adg_deviation_pct'
+]
+
+# ── Growth standards (must match prism_pig_weight_ml.py GROWTH_STAGES) ────────
+GROWTH_STANDARDS = {
+    'piglet':   {'age_range': (0,   21),  'weight_range': (1.0,  6.5),   'adg_target': 0.25},
+    'nursery':  {'age_range': (22,  70),  'weight_range': (6.5,  25.0),  'adg_target': 0.38},
+    'grower':   {'age_range': (71,  120), 'weight_range': (25.0, 60.0),  'adg_target': 0.65},
+    'finisher': {'age_range': (121, 170), 'weight_range': (60.0, 110.0), 'adg_target': 0.80},
+}
+
+def get_stage(age_days: int):
+    for stage, data in GROWTH_STANDARDS.items():
+        lo, hi = data['age_range']
+        if lo <= age_days <= hi:
+            return stage, data
+    return 'market_ready', None
+
+# ── Health check ──────────────────────────────────────────────────────────────
+@app.get("/")
+def root():
+    return {
+        "message": "PRISM ML API is running.",
+        "endpoints": ["/api/farm/analyze", "/api/pig/analyze"]
+    }
+
+# ── ENDPOINT 1: Farm-level analysis ──────────────────────────────────────────
 @app.post("/api/farm/analyze")
 def analyze_farm(reading: FarmReading):
+    # Load trained model
     try:
         model = joblib.load('prism_farm_model.pkl')
     except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Farm model not found. Train model first.")
+        raise HTTPException(
+            status_code=500,
+            detail="Farm model not found. Run: python prism_farm_ml.py"
+        )
 
+    # Build input dataframe with engineered features
     row = reading.dict()
     df  = pd.DataFrame([row])
-    df['thi']          = df['temperature_c'] - (0.55 - 0.0055 * df['humidity_pct']) * (df['temperature_c'] - 14.5)
-    df['temp_avg3']    = df['temperature_c']
-    df['humidity_avg3']= df['humidity_pct']
+    df['thi']           = df['temperature_c'] - (0.55 - 0.0055 * df['humidity_pct']) * (df['temperature_c'] - 14.5)
+    df['temp_avg3']     = df['temperature_c']
+    df['humidity_avg3'] = df['humidity_pct']
 
+    # Predict condition
     prediction = model.predict(df[FARM_FEATURES])[0]
     thi        = float(df['thi'].iloc[0])
+
+    temp  = row['temperature_c']
+    hum   = row['humidity_pct']
+    wt    = row['weight_change_kg']
+    feed  = row['feed_intake_kg']
 
     insights        = []
     recommendations = []
 
-    if row['temperature_c'] > 32:
-        insights.append(f"Barn temperature is critically high at {row['temperature_c']}°C.")
-        recommendations.append("Activate cooling system immediately.")
-    elif row['temperature_c'] > 25:
-        insights.append(f"Barn temperature ({row['temperature_c']}°C) is above the thermoneutral zone.")
-        recommendations.append("Monitor pigs closely and consider pre-cooling.")
+    # Temperature
+    if temp > 32:
+        insights.append(f"Barn temperature is critically high at {temp}°C — severe heat stress zone.")
+        recommendations.append("Activate cooling system immediately and increase ventilation.")
+    elif temp > 25:
+        insights.append(f"Barn temperature ({temp}°C) is above the thermoneutral zone (18–25°C).")
+        recommendations.append("Monitor pigs closely. Consider pre-cooling or misting systems.")
 
-    if row['humidity_pct'] > 90:
-        insights.append(f"Humidity is critically high at {row['humidity_pct']}%.")
-        recommendations.append("Improve ventilation and check drainage.")
-    elif row['humidity_pct'] > 80:
-        insights.append(f"Humidity ({row['humidity_pct']}%) is above optimal range.")
-        recommendations.append("Increase airflow.")
+    # Humidity
+    if hum > 90:
+        insights.append(f"Humidity is critically high at {hum}% — compounds heat stress significantly.")
+        recommendations.append("Improve barn ventilation. Check drainage and reduce water waste.")
+    elif hum > 80:
+        insights.append(f"Humidity ({hum}%) is elevated above optimal range (60–80%).")
+        recommendations.append("Increase airflow. Avoid overcrowding.")
 
+    # THI
     if thi >= 26.11:
-        insights.append(f"THI {thi:.1f} — farm is in the DANGER zone.")
-        recommendations.append("Emergency: cool barn, provide cold water immediately.")
+        insights.append(f"THI is {thi:.1f} — farm is in the DANGER zone for heat stress.")
+        recommendations.append("Emergency: reduce stocking density, provide cool drinking water.")
     elif thi >= 23.33:
-        insights.append(f"THI {thi:.1f} — farm is in the ALERT zone.")
-        recommendations.append("Increase monitoring. Pre-cool barn during afternoon.")
+        insights.append(f"THI is {thi:.1f} — farm is in the ALERT zone.")
+        recommendations.append("Increase monitoring frequency. Pre-cool barn in the afternoon.")
 
-    if row['weight_change_kg'] < 0:
-        insights.append(f"Pigs may be losing weight ({row['weight_change_kg']:.2f} kg/day).")
-        recommendations.append("Check feed quality and review for illness.")
+    # Weight change
+    if wt < 0:
+        insights.append(f"Average weight change is negative ({wt:.2f} kg/day) — pigs may be losing weight.")
+        recommendations.append("Review feed quality and quantity. Check for illness or heat anorexia.")
+    elif wt < 0.3 and wt > 0:
+        insights.append(f"Weight gain ({wt:.2f} kg/day) is below expected levels.")
+        recommendations.append("Check feed intake and consider nutritional assessment.")
 
-    if row['feed_intake_kg'] < 1.5:
-        insights.append(f"Low feed intake detected ({row['feed_intake_kg']:.2f} kg/day).")
-        recommendations.append("Shift feeding to cooler parts of the day.")
+    # Feed intake
+    if feed < 1.5 and feed > 0:
+        insights.append(f"Feed intake is low at {feed:.2f} kg/day — possible heat anorexia or illness.")
+        recommendations.append("Shift feeding time to cooler parts of day (early morning / evening).")
 
+    # Default — all good
     if not insights:
-        insights.append("Farm conditions are within normal ranges.")
+        insights.append("Farm conditions are within normal ranges. Pigs appear healthy.")
         recommendations.append("Continue current management routine.")
 
     return {
@@ -92,60 +153,96 @@ def analyze_farm(reading: FarmReading):
         "recommendations": recommendations,
     }
 
-# ── Per-pig endpoint ──────────────────────────────────────────────────────────
-GROWTH_STANDARDS = {
-    'piglet':   {'age_range': (0,   21),  'weight_range': (1.0,  6.5),  'adg_target': 0.25},
-    'nursery':  {'age_range': (22,  70),  'weight_range': (6.5,  25.0), 'adg_target': 0.38},
-    'grower':   {'age_range': (71,  120), 'weight_range': (25.0, 60.0), 'adg_target': 0.65},
-    'finisher': {'age_range': (121, 170), 'weight_range': (60.0, 110.0),'adg_target': 0.80},
-}
-
-def get_stage(age):
-    for s, d in GROWTH_STANDARDS.items():
-        if d['age_range'][0] <= age <= d['age_range'][1]:
-            return s, d
-    return 'market_ready', None
-
+# ── ENDPOINT 2: Per-pig weight analysis ───────────────────────────────────────
 @app.post("/api/pig/analyze")
 def analyze_pig(pig: PigRecord):
+    # Load trained model
     try:
         model = joblib.load('prism_pig_weight_model.pkl')
     except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Pig weight model not found. Train model first.")
+        raise HTTPException(
+            status_code=500,
+            detail="Pig weight model not found. Run: python prism_pig_weight_ml.py"
+        )
 
+    # Compute age and growth features
     birth    = date.fromisoformat(pig.birth_date)
-    age_days = (date.today() - birth).days
+    age_days = max((date.today() - birth).days, 1)
     stage, std = get_stage(age_days)
 
-    adg = (pig.current_weight - pig.birth_weight) / age_days if age_days > 0 else 0
+    adg = (pig.current_weight - pig.birth_weight) / age_days
 
     if std:
-        mid        = sum(std['weight_range']) / 2
-        wt_dev     = ((pig.current_weight - mid) / mid) * 100
-        adg_dev    = ((adg - std['adg_target']) / std['adg_target']) * 100
+        lo, hi   = std['weight_range']
+        mid      = (lo + hi) / 2
+        wt_dev   = ((pig.current_weight - mid) / mid) * 100
+        adg_dev  = ((adg - std['adg_target']) / std['adg_target']) * 100
+        exp_lo, exp_hi = lo, hi
+        adg_target     = std['adg_target']
     else:
-        wt_dev = adg_dev = 0
+        wt_dev = adg_dev = 0.0
+        exp_lo, exp_hi  = 100.0, 120.0
+        adg_target      = 0.0
 
+    # Build input dataframe — feature names must match training
     input_df = pd.DataFrame([{
-    'age_days':             age_days,
-    'current_weight':       pig.current_weight,
-    'birth_weight':         pig.birth_weight,
-    'adg':                  adg,
-    'weight_deviation_pct': wt_dev,
-    'adg_deviation_pct':    adg_dev,
-}])
+        'age_days':             age_days,
+        'current_weight':       pig.current_weight,
+        'birth_weight':         pig.birth_weight,
+        'adg':                  adg,
+        'weight_deviation_pct': wt_dev,
+        'adg_deviation_pct':    adg_dev,
+    }])
 
-    classification = model.predict(input_df)[0]
+    classification = model.predict(input_df[PIG_FEATURES])[0]
 
+    # Generate insight and recommendation
     if classification == 'Normal':
-        insight        = f"Pig is at {pig.current_weight:.1f} kg — within normal range for {stage} stage. ADG {adg:.3f} kg/day is on track."
-        recommendation = "Continue current feeding and care routine."
+        insight = (
+            f"Pig is {pig.current_weight:.1f} kg at {age_days} days old — within the expected "
+            f"range of {exp_lo:.1f}–{exp_hi:.1f} kg for the {stage} stage. "
+            f"ADG is {adg:.3f} kg/day, on track with the target of {adg_target:.2f} kg/day."
+        )
+        recommendation = (
+            "Continue current feeding and care routine. "
+            "Record next weight at the scheduled weigh-in."
+        )
+
     elif classification == 'Underweight':
-        insight        = f"Pig is at {pig.current_weight:.1f} kg — {abs(wt_dev):.1f}% below expected for {stage} stage. ADG {adg:.3f} kg/day is below target."
-        recommendation = "Review feeding schedule, check for illness or parasites. Consult vet if no improvement in 7 days."
-    else:
-        insight        = f"Pig is at {pig.current_weight:.1f} kg — {wt_dev:.1f}% above expected for {stage} stage."
-        recommendation = "Adjust feed ration. Consider earlier market scheduling if over 100 kg."
+        insight = (
+            f"Pig is {pig.current_weight:.1f} kg at {age_days} days old — {abs(wt_dev):.1f}% below "
+            f"the expected midpoint for the {stage} stage ({exp_lo:.1f}–{exp_hi:.1f} kg). "
+            f"ADG of {adg:.3f} kg/day is below the target of {adg_target:.2f} kg/day."
+        )
+        if abs(wt_dev) > 30:
+            recommendation = (
+                "Weight gap is significant. Review feed quality and quantity. "
+                "Check for signs of illness, parasites, or bullying by pen mates. "
+                "Consult a veterinarian if no improvement in 7 days."
+            )
+        else:
+            recommendation = (
+                "Review feeding schedule and ensure this pig has access to the feeder. "
+                "Check for signs of illness: lethargy, diarrhea, or labored breathing. "
+                "Consider vitamin supplementation."
+            )
+
+    else:  # Overweight
+        insight = (
+            f"Pig is {pig.current_weight:.1f} kg at {age_days} days old — {wt_dev:.1f}% above "
+            f"the expected midpoint for the {stage} stage ({exp_lo:.1f}–{exp_hi:.1f} kg)."
+        )
+        if stage == 'finisher' and pig.current_weight >= 100:
+            recommendation = (
+                f"Pig has reached {pig.current_weight:.1f} kg. "
+                "Consider scheduling for market soon to optimize carcass quality. "
+                "Adjust feed ration to reduce excess fat deposition."
+            )
+        else:
+            recommendation = (
+                "Adjust feed ration to prevent excess fat deposition. "
+                "Monitor growth rate and review feed composition."
+            )
 
     return {
         "pig_id":         pig.pig_id,
@@ -156,7 +253,3 @@ def analyze_pig(pig: PigRecord):
         "insight":        insight,
         "recommendation": recommendation,
     }
-
-@app.get("/")
-def root():
-    return {"message": "PRISM ML API is running.", "endpoints": ["/api/farm/analyze", "/api/pig/analyze"]}
