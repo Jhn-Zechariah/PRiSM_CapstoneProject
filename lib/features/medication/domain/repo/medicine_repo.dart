@@ -35,5 +35,5 @@ abstract class MedicineRepository {
   Stream<List<MedicineIntake>> streamIntakes();
 
   /// Streams upcoming intakes for the specific user
-  Stream<List<MedicineIntake>> streamUpcomingIntakes();
+  Stream<List<MedicineIntake>> streamUpcomingIntakes(String userId);
 }

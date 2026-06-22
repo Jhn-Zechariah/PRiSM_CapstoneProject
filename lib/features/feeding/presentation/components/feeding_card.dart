@@ -29,19 +29,16 @@ class FeedingCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        // Matching the PigProfileCard shadow!
         boxShadow: const [
           BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
         ],
       ),
-      // Using ClipRRect to properly clip the color stripe just like PigProfileCard
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Matching the 12px width stripe
               Container(width: 12, color: color),
 
               Expanded(
@@ -50,7 +47,6 @@ class FeedingCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // TOP ROW: Name and Icons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -64,21 +60,18 @@ class FeedingCard extends StatelessWidget {
                           ),
                           Row(
                             children: [
-                              // Only show the "+" add button if the card is expanded
                               if (isExpanded) ...[
                                 GestureDetector(
                                   onTap: () {
-                                    // 1. Grab the Cubit FIRST
                                     final feedingCubit = context.read<FeedingRecordCubit>();
 
                                     showDialog(
                                       context: context,
                                       builder: (dialogContext) {
-                                        // 2. Pass it into the dialog
                                         return BlocProvider.value(
                                           value: feedingCubit,
                                           child: PigFeedCardPopUp(
-                                            pigId: pig.pigId,
+                                            pig: pig, // 🔹 Passing the whole pig object
                                             pigColor: color,
                                           ),
                                         );
@@ -89,7 +82,6 @@ class FeedingCard extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 12),
                               ],
-                              // Expand/Collapse Chevron
                               GestureDetector(
                                 onTap: onToggleExpand,
                                 child: Icon(
@@ -103,7 +95,6 @@ class FeedingCard extends StatelessWidget {
                         ],
                       ),
 
-                      // EXPANDED CONTENT
                       if (isExpanded) ...[
                         const SizedBox(height: 12),
                         FeedingRecordExpandedPreview(

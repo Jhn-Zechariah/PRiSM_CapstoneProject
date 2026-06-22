@@ -1,11 +1,14 @@
+import 'package:cloud_firestore/cloud_firestore.dart'; // 🔹 Added for one-time fetch
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart'; // 🔹 Added for date formatting
 import '../../../../core/widgets/error_dialog.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../../../../core/widgets/dropdown.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
-import '../../domain/model/app_medicine_intake.dart'; // 🔹 Added Intake Model Import
+import '../../domain/model/app_medicine_intake.dart';
 import '../cubits/medicine_cubit.dart';
 import 'meds_combo_box.dart';
 
@@ -13,14 +16,14 @@ class MedicineIntakeDialog extends StatefulWidget {
   final Color accentColor;
   final String intakeType;
   final List<Medicine> availableMedicines;
-  final String pigId; // 🔹 Added pigId to constructor
+  final String pigId;
 
   const MedicineIntakeDialog({
     super.key,
     required this.accentColor,
     required this.intakeType,
     required this.availableMedicines,
-    required this.pigId, // 🔹 Required parameter
+    required this.pigId,
   });
 
   @override
@@ -42,6 +45,9 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
   List<MedicineStock> _fetchedBatches = [];
   bool _isLoadingSubStocks = false;
 
+  // 🔹 Added state for previous record
+  String _previousRecordText = '—';
+
   @override
   void dispose() {
     _dosageController.dispose();
@@ -50,19 +56,45 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     super.dispose();
   }
 
+  // 🔹 Logic to fetch the last time this medicine was given to this pig
+  Future<void> _fetchPreviousRecord(String medName) async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('pigs')
+          .doc(widget.pigId)
+          .collection('medicine_intakes')
+          .where('medName', isEqualTo: medName)
+          .orderBy('dateTaken', descending: true)
+          .limit(1)
+          .get(const GetOptions(source: Source.serverAndCache));
+
+      if (snapshot.docs.isNotEmpty) {
+        final data = snapshot.docs.first.data();
+        final dateTaken = DateTime.parse(data['dateTaken']);
+        final dosage = data['dosage'];
+        final unit = data['unitOfMeasurement'];
+
+        setState(() {
+          _previousRecordText = "${DateFormat('MMM dd').format(dateTaken)} ($dosage$unit)";
+        });
+      } else {
+        setState(() => _previousRecordText = 'No history');
+      }
+    } catch (e) {
+      debugPrint("Error fetching previous record: $e");
+      setState(() => _previousRecordText = '—');
+    }
+  }
+
   List<Medicine> get _filteredMedicines {
     String targetCategory = '';
     final type = widget.intakeType.toLowerCase();
-
     if (type == 'medicine') targetCategory = 'medicine';
     else if (type == 'vitamin') targetCategory = 'vitamin';
     else if (type == 'vaccine') targetCategory = 'vaccine';
 
     return widget.availableMedicines.where((med) {
-      final matchesCategory = med.category.toLowerCase() == targetCategory;
-      final hasStock = med.totalStock > 0;
-
-      return matchesCategory && hasStock;
+      return med.category.toLowerCase() == targetCategory && med.totalStock > 0;
     }).toList();
   }
 
@@ -77,7 +109,6 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     }
   }
 
-  // Helper to format dropdown strings consistently
   String _formatBatch(MedicineStock batch) => '${batch.expiryDate} | (${batch.amount.round()} ${_dosageUnit})';
 
   Future<void> _selectDate() async {
@@ -88,9 +119,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
       firstDate: tomorrow,
       lastDate: DateTime(2101),
       builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.light(primary: widget.accentColor),
-        ),
+        data: Theme.of(context).copyWith(colorScheme: ColorScheme.light(primary: widget.accentColor)),
         child: child!,
       ),
     );
@@ -99,65 +128,36 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     }
   }
 
-  // 🔹 Fully Updated _onSave with CustomErrorDialog Validation
   void _onSave() {
-    // 1. Validation: Ensure Medicine is selected
     if (_selectedMedicine == null || _selectedMedicine?.medId == null) {
-      CustomErrorDialog.show(
-          context: context,
-          message: 'Please select a medicine first.'
-      );
+      CustomErrorDialog.show(context: context, message: 'Please select a medicine first.');
       return;
     }
-
-    // 2. Validation: Ensure Batch is selected
     if (_selectedStockBatch == null) {
-      CustomErrorDialog.show(
-          context: context,
-          message: 'Please select a stock batch.'
-      );
+      CustomErrorDialog.show(context: context, message: 'Please select a stock batch.');
       return;
     }
+    final dosageAmount = double.tryParse(_dosageController.text.trim()) ?? 0.0;
+    final availableStock = _selectedStockBatch!.amount;
 
-    final dosageText = _dosageController.text.trim();
-
-    // 3. Validation: Ensure Dosage is not empty
-    if (dosageText.isEmpty) {
-      CustomErrorDialog.show(
-          context: context,
-          message: 'Please enter a dosage amount.'
-      );
-      return;
-    }
-
-    // Parse the text into numbers for math validation
-    final dosageAmount = double.tryParse(dosageText) ?? 0.0;
-    final availableStock = double.tryParse(_selectedStockBatch!.amount.toString()) ?? 0.0;
-
-    // 4. Validation: No zero or negative dosage
     if (dosageAmount <= 0) {
-      CustomErrorDialog.show(
-          context: context,
-          message: 'Dosage must be greater than zero.'
-      );
+      CustomErrorDialog.show(context: context, message: 'Dosage must be greater than zero.');
       return;
     }
-
-    // 5. Validation: Dosage cannot exceed available batch stock
     if (dosageAmount > availableStock) {
-      CustomErrorDialog.show(
-          context: context,
-          message: 'Dosage ($dosageAmount) exceeds available stock ($availableStock).'
-      );
+      CustomErrorDialog.show(context: context, message: 'Insufficient batch stock.');
       return;
     }
 
-    // --- All Validations Passed! Create the Model ---
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+
     final newRecord = MedicineIntake(
       pigId: widget.pigId,
+      userId: userId,
       category: _selectedMedicine!.category,
-      medName: _selectedMedicine!.name, // Ensure your Medicine model uses 'name'
-      dosage: dosageText,
+      medName: _selectedMedicine!.name,
+      dosage: _dosageController.text.trim(),
       unitOfMeasurement: _dosageUnit,
       status: _selectedStatus,
       nextSchedule: _scheduleController.text.isEmpty ? null : _scheduleController.text,
@@ -165,7 +165,6 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
       dateTaken: DateTime.now(),
     );
 
-    // Pass the prepared data back to the parent screen
     Navigator.pop(context, {
       'intake': newRecord,
       'selectedStock': _selectedStockBatch,
@@ -204,7 +203,6 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                         ],
                       ),
                       const SizedBox(height: 16),
-
                       MedicineSearchComboBox(
                         label: '${widget.intakeType}:',
                         medicines: _filteredMedicines,
@@ -212,18 +210,19 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                           _selectedMedicine = null;
                           _fetchedBatches = [];
                           _selectedStockBatch = null;
+                          _previousRecordText = '—';
                         }),
                         onSelected: (selection) async {
-                          final medId = selection.medId;
-                          if (medId == null) return;
-
                           setState(() {
                             _selectedMedicine = selection;
                             _isLoadingSubStocks = true;
                             _selectedStockBatch = null;
                           });
 
-                          final stocks = await context.read<MedicineCubit>().getStocksForMedicine(medId);
+                          // 🔹 Optimization: Fetch data sequentially
+                          await _fetchPreviousRecord(selection.name);
+                          final stocks = await context.read<MedicineCubit>().getStocksForMedicine(selection.medId!);
+
                           setState(() {
                             _fetchedBatches = stocks;
                             _isLoadingSubStocks = false;
@@ -232,7 +231,6 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                         },
                       ),
                       const SizedBox(height: 12),
-
                       _isLoadingSubStocks
                           ? const Center(child: CircularProgressIndicator())
                           : CustomDropdown(
@@ -248,54 +246,24 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                         },
                       ),
                       const SizedBox(height: 12),
-
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Expanded(
-                            flex: 3,
-                            child: CustomTextField(
-                              label: 'Dosage:',
-                              controller: _dosageController,
-                              border: 8,
-                              keyboardType: TextInputType.number,
-                              contentPadding: _fieldPadding,
-                            ),
-                          ),
+                          Expanded(flex: 3, child: CustomTextField(label: 'Dosage:', controller: _dosageController, border: 8, keyboardType: TextInputType.number, contentPadding: _fieldPadding)),
                           const SizedBox(width: 5),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child: Text('| $_dosageUnit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          ),
+                          Padding(padding: const EdgeInsets.only(bottom: 14), child: Text('| $_dosageUnit', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
                           const SizedBox(width: 16),
-                          Expanded(
-                            flex: 5,
-                            child: CustomDropdown(
-                              label: 'Status:',
-                              value: _selectedStatus,
-                              border: 8,
-                              contentPadding: _fieldPadding,
-                              items: _statusOptions,
-                              onChanged: (val) => setState(() => _selectedStatus = val!),
-                            ),
-                          ),
+                          Expanded(flex: 5, child: CustomDropdown(label: 'Status:', value: _selectedStatus, border: 8, contentPadding: _fieldPadding, items: _statusOptions, onChanged: (val) => setState(() => _selectedStatus = val!))),
                         ],
                       ),
                       const SizedBox(height: 12),
-
                       Row(
                         children: [
                           Expanded(
                             child: InkWell(
                               onTap: _selectDate,
                               child: IgnorePointer(
-                                child: CustomTextField(
-                                  label: 'Next Schedule:',
-                                  controller: _scheduleController,
-                                  border: 8,
-                                  contentPadding: _fieldPadding,
-                                  suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
-                                ),
+                                child: CustomTextField(label: 'Next Schedule:', controller: _scheduleController, border: 8, contentPadding: _fieldPadding, suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18)),
                               ),
                             ),
                           ),
@@ -304,44 +272,17 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Label
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Text(
-                                    'Previous Record:',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Theme.of(context).brightness == Brightness.dark
-                                          ? Colors.white54
-                                          : Colors.grey[600],
-                                    ),
-                                  ),
-                                ),
-                                // The Display Box
+                                Text('Previous Record:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: theme.brightness == Brightness.dark ? Colors.white54 : Colors.grey[600])),
+                                const SizedBox(height: 4),
                                 Container(
                                   width: double.infinity,
                                   padding: _fieldPadding,
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).brightness == Brightness.dark
-                                        ? const Color(0xFF2A2A2A)
-                                        : Colors.grey[200],
+                                    color: theme.brightness == Brightness.dark ? const Color(0xFF2A2A2A) : Colors.grey[200],
                                     borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: Theme.of(context).brightness == Brightness.dark
-                                          ? Colors.white12
-                                          : Colors.grey[300]!,
-                                    ),
+                                    border: Border.all(color: theme.brightness == Brightness.dark ? Colors.white12 : Colors.grey[300]!),
                                   ),
-                                  child: Text(
-                                    '—', // 🔹 Put your actual record data here later
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Theme.of(context).brightness == Brightness.dark
-                                          ? Colors.white54
-                                          : Colors.grey[500],
-                                    ),
-                                  ),
+                                  child: Text(_previousRecordText, style: TextStyle(fontSize: 14, color: theme.brightness == Brightness.dark ? Colors.white54 : Colors.grey[500])),
                                 ),
                               ],
                             ),
@@ -349,29 +290,9 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                         ],
                       ),
                       const SizedBox(height: 12),
-
-                      CustomTextField(
-                        label: 'Purpose: (Optional)',
-                        controller: _purposeController,
-                        border: 8,
-                        maxLines: 2,
-                        contentPadding: _fieldPadding,
-                      ),
+                      CustomTextField(label: 'Purpose: (Optional)', controller: _purposeController, border: 8, maxLines: 2, contentPadding: _fieldPadding),
                       const SizedBox(height: 20),
-
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: ElevatedButton(
-                          onPressed: _onSave,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          child: const Text('Save Record', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
+                      SizedBox(width: double.infinity, height: 48, child: ElevatedButton(onPressed: _onSave, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))), child: const Text('Save Record', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
                     ],
                   ),
                 ),
