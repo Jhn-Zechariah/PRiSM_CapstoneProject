@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 
 class MlService {
   // For Android emulator on the same PC:
-  static const String baseUrl = 'http://192.168.11.223:8000';
+  static const String baseUrl = 'http://192.168.1.19:8000';
   // For physical Android phone (same Wi-Fi), change to your PC's IP:
   // static const String baseUrl = 'http://192.168.1.x:8000';
 
