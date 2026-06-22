@@ -69,16 +69,19 @@ class PigCubit extends Cubit<PigState> {
     }).toList();
   }
 
+  String? _lastLoadedUid;
+
   void _loadPigs(String uid) {
-    // CRITICAL: Cancel the old stream if someone else was logged in previously!
+    // 🔹 Optimization: Only start a new stream if the user has actually changed
+    if (_lastLoadedUid == uid && _pigSubscription != null) return;
+
+    _lastLoadedUid = uid;
     _pigSubscription?.cancel();
 
     emit(PigLoading());
 
-    // Listen to the stream from your repo
     _pigSubscription = _pigRepo.streamPigs(uid).listen(
           (pigs) {
-        // 👇 INSTANT FIX: Pass the new pigs to our helper method!
         _onPigsUpdated(pigs);
       },
       onError: (error) {

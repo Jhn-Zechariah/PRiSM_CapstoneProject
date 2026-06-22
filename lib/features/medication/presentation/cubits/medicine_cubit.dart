@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_intake.dart';
 import '../../domain/model/app_medicine_stock.dart';
@@ -9,55 +10,53 @@ import 'medicine_states.dart';
 
 class MedicineCubit extends Cubit<MedicineState> {
   final MedicineRepository repository;
+
   StreamSubscription? _medicineSubscription;
-  StreamSubscription? _intakeSubscription; // 🔹 Added subscription for intakes
+  StreamSubscription? _intakeSubscription;
+
+  String? _lastLoadedUid;
 
   MedicineCubit({required this.repository}) : super(MedicineInitial());
 
   // ----------------------------------------------------------------------
-  // 🔹 MEDICINE STREAM LOGIC
+  // MEDICINE STREAM LOGIC
   // ----------------------------------------------------------------------
   void listenToMedicines() {
     final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      emit(MedicineError("No authenticated user found."));
+    if (currentUser == null) return;
+
+    // Prevent restarting same stream
+    if (_lastLoadedUid == currentUser.uid &&
+        _medicineSubscription != null) {
       return;
     }
 
-    emit(MedicineLoading());
+    _lastLoadedUid = currentUser.uid;
     _medicineSubscription?.cancel();
 
-    _medicineSubscription = repository.streamMedicines(currentUser.uid).listen(
-          (medicines) {
-        emit(MedicineLoaded(medicines));
-      },
-      onError: (error) {
-        emit(MedicineError(error.toString()));
-      },
-    );
-  }
-
-  // ----------------------------------------------------------------------
-  // 🔹 MEDICINE INTAKE STREAM LOGIC (MERGED HERE)
-  // ----------------------------------------------------------------------
-  void listenToIntakes() {
     emit(MedicineLoading());
 
-    _intakeSubscription?.cancel();
+    _medicineSubscription =
+        repository.streamMedicines(currentUser.uid).listen(
+              (medicines) => emit(MedicineLoaded(medicines)),
+          onError: (e) => emit(MedicineError(e.toString())),
+        );
+  }
 
-    // 🔹 Now perfectly abstracting the stream from the repository layer
+  // ----------------------------------------------------------------------
+  // MEDICINE INTAKE STREAM LOGIC
+  // ----------------------------------------------------------------------
+  void listenToIntakes() {
+    if (_intakeSubscription != null) return;
+
     _intakeSubscription = repository.streamIntakes().listen(
-          (intakes) {
-        emit(MedicineIntakesLoaded(intakes));
-      },
-      onError: (error) {
-        emit(MedicineError(error.toString()));
-      },
+          (intakes) => emit(MedicineIntakesLoaded(intakes)),
+      onError: (e) => emit(MedicineError(e.toString())),
     );
   }
 
   // ----------------------------------------------------------------------
-  // 🔹 CRUD LOGIC
+  // CRUD LOGIC
   // ----------------------------------------------------------------------
   Future<void> saveMedicineWithStock({
     required Medicine medicine,
@@ -68,6 +67,7 @@ class MedicineCubit extends Cubit<MedicineState> {
         medicine: medicine,
         initialBatch: initialBatch,
       );
+
       emit(MedicineSaveSuccess());
     } catch (e) {
       emit(MedicineError(e.toString()));
@@ -100,7 +100,9 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-      listenToMedicines();
+
+      // Not needed if stream already active
+      // listenToMedicines();
     } catch (e) {
       emit(MedicineError(e.toString()));
     }
@@ -119,7 +121,9 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-      listenToMedicines();
+
+      // Not needed if stream already active
+      // listenToMedicines();
     } catch (e) {
       emit(MedicineError(e.toString()));
     }
@@ -140,11 +144,16 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-      listenToMedicines();
+
+      // Not needed if stream already active
+      // listenToMedicines();
     } catch (e, stackTrace) {
       print("🔥 FIRESTORE SAVE ERROR: $e");
       print("🔥 STACKTRACE: $stackTrace");
-      final errorMessage = e.toString().replaceAll('Exception: ', '');
+
+      final errorMessage =
+      e.toString().replaceAll('Exception: ', '');
+
       emit(MedicineError(errorMessage));
     }
   }
@@ -152,7 +161,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   @override
   Future<void> close() {
     _medicineSubscription?.cancel();
-    _intakeSubscription?.cancel(); // 🔹 Ensure the intake stream is closed too
+    _intakeSubscription?.cancel();
     return super.close();
   }
 }

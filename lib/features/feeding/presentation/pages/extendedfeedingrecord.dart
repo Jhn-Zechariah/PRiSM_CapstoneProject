@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_feeding_record.dart';
 
-class FeedingRecordExpandedPreview extends StatelessWidget {
+class FeedingRecordExpandedPreview extends StatefulWidget {
   final AppPig pig;
   final Color pigColor;
 
@@ -13,7 +13,37 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
     required this.pigColor,
   });
 
-  //  Helper to calculate age from birthDate
+  @override
+  State<FeedingRecordExpandedPreview> createState() => _FeedingRecordExpandedPreviewState();
+}
+
+class _FeedingRecordExpandedPreviewState extends State<FeedingRecordExpandedPreview> {
+  late Stream<AppFeedingRecord?> _feedingStream;
+
+  @override
+  void initState() {
+    super.initState();
+    // 🔹 Initialize stream ONCE here to prevent infinite read loops
+    _feedingStream = FirebaseFirestore.instance
+        .collection('pigs')
+        .doc(widget.pig.pigId)
+        .collection('feeding_records')
+        .orderBy('timestamp', descending: true)
+        .limit(1)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isNotEmpty) {
+        try {
+          return AppFeedingRecord.fromMap(snapshot.docs.first.data());
+        } catch (e) {
+          debugPrint(" ERROR PARSING FEEDING RECORD: $e");
+          return null;
+        }
+      }
+      return null;
+    });
+  }
+
   String _calculateAge(DateTime birthDate) {
     final days = DateTime.now().difference(birthDate).inDays;
     if (days < 30) return '$days days';
@@ -21,51 +51,14 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
     return '$months months';
   }
 
-  //  Changed from Future to Stream, and .get() to .snapshots()
-  Stream<AppFeedingRecord?> _streamLatestFeedingRecord() {
-    return FirebaseFirestore.instance
-        .collection('pigs')
-        .doc(
-          pig.pigId,
-        ) // Make sure this is the exact string of the Firestore Document ID!
-        .collection('feeding_records')
-        .orderBy('timestamp', descending: true)
-        .limit(1)
-        .snapshots()
-        .map((snapshot) {
-          if (snapshot.docs.isNotEmpty) {
-            try {
-              return AppFeedingRecord.fromMap(snapshot.docs.first.data());
-            } catch (e) {
-              // If the data crashes while parsing, it will print here!
-              debugPrint(" ERROR PARSING FEEDING RECORD: $e");
-              return null;
-            }
-          }
-          return null;
-        });
-  }
-
-  Widget _buildInfoText(
-    String label,
-    String value,
-    Color labelColor,
-    Color textColor,
-  ) {
+  Widget _buildInfoText(String label, String value, Color labelColor, Color textColor) {
     return RichText(
       text: TextSpan(
         children: [
-          TextSpan(
-            text: '$label ',
-            style: TextStyle(fontSize: 12, color: labelColor),
-          ),
+          TextSpan(text: '$label ', style: TextStyle(fontSize: 12, color: labelColor)),
           TextSpan(
             text: value,
-            style: TextStyle(
-              fontSize: 12,
-              color: textColor,
-              fontWeight: FontWeight.w500,
-            ),
+            style: TextStyle(fontSize: 12, color: textColor, fontWeight: FontWeight.w500),
           ),
         ],
       ),
@@ -79,21 +72,16 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
     final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
 
     return StreamBuilder<AppFeedingRecord?>(
-      stream: _streamLatestFeedingRecord(),
+      stream: _feedingStream, // 🔹 Uses the cached stream
       builder: (context, snapshot) {
         String feedType = 'No data yet';
         String amount = '0';
 
-        //  2. Add an explicit error check to show on the UI
-        if (snapshot.hasError) {
-          debugPrint(" STREAM ERROR: ${snapshot.error}");
-          feedType = 'Stream Error!';
-          amount = 'Error';
-        } else if (snapshot.hasData && snapshot.data != null) {
+        if (snapshot.hasData && snapshot.data != null) {
           feedType = snapshot.data!.feedType;
           amount = snapshot.data!.amount.toString();
         } else if (snapshot.connectionState == ConnectionState.waiting) {
-          feedType = 'Loading...';
+          feedType = '...';
           amount = '...';
         }
 
@@ -103,19 +91,9 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildInfoText(
-                    'Age:',
-                    _calculateAge(pig.birthDate),
-                    labelColor,
-                    textColor,
-                  ),
+                  _buildInfoText('Age:', _calculateAge(widget.pig.birthDate), labelColor, textColor),
                   const SizedBox(height: 4),
-                  _buildInfoText(
-                    'Type of feed:',
-                    feedType,
-                    labelColor,
-                    textColor,
-                  ),
+                  _buildInfoText('Type of feed:', feedType, labelColor, textColor),
                 ],
               ),
             ),
@@ -123,19 +101,9 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildInfoText(
-                    'Stage:',
-                    pig.stage.isNotEmpty ? pig.stage : 'N/A',
-                    labelColor,
-                    textColor,
-                  ),
+                  _buildInfoText('Stage:', widget.pig.stage.isNotEmpty ? widget.pig.stage : 'N/A', labelColor, textColor),
                   const SizedBox(height: 4),
-                  _buildInfoText(
-                    'Amount of feeds:',
-                    amount,
-                    labelColor,
-                    textColor,
-                  ),
+                  _buildInfoText('Amount of feeds:', amount, labelColor, textColor),
                 ],
               ),
             ),
