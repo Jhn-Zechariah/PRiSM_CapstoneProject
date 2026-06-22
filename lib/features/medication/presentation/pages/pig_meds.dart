@@ -1,5 +1,6 @@
 // ignore_for_file: camel_case_types
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
@@ -60,14 +61,20 @@ class _pig_medsState extends State<pig_meds> {
             trailing: IconButton(
               icon: const Icon(Icons.calendar_month_outlined, size: 28),
               onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => MedsIntakeScheduleScreen(
-                      intakeStream: context.read<MedicineCubit>().repository.streamUpcomingIntakes(),
+                // 🔹 Get the logged-in user's ID
+                final String? uid = FirebaseAuth.instance.currentUser?.uid;
+
+                if (uid != null) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => MedsIntakeScheduleScreen(
+                        // 🔹 Pass the uid to the stream method
+                        intakeStream: context.read<MedicineCubit>().repository.streamUpcomingIntakes(uid),
+                      ),
                     ),
-                  ),
-                );
+                  );
+                }
               },
             ),
           ),

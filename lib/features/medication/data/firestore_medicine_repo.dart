@@ -7,13 +7,13 @@ import '../domain/repo/medicine_repo.dart';
 class FirestoreMedicineRepo implements MedicineRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // 🔹 Updated to filter streams by the specific logged-in farmer/user
   @override
   Stream<List<Medicine>> streamMedicines(String userId) {
     return _firestore
         .collection('medicines')
-        .where('userId', isEqualTo: userId) // 🔹 Filters out other users' data
-        .snapshots()
+        .where('userId', isEqualTo: userId)
+    // 🔹 1. ignoreMetadataChanges prevents extra reads during local sync
+        .snapshots(includeMetadataChanges: false)
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => Medicine.fromMap(doc.data(), doc.id))
@@ -23,33 +23,32 @@ class FirestoreMedicineRepo implements MedicineRepository {
 
   // Add to FirestoreMedicineRepo
   @override
-  Stream<List<MedicineIntake>> streamUpcomingIntakes() {
+  Stream<List<MedicineIntake>> streamUpcomingIntakes(String userId) {
     final now = DateTime.now();
-
-    // Create a DateTime representing 12:00 AM today.
-    final startOfToday = DateTime(now.year, now.month, now.day);
+    final startOfToday = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    );
 
     return _firestore
         .collectionGroup('medicine_intakes')
-        .where('nextSchedule', isNotEqualTo: null)
+        .where('userId', isEqualTo: userId)
+        .where(
+      'nextSchedule',
+      isGreaterThanOrEqualTo: startOfToday.toIso8601String(),
+    )
+        .orderBy('nextSchedule')
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
-          .map((doc) => MedicineIntake.fromMap(doc.data(), documentId: doc.id))
-          .where((intake) {
-
-        if (intake.nextSchedule == null) return false;
-
-        final scheduleDate = DateTime.tryParse(intake.nextSchedule!);
-        if (scheduleDate == null) return false;
-
-        // Filter: Keep if the schedule is NOT before the start of today.
-        return !scheduleDate.isBefore(startOfToday);
-
-      })
-          .toList()
-        ..sort((a, b) => DateTime.parse(a.nextSchedule!)
-            .compareTo(DateTime.parse(b.nextSchedule!)));
+          .map(
+            (doc) => MedicineIntake.fromMap(
+          doc.data(),
+          documentId: doc.id,
+        ),
+      )
+          .toList();
     });
   }
 
@@ -107,16 +106,16 @@ class FirestoreMedicineRepo implements MedicineRepository {
     required String stockDocId,
     required double oldStockAmount,
   }) async {
-    final batch = _firestore.batch();
-
     final medRef = _firestore.collection('medicines').doc(medicine.medId);
     final stockCollectionRef = medRef.collection('medicine_stock');
     final currentStockRef = stockCollectionRef.doc(stockDocId);
 
-    // 1. Check if another document already uses the NEW expiry date
+    // 🔹 3. Use cache first for checking existing batches to save server reads
     final querySnapshot = await stockCollectionRef
         .where('expiryDate', isEqualTo: updatedStock.expiryDate)
-        .get();
+        .get(const GetOptions(source: Source.serverAndCache));
+
+    final batch = _firestore.batch();
 
     // Filter out the current document we are updating to avoid matching itself
     final existingDocsWithSameDate = querySnapshot.docs.where((doc) => doc.id != stockDocId).toList();
@@ -239,8 +238,9 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .collection('medicine_intakes')
         .doc();
 
-    final intakeWithId = intake.copyWith(id: intakeRef.id);
-    batch.set(intakeRef, intakeWithId.toMap());
+    // 🔹 Ensure userId is saved inside the intake document
+    final intakeWithData = intake.copyWith(id: intakeRef.id);
+    batch.set(intakeRef, intakeWithData.toMap());
 
     // B. Reduce Batch Stock OR Delete if empty
     final stockRef = _firestore
