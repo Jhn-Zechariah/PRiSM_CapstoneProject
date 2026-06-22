@@ -200,7 +200,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       "Connecting..."; // ESP32 physical sensor online/offline
 
   double _tempMax = 0;
-  String _tempStatus = "Normal";
+  String _tempStatus = "Temperature";
   double _waterPct = 0;
   String _waterStatus = "Unknown";
   double _lastKnownTemp = 0;
