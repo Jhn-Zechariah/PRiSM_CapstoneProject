@@ -16,42 +16,41 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
         .collection('feeding_records')
         .doc();
 
-    final newRecord = AppFeedingRecord(
-      id: docRef.id,
-      pigId: record.pigId,
-      feedType: record.feedType,
-      amount: record.amount,
-      timestamp: record.timestamp,
-    );
+    final data = record.toMap();
+    data['id'] = docRef.id;
 
-    await docRef.set(newRecord.toMap());
+    await docRef.set(data);
   }
 
-  // Implement the batch function
   @override
   Future<void> addBatchFeedingRecords(List<AppFeedingRecord> records) async {
-    final batch = _firestore.batch();
+    // Firestore batches max out at 500 writes
+    const chunkSize = 500;
 
-    for (final record in records) {
-      final docRef = _firestore
-          .collection('pigs')
-          .doc(record.pigId)
-          .collection('feeding_records')
-          .doc();
-
-      final newRecord = AppFeedingRecord(
-        id: docRef.id,
-        pigId: record.pigId,
-        feedType: record.feedType,
-        amount: record.amount,
-        timestamp: record.timestamp,
+    for (var i = 0; i < records.length; i += chunkSize) {
+      final chunk = records.sublist(
+        i,
+        i + chunkSize > records.length ? records.length : i + chunkSize,
       );
 
-      batch.set(docRef, newRecord.toMap());
-    }
+      final batch = _firestore.batch();
 
-    // Commit all records to Firestore in a single network request
-    await batch.commit();
+      for (final record in chunk) {
+        final docRef = _firestore
+            .collection('pigs')
+            .doc(record.pigId)
+            .collection('feeding_records')
+            .doc();
+
+        // Reuse toMap() so no fields are lost, same as addFeedingRecord
+        final data = record.toMap();
+        data['id'] = docRef.id;
+
+        batch.set(docRef, data);
+      }
+
+      await batch.commit();
+    }
   }
 
   @override
@@ -69,11 +68,12 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
   }
 
   // ── 2. STREAM GLOBAL HISTORY (Merged here) ───────────────────────
-  Stream<List<AppFeedingHistory>> streamGlobalFeedingHistory() {
+  Stream<List<AppFeedingHistory>> streamGlobalFeedingHistory(String userId) {
     return _firestore
-        .collectionGroup('feeding_records') // Targets all subcollections across all pigs
+        .collectionGroup('feeding_records')
+        .where('userId', isEqualTo: userId) // 🔹 CRITICAL Optimization
         .orderBy('timestamp', descending: true)
-        .snapshots()
+        .snapshots(includeMetadataChanges: false) // 🔹 Metadata Optimization
         .map((snapshot) {
       return snapshot.docs.map((doc) {
         return AppFeedingHistory.fromJson(doc.data(), doc.id);

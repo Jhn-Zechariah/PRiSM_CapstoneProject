@@ -11,12 +11,13 @@ class FeedingHistoryCubit extends Cubit<FeedingHistoryState> {
       : _repo = repo,
         super(FeedingHistoryInitial());
 
-  void loadGlobalFeedingHistory() {
+  void loadGlobalFeedingHistory(String userId) {
+
     emit(FeedingHistoryLoading());
 
     _historySubscription?.cancel();
 
-    _historySubscription = _repo.streamGlobalFeedingHistory().listen(
+    _historySubscription = _repo.streamGlobalFeedingHistory(userId).listen(
           (records) {
         emit(FeedingHistoryLoaded(records));
       },

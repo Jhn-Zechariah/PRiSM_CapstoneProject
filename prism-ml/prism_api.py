@@ -1,21 +1,53 @@
 """
-PRISM - FastAPI Backend
-Connects both ML models to the PRISM mobile/web app.
+PRISM - FastAPI Backend with Firebase Authentication
+Connects both ML models to the PRISM mobile/web app securely.
 
 Run with:  uvicorn prism_api:app --reload --host 0.0.0.0 --port 8000
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
 import pandas as pd
 import joblib
+from dotenv import load_dotenv
 from datetime import date
+import firebase_admin
+from firebase_admin import credentials, auth
+
+load_dotenv()
 
 app = FastAPI(title="PRISM ML API", version="1.0.0")
+security = HTTPBearer()
 
-# ── CORS — allows Flutter app to call this API from any device ────────────────
+# ── Firebase Admin SDK Initialization ─────────────────────────────────────────
+try:
+    # Look for the path in .env, fallback to the string if not found
+    cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase_credentials.json")
+    cred = credentials.Certificate(cred_path)
+    firebase_admin.initialize_app(cred)
+    print("🔥 Firebase Admin SDK initialized successfully!")
+except Exception as e:
+    print(f"❌ Failed to initialize Firebase Admin SDK: {e}")
+
+# ── Firebase Token Verification Dependency ───────────────────────────────────
+def verify_firebase_token(cred: HTTPAuthorizationCredentials = Depends(security)):
+    """Middleware dependency to check for a valid Firebase token in headers."""
+    token = cred.credentials
+    try:
+        # ADD clock_skew_seconds=10 right here!
+        decoded_token = auth.verify_id_token(token, clock_skew_seconds=10)
+        return decoded_token
+    except Exception as e:
+        print(f"❌ TOKEN REJECTION REASON: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, expired, or missing Firebase authentication token.",
+        )
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,24 +65,22 @@ class FarmReading(BaseModel):
 
 class PigRecord(BaseModel):
     pig_id:         str
-    birth_date:     str    # ISO format: YYYY-MM-DD
-    current_weight: float  # kg
-    birth_weight:   float  # kg
+    birth_date:     str
+    current_weight: float
+    birth_weight:   float
 
-# ── Farm features (must match prism_farm_ml.py FEATURES list) ─────────────────
+# ── Feature Configurations ───────────────────────────────────────────────────
 FARM_FEATURES = [
     'temperature_c', 'humidity_pct', 'thi',
     'weight_change_kg', 'feed_intake_kg',
     'temp_avg3', 'humidity_avg3'
 ]
 
-# ── Pig features (must match prism_pig_weight_ml.py FEATURES list) ────────────
 PIG_FEATURES = [
     'age_days', 'current_weight', 'birth_weight',
     'adg', 'weight_deviation_pct', 'adg_deviation_pct'
 ]
 
-# ── Growth standards (must match prism_pig_weight_ml.py GROWTH_STAGES) ────────
 GROWTH_STANDARDS = {
     'piglet':   {'age_range': (0,   21),  'weight_range': (1.0,  6.5),   'adg_target': 0.25},
     'nursery':  {'age_range': (22,  70),  'weight_range': (6.5,  25.0),  'adg_target': 0.38},
@@ -65,7 +95,7 @@ def get_stage(age_days: int):
             return stage, data
     return 'market_ready', None
 
-# ── Health check ──────────────────────────────────────────────────────────────
+# ── Open Health Check (No security required) ──────────────────────────────────
 @app.get("/")
 def root():
     return {
@@ -73,10 +103,9 @@ def root():
         "endpoints": ["/api/farm/analyze", "/api/pig/analyze"]
     }
 
-# ── ENDPOINT 1: Farm-level analysis ──────────────────────────────────────────
+# ── ENDPOINT 1: Farm-level analysis (SECURED) ────────────────────────────────
 @app.post("/api/farm/analyze")
-def analyze_farm(reading: FarmReading):
-    # Load trained model
+def analyze_farm(reading: FarmReading, user: dict = Depends(verify_firebase_token)):
     try:
         model = joblib.load('prism_farm_model.pkl')
     except FileNotFoundError:
@@ -85,14 +114,12 @@ def analyze_farm(reading: FarmReading):
             detail="Farm model not found. Run: python prism_farm_ml.py"
         )
 
-    # Build input dataframe with engineered features
     row = reading.dict()
     df  = pd.DataFrame([row])
     df['thi']           = df['temperature_c'] - (0.55 - 0.0055 * df['humidity_pct']) * (df['temperature_c'] - 14.5)
     df['temp_avg3']     = df['temperature_c']
     df['humidity_avg3'] = df['humidity_pct']
 
-    # Predict condition
     prediction = model.predict(df[FARM_FEATURES])[0]
     thi        = float(df['thi'].iloc[0])
 
@@ -104,7 +131,6 @@ def analyze_farm(reading: FarmReading):
     insights        = []
     recommendations = []
 
-    # Temperature
     if temp > 32:
         insights.append(f"Barn temperature is critically high at {temp}°C — severe heat stress zone.")
         recommendations.append("Activate cooling system immediately and increase ventilation.")
@@ -112,7 +138,6 @@ def analyze_farm(reading: FarmReading):
         insights.append(f"Barn temperature ({temp}°C) is above the thermoneutral zone (18–25°C).")
         recommendations.append("Monitor pigs closely. Consider pre-cooling or misting systems.")
 
-    # Humidity
     if hum > 90:
         insights.append(f"Humidity is critically high at {hum}% — compounds heat stress significantly.")
         recommendations.append("Improve barn ventilation. Check drainage and reduce water waste.")
@@ -120,7 +145,6 @@ def analyze_farm(reading: FarmReading):
         insights.append(f"Humidity ({hum}%) is elevated above optimal range (60–80%).")
         recommendations.append("Increase airflow. Avoid overcrowding.")
 
-    # THI
     if thi >= 26.11:
         insights.append(f"THI is {thi:.1f} — farm is in the DANGER zone for heat stress.")
         recommendations.append("Emergency: reduce stocking density, provide cool drinking water.")
@@ -128,7 +152,6 @@ def analyze_farm(reading: FarmReading):
         insights.append(f"THI is {thi:.1f} — farm is in the ALERT zone.")
         recommendations.append("Increase monitoring frequency. Pre-cool barn in the afternoon.")
 
-    # Weight change
     if wt < 0:
         insights.append(f"Average weight change is negative ({wt:.2f} kg/day) — pigs may be losing weight.")
         recommendations.append("Review feed quality and quantity. Check for illness or heat anorexia.")
@@ -136,12 +159,10 @@ def analyze_farm(reading: FarmReading):
         insights.append(f"Weight gain ({wt:.2f} kg/day) is below expected levels.")
         recommendations.append("Check feed intake and consider nutritional assessment.")
 
-    # Feed intake
     if feed < 1.5 and feed > 0:
         insights.append(f"Feed intake is low at {feed:.2f} kg/day — possible heat anorexia or illness.")
         recommendations.append("Shift feeding time to cooler parts of day (early morning / evening).")
 
-    # Default — all good
     if not insights:
         insights.append("Farm conditions are within normal ranges. Pigs appear healthy.")
         recommendations.append("Continue current management routine.")
@@ -151,12 +172,12 @@ def analyze_farm(reading: FarmReading):
         "thi":             round(thi, 2),
         "insights":        insights,
         "recommendations": recommendations,
+        "verified_uid":    user['uid']  # Proof that the server identified the user
     }
 
-# ── ENDPOINT 2: Per-pig weight analysis ───────────────────────────────────────
+# ── ENDPOINT 2: Per-pig weight analysis (SECURED) ─────────────────────────────
 @app.post("/api/pig/analyze")
-def analyze_pig(pig: PigRecord):
-    # Load trained model
+def analyze_pig(pig: PigRecord, user: dict = Depends(verify_firebase_token)):
     try:
         model = joblib.load('prism_pig_weight_model.pkl')
     except FileNotFoundError:
@@ -165,7 +186,6 @@ def analyze_pig(pig: PigRecord):
             detail="Pig weight model not found. Run: python prism_pig_weight_ml.py"
         )
 
-    # Compute age and growth features
     birth    = date.fromisoformat(pig.birth_date)
     age_days = max((date.today() - birth).days, 1)
     stage, std = get_stage(age_days)
@@ -184,7 +204,6 @@ def analyze_pig(pig: PigRecord):
         exp_lo, exp_hi  = 100.0, 120.0
         adg_target      = 0.0
 
-    # Build input dataframe — feature names must match training
     input_df = pd.DataFrame([{
         'age_days':             age_days,
         'current_weight':       pig.current_weight,
@@ -196,17 +215,16 @@ def analyze_pig(pig: PigRecord):
 
     classification = model.predict(input_df[PIG_FEATURES])[0]
 
-    # Generate insight and recommendation
+    insight = ""
+    recommendation = ""
+
     if classification == 'Normal':
         insight = (
             f"Pig is {pig.current_weight:.1f} kg at {age_days} days old — within the expected "
             f"range of {exp_lo:.1f}–{exp_hi:.1f} kg for the {stage} stage. "
             f"ADG is {adg:.3f} kg/day, on track with the target of {adg_target:.2f} kg/day."
         )
-        recommendation = (
-            "Continue current feeding and care routine. "
-            "Record next weight at the scheduled weigh-in."
-        )
+        recommendation = "Continue current feeding and care routine. Record next weight at the scheduled weigh-in."
 
     elif classification == 'Underweight':
         insight = (
@@ -215,17 +233,9 @@ def analyze_pig(pig: PigRecord):
             f"ADG of {adg:.3f} kg/day is below the target of {adg_target:.2f} kg/day."
         )
         if abs(wt_dev) > 30:
-            recommendation = (
-                "Weight gap is significant. Review feed quality and quantity. "
-                "Check for signs of illness, parasites, or bullying by pen mates. "
-                "Consult a veterinarian if no improvement in 7 days."
-            )
+            recommendation = "Weight gap is significant. Review feed quality and quantity. Check for signs of illness, parasites, or bullying by pen mates. Consult a veterinarian if no improvement in 7 days."
         else:
-            recommendation = (
-                "Review feeding schedule and ensure this pig has access to the feeder. "
-                "Check for signs of illness: lethargy, diarrhea, or labored breathing. "
-                "Consider vitamin supplementation."
-            )
+            recommendation = "Review feeding schedule and ensure this pig has access to the feeder. Check for signs of illness: lethargy, diarrhea, or labored breathing. Consider vitamin supplementation."
 
     else:  # Overweight
         insight = (
@@ -233,16 +243,9 @@ def analyze_pig(pig: PigRecord):
             f"the expected midpoint for the {stage} stage ({exp_lo:.1f}–{exp_hi:.1f} kg)."
         )
         if stage == 'finisher' and pig.current_weight >= 100:
-            recommendation = (
-                f"Pig has reached {pig.current_weight:.1f} kg. "
-                "Consider scheduling for market soon to optimize carcass quality. "
-                "Adjust feed ration to reduce excess fat deposition."
-            )
+            recommendation = f"Pig has reached {pig.current_weight:.1f} kg. Consider scheduling for market soon to optimize carcass quality. Adjust feed ration to reduce excess fat deposition."
         else:
-            recommendation = (
-                "Adjust feed ration to prevent excess fat deposition. "
-                "Monitor growth rate and review feed composition."
-            )
+            recommendation = "Adjust feed ration to prevent excess fat deposition. Monitor growth rate and review feed composition."
 
     return {
         "pig_id":         pig.pig_id,
@@ -252,4 +255,5 @@ def analyze_pig(pig: PigRecord):
         "classification": classification,
         "insight":        insight,
         "recommendation": recommendation,
+        "verified_uid":    user['uid']
     }
