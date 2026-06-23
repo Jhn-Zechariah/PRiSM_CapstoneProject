@@ -7,12 +7,15 @@ import '../../domain/model/app_pig.dart';
 import '../cubits/pig_cubit.dart';
 import '../../../../core/services/ml_service.dart';
 
+
 enum PigMenuAction { info, updateWeight }
+
 
 class PigProfileCard extends StatefulWidget {
   final AppPig pig;
   final Color accentColor;
   final bool isDarkMode;
+
 
   const PigProfileCard({
     super.key,
@@ -21,21 +24,62 @@ class PigProfileCard extends StatefulWidget {
     required this.isDarkMode,
   });
 
+
   @override
   State<PigProfileCard> createState() => _PigProfileCardState();
+
 }
 
-class _PigProfileCardState extends State<PigProfileCard> {
+class _PigProfileCardState extends State<PigProfileCard>
+    with AutomaticKeepAliveClientMixin {
+
+  @override
+  void didUpdateWidget(covariant PigProfileCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final weightChanged =
+        oldWidget.pig.currentWeightKg != widget.pig.currentWeightKg;
+
+    final birthWeightChanged =
+        oldWidget.pig.birthWeightKg != widget.pig.birthWeightKg;
+
+    final birthDateChanged =
+        oldWidget.pig.birthDate != widget.pig.birthDate;
+
+    final statusChanged =
+        oldWidget.pig.status != widget.pig.status;
+
+    if (weightChanged ||
+        birthWeightChanged ||
+        birthDateChanged ||
+        statusChanged) {
+
+      setState(() {
+        _mlLoading = true;
+        _mlClassification = null;
+        _mlInsight = null;
+        _mlRecommendation = null;
+      });
+
+      _fetchMLInsights();
+    }
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
   String? _mlClassification;
   String? _mlInsight;
   String? _mlRecommendation;
   bool _mlLoading = true;
+
 
   @override
   void initState() {
     super.initState();
     _fetchMLInsights();
   }
+
 
   Future<void> _fetchMLInsights() async {
     // Only run ML for active pigs
@@ -45,13 +89,14 @@ class _PigProfileCardState extends State<PigProfileCard> {
       return;
     }
 
+
     try {
       final result = await MlService.analyzePig(
         pigId: widget.pig.pigId,
         birthDate: widget.pig.birthDate.toIso8601String().substring(0, 10),
         currentWeight: widget.pig.currentWeightKg,
         birthWeight:
-            widget.pig.birthWeightKg, // make sure AppPig has this field
+        widget.pig.birthWeightKg, // make sure AppPig has this field
       );
       if (!mounted) return;
       setState(() {
@@ -61,7 +106,7 @@ class _PigProfileCardState extends State<PigProfileCard> {
         _mlLoading = false;
       });
     } catch (e) {
-      print('>>> ML pig error: $e');
+      debugPrint('ML pig error: $e'); // ✅ stripped in release builds automatically
       if (!mounted) return;
       setState(() {
         _mlLoading = false;
@@ -70,12 +115,14 @@ class _PigProfileCardState extends State<PigProfileCard> {
     }
   }
 
+
   String _calculateAge(DateTime birthDate) {
     final days = DateTime.now().difference(birthDate).inDays;
     if (days < 30) return '$days days';
     final months = days ~/ 30;
     return '$months months';
   }
+
 
   Color _getStatusColor(String status, bool isDarkMode) {
     final lowerStatus = status.toLowerCase();
@@ -88,6 +135,7 @@ class _PigProfileCardState extends State<PigProfileCard> {
     }
     return isDarkMode ? Colors.orangeAccent : Colors.orange.shade800;
   }
+
 
   Color _getClassificationColor(String? classification) {
     if (classification == null) return Colors.grey;
@@ -103,8 +151,10 @@ class _PigProfileCardState extends State<PigProfileCard> {
     }
   }
 
+
   void _handleMenuAction(BuildContext context, PigMenuAction action) async {
     final pigCubit = context.read<PigCubit>();
+
 
     switch (action) {
       case PigMenuAction.info:
@@ -116,6 +166,7 @@ class _PigProfileCardState extends State<PigProfileCard> {
         );
         break;
 
+
       case PigMenuAction.updateWeight:
         final newWeight = await showDialog<double>(
           context: context,
@@ -126,8 +177,13 @@ class _PigProfileCardState extends State<PigProfileCard> {
           ),
         );
 
+
         if (newWeight != null) {
-          pigCubit.updateWeight(widget.pig.pigId, newWeight);
+          pigCubit.updateWeight(
+            widget.pig.pigId,
+            widget.pig.currentWeightKg,
+            newWeight,
+          );
           if (!context.mounted) return;
           CustomSnackbar.show(
             context: context,
@@ -138,12 +194,17 @@ class _PigProfileCardState extends State<PigProfileCard> {
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
+    // Required when using AutomaticKeepAliveClientMixin
+    super.build(context);
+
     final isDarkMode = widget.isDarkMode;
     final pig = widget.pig;
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
+
 
     final statusLower = pig.status.toLowerCase();
     final isInactive = statusLower == 'sold' || statusLower == 'deceased';
@@ -151,7 +212,9 @@ class _PigProfileCardState extends State<PigProfileCard> {
         ? Colors.grey.shade600
         : widget.accentColor;
 
+
     final classificationColor = _getClassificationColor(_mlClassification);
+
 
     return Container(
       decoration: BoxDecoration(
@@ -169,6 +232,7 @@ class _PigProfileCardState extends State<PigProfileCard> {
             children: [
               // Accent stripe
               Container(width: 12, color: displayAccentColor),
+
 
               Expanded(
                 child: Padding(
@@ -227,6 +291,7 @@ class _PigProfileCardState extends State<PigProfileCard> {
                       ),
                       const SizedBox(height: 8),
 
+
                       // Info rows
                       Row(
                         children: [
@@ -274,6 +339,7 @@ class _PigProfileCardState extends State<PigProfileCard> {
                       ),
                       const SizedBox(height: 13),
 
+
                       // Status note row
                       Row(
                         children: [
@@ -307,8 +373,10 @@ class _PigProfileCardState extends State<PigProfileCard> {
                         ],
                       ),
 
+
                       // Notes box
                       const SizedBox(height: 10),
+
 
                       // ML Insights block
                       if (!isInactive) ...[
@@ -327,109 +395,109 @@ class _PigProfileCardState extends State<PigProfileCard> {
                           ),
                           child: _mlLoading
                               ? Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 12,
-                                      height: 12,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 1.5,
-                                        color: classificationColor,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Analyzing pig data...',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: labelColor,
-                                      ),
-                                    ),
-                                  ],
-                                )
+                            children: [
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  color: classificationColor,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Analyzing pig data...',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: labelColor,
+                                ),
+                              ),
+                            ],
+                          )
                               : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // Classification badge
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.insights,
-                                          size: 13,
-                                          color: Colors.lightGreen,
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Text(
-                                          'ML Insight',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: textColor,
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        if (_mlClassification != null)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 7,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: classificationColor
-                                                  .withValues(alpha: 0.15),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              border: Border.all(
-                                                color: classificationColor,
-                                                width: 0.8,
-                                              ),
-                                            ),
-                                            child: Text(
-                                              _mlClassification!,
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w600,
-                                                color: classificationColor,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Classification badge
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.insights,
+                                    size: 13,
+                                    color: Colors.lightGreen,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    'ML Insight',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor,
                                     ),
-                                    if (_mlInsight != null) ...[
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        _mlInsight!,
+                                  ),
+                                  const Spacer(),
+                                  if (_mlClassification != null)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 7,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: classificationColor
+                                            .withValues(alpha: 0.15),
+                                        borderRadius:
+                                        BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: classificationColor,
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _mlClassification!,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: classificationColor,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              if (_mlInsight != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  _mlInsight!,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: labelColor,
+                                  ),
+                                ),
+                              ],
+                              if (_mlRecommendation != null) ...[
+                                const SizedBox(height: 5),
+                                Row(
+                                  crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.arrow_right,
+                                      size: 14,
+                                      color: classificationColor,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Expanded(
+                                      child: Text(
+                                        _mlRecommendation!,
                                         style: TextStyle(
                                           fontSize: 11,
                                           color: labelColor,
                                         ),
                                       ),
-                                    ],
-                                    if (_mlRecommendation != null) ...[
-                                      const SizedBox(height: 5),
-                                      Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Icon(
-                                            Icons.arrow_right,
-                                            size: 14,
-                                            color: classificationColor,
-                                          ),
-                                          const SizedBox(width: 2),
-                                          Expanded(
-                                            child: Text(
-                                              _mlRecommendation!,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: labelColor,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                    ),
                                   ],
                                 ),
+                              ],
+                            ],
+                          ),
                         ),
                       ],
                     ],
@@ -443,12 +511,13 @@ class _PigProfileCardState extends State<PigProfileCard> {
     );
   }
 
+
   Widget _buildInfoText(
-    String label,
-    String value,
-    Color labelColor,
-    Color textColor,
-  ) {
+      String label,
+      String value,
+      Color labelColor,
+      Color textColor,
+      ) {
     return RichText(
       text: TextSpan(
         children: [
