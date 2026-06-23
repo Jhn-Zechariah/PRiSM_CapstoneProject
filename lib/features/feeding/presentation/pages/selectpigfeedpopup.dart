@@ -118,6 +118,7 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
         .map(
           (pig) => AppFeedingRecord(
             id: '', // Will be assigned by Firestore
+            userId: pig.userId,
             pigId: pig.pigId, // Make sure your AppPig model uses 'id' here
             feedType: feedType,
             amount: amount,

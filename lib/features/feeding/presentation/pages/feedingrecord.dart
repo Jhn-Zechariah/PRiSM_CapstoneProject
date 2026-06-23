@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -134,13 +135,15 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                             allPigs = pigState.allPigs;
                           }
 
+                          final userId = FirebaseAuth.instance.currentUser?.uid;
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => BlocProvider(
                                 create: (context) => FeedingHistoryCubit(
                                   repo: FirestoreFeedingRecordRepo(),
-                                )..loadGlobalFeedingHistory(),
+                                )..loadGlobalFeedingHistory(userId!),
                                 child: FeedingHistoryPage(
                                   availablePigs: allPigs,
                                 ), //  Passed pigs list here

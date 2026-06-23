@@ -89,7 +89,8 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     );
 
     final recordToSave = AppFeedingRecord(
-      id: '', 
+      id: '',
+      userId: widget.pig.userId, // 🔹 Required
       pigId: widget.pig.pigId,
       feedType: _feedTypeController.text.trim(),
       amount: double.parse(_amountController.text.trim()),
