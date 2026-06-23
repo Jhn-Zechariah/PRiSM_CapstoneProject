@@ -57,6 +57,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late ThemeMode _themeMode; // 🔹 Changed to late so we can set it in initState
+  final pigRepo = FirebasePigRepo();
 
   //auth repo
   final firebaseAuthRepo = FirebaseAuthRepo();
@@ -80,33 +81,33 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider<AuthCubit>(
-          create: (context) => AuthCubit(authRepo: firebaseAuthRepo)..checkAuth(),
+    return RepositoryProvider<FirebasePigRepo>.value( // ✅ Expose repo to the whole tree
+      value: pigRepo,
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthCubit>(
+            create: (context) => AuthCubit(authRepo: firebaseAuthRepo)..checkAuth(),
+          ),
+          BlocProvider<ProfileCubit>(
+            create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()),
+          ),
+          BlocProvider(
+            create: (context) => PigCubit(pigRepo: pigRepo), // ✅ Use shared instance
+          ),
+          BlocProvider<FeedingRecordCubit>(
+            create: (context) => FeedingRecordCubit(feedingRepo: FirestoreFeedingRecordRepo()),
+          ),
+          BlocProvider<MedicineCubit>(
+            create: (context) => MedicineCubit(repository: FirestoreMedicineRepo()),
+          ),
+        ],
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: _themeMode,
+          home: SplashScreen(onThemeToggle: updateTheme),
         ),
-        BlocProvider<ProfileCubit>(
-          create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()),
-        ),
-        BlocProvider(
-          create: (context) => PigCubit(pigRepo: FirebasePigRepo()),
-        ),
-        BlocProvider<FeedingRecordCubit>(
-          create: (context) => FeedingRecordCubit(feedingRepo: FirestoreFeedingRecordRepo()),
-        ),
-        BlocProvider<MedicineCubit>(
-          create: (context) => MedicineCubit(repository: FirestoreMedicineRepo()),
-        ),
-      ],
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: _themeMode,
-
-        // 🔹 4. Pass the new updateTheme function down to SplashScreen
-        // (Make sure your SplashScreen constructor is updated to accept Function(ThemeMode)!)
-        home: SplashScreen(onThemeToggle: updateTheme),
       ),
     );
   }

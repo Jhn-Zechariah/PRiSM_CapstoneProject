@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/textfield.dart';
 
+
 class UpdatePigWeightDialog extends StatefulWidget {
   final String pigLabel;
   final double currentWeight;
   final Color accentColor;
+
 
   const UpdatePigWeightDialog({
     super.key,
@@ -14,13 +16,18 @@ class UpdatePigWeightDialog extends StatefulWidget {
     required this.accentColor,
   });
 
+
   @override
   State<UpdatePigWeightDialog> createState() => _UpdatePigWeightDialogState();
 }
 
+
+
+
 class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
   final _controller = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+
 
   @override
   void dispose() {
@@ -28,11 +35,13 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
     super.dispose();
   }
 
+
   void _submit() {
     if (_formKey.currentState!.validate()) {
       Navigator.of(context).pop(double.parse(_controller.text));
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +55,7 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
             children: [
               // Left accent stripe
               Container(width: 10, color: widget.accentColor),
+
 
               // Dialog content
               Expanded(
@@ -76,12 +86,14 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                         ),
                         const SizedBox(height: 16),
 
+
                         // Pig label
                         Text(
                           widget.pigLabel,
                           style: const TextStyle(fontSize: 14),
                         ),
                         const SizedBox(height: 10),
+
 
                         // Current weight
                         Text(
@@ -90,6 +102,7 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                         ),
                         const SizedBox(height: 10),
 
+
                         // Updated weight label
                         const Text(
                           'Updated weight:',
@@ -97,14 +110,36 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                         ),
                         const SizedBox(height: 6),
 
+
                         // Text input
                         CustomTextField(
-                          label: 'Enter new weight:',
                           keyboardType: TextInputType.number,
                           controller: _controller,
                           border: 10,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Required';
+                            }
+
+                            final parsed = double.tryParse(value);
+
+                            if (parsed == null) {
+                              return 'Invalid number';
+                            }
+
+                            if (parsed <= 0) {
+                              return 'Weight must be greater than 0';
+                            }
+
+                            if (parsed == widget.currentWeight) {
+                              return 'Weight unchanged';
+                            }
+
+                            return null;
+                          },
                         ),
                         const SizedBox(height: 20),
+
 
                         // Update button (full width, amber)
                         SizedBox(
