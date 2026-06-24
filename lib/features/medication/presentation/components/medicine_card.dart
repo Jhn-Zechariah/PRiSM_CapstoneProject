@@ -4,12 +4,17 @@ class MedicineCard extends StatelessWidget {
   final String name;
   final String unit;
   final String category;
-  final int stock;
+
+  // FIX #7: Changed from int to double so fractional amounts (e.g. 2.5 mL)
+  // are never silently truncated. The old int forced a lossy .round() at every
+  // call site. Display formatting is now handled here in the widget.
+  final double stock;
+
   final String expiryDate;
   final String status;
   final VoidCallback? onTap;
-  final VoidCallback? onEditMedicine; // 🔹 Added callback for Edit
-  final VoidCallback? onAddStock; // 🔹 Added callback for Add Stock
+  final VoidCallback? onEditMedicine;
+  final VoidCallback? onAddStock;
 
   const MedicineCard({
     super.key,
@@ -20,22 +25,31 @@ class MedicineCard extends StatelessWidget {
     required this.expiryDate,
     required this.status,
     this.onTap,
-    this.onEditMedicine, // 🔹 Added
-    this.onAddStock, // 🔹 Added
+    this.onEditMedicine,
+    this.onAddStock,
   });
 
   Color _getStatusColor() {
     switch (status.toLowerCase()) {
-      case "high":
+      case 'high':
         return Colors.green;
-      case "average":
+      case 'average':
         return Colors.orange;
-      case "low":
+      case 'low':
       case 'no stock':
         return Colors.red;
       default:
         return Colors.grey;
     }
+  }
+
+  // FIX #7: Show whole numbers without a decimal point (e.g. "10 tablet"),
+  // but keep one decimal place for fractional amounts (e.g. "2.5 mL").
+  String get _formattedStock {
+    if (stock % 1 == 0) {
+      return '${stock.toStringAsFixed(0)} $unit';
+    }
+    return '${stock.toStringAsFixed(1)} $unit';
   }
 
   @override
@@ -75,11 +89,9 @@ class MedicineCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-
-                // 🔹 Replaced static Icon with PopupMenuButton
                 PopupMenuButton<String>(
                   icon: Icon(
-                    Icons.more_vert, // Standard 3-dots menu icon
+                    Icons.more_vert,
                     size: 20,
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -121,15 +133,16 @@ class MedicineCard extends StatelessWidget {
 
             const SizedBox(height: 8),
 
-            _buildInfoText("Category", category, theme),
-            _buildInfoText("Stocks", stock.toString() + " " + unit, theme),
-            _buildInfoText("Expiry date", expiryDate, theme),
+            _buildInfoText('Category', category, theme),
+            _buildInfoText('Stocks', _formattedStock, theme),
+            _buildInfoText('Expiry date', expiryDate, theme),
 
             const SizedBox(height: 10),
 
             // STATUS BADGE
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
                 color: statusColor.withAlpha(40),
                 borderRadius: BorderRadius.circular(20),
@@ -157,8 +170,9 @@ class MedicineCard extends StatelessWidget {
           style: theme.textTheme.bodyMedium,
           children: [
             TextSpan(
-              text: "$label: ",
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              text: '$label: ',
+              style:
+              TextStyle(color: theme.colorScheme.onSurfaceVariant),
             ),
             TextSpan(
               text: value,

@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class MedicineIntake {
   final String? id;
   final String pigId;
@@ -7,7 +9,7 @@ class MedicineIntake {
   final String dosage;
   final String unitOfMeasurement;
   final String status;
-  final String? nextSchedule;
+  final DateTime? nextSchedule; // 🔹 changed from String? to DateTime?
   final String? purpose;
   final DateTime dateTaken;
 
@@ -34,7 +36,7 @@ class MedicineIntake {
     String? dosage,
     String? unitOfMeasurement,
     String? status,
-    String? nextSchedule,
+    DateTime? nextSchedule,
     String? purpose,
     DateTime? dateTaken,
   }) {
@@ -63,7 +65,10 @@ class MedicineIntake {
       dosage: map['dosage'] ?? '',
       unitOfMeasurement: map['unitOfMeasurement'] ?? '',
       status: map['status'] ?? 'Ongoing',
-      nextSchedule: map['nextSchedule'] as String?,
+      // 🔹 Read as Timestamp now, not a String.
+      nextSchedule: map['nextSchedule'] != null
+          ? (map['nextSchedule'] as Timestamp).toDate()
+          : null,
       purpose: map['purpose'] as String?,
       dateTaken: map['dateTaken'] != null
           ? DateTime.parse(map['dateTaken'].toString())
@@ -74,13 +79,14 @@ class MedicineIntake {
   Map<String, dynamic> toMap() {
     return {
       'pigId': pigId,
-      'userId': userId, // 🔹 Added userId to Map
+      'userId': userId,
       'category': category,
       'medName': medName,
       'dosage': dosage,
       'unitOfMeasurement': unitOfMeasurement,
       'status': status,
-      'nextSchedule': nextSchedule,
+      // 🔹 Write as Timestamp, not a String.
+      'nextSchedule': nextSchedule != null ? Timestamp.fromDate(nextSchedule!) : null,
       'purpose': purpose,
       'dateTaken': dateTaken.toIso8601String(),
     };
