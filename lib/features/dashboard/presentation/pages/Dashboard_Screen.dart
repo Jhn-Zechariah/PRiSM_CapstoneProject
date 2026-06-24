@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -8,14 +10,17 @@ import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/services/ml_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 const String esp32Ip = "192.168.1.100";
 
 final sprinklerNotifier = ValueNotifier<bool>(false);
+final tempMaxTodayNotifier = ValueNotifier<double>(0);
+final humidityMaxTodayNotifier = ValueNotifier<double>(0);
 
 // Persists sprinkler info across navigation
 // Persists sprinkler info across navigation and app restarts
-class _SprinklerMemory {
+class SprinklerMemory {
   static String lastActivated = "--";
   static String date = "--";
   static String duration = "--";
@@ -60,7 +65,8 @@ class _SprinklerMemory {
           doc = await FirebaseFirestore.instance
               .collection('sprinkler_state')
               .doc('latest')
-              .get(const GetOptions(source: Source.server));
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 4));
         } catch (_) {
           doc = null;
         }
@@ -89,8 +95,46 @@ class SensorMemory {
   static double lastHumidityMaxToday = 0;
   static String lastHumidityMaxDate = "--";
   static String lastPigStatus = "--";
+  static String lastConnectionStatus = "Connecting...";
+  static String lastSensorStatus = "Sensor Offline";
+  static List<FlSpot> lastGraphSpots = [];
+  static bool graphLoaded = false;
 
-  static String _todayKey() {
+  // Temperature monitoring screen cache (Today tab)
+  static List<Map<String, double>> lastTempChartData = [];
+  static bool tempChartLoaded = false;
+  static String lastTempChartDate = "";
+  static double? lastTempDisplayMax;
+  static double? lastTempDisplayMin;
+  static double? lastTempDisplayAvg;
+  static double? lastTempSessionMax;
+  static double? lastTempSessionMin;
+
+  // Humidity monitoring screen cache (Today tab)
+  static List<Map<String, double>> lastHumidityChartData = [];
+  static bool humidityChartLoaded = false;
+  static String lastHumidityChartDate = "";
+  static double? lastHumidityDisplayMax;
+  static double? lastHumidityDisplayMin;
+  static double? lastHumidityDisplayAvg;
+  static double? lastHumiditySessionMax;
+  static double? lastHumiditySessionMin;
+
+  // Centralized setters — every write to these two fields goes through
+  // here, so the notifiers (and therefore both the Dashboard and
+  // Temperature/Humidity screens) update in lockstep instead of relying
+  // on each call site to separately remember to broadcast the change.
+  static void setTempMaxToday(double v) {
+    lastTempMaxToday = v;
+    tempMaxTodayNotifier.value = v;
+  }
+
+  static void setHumidityMaxToday(double v) {
+    lastHumidityMaxToday = v;
+    humidityMaxTodayNotifier.value = v;
+  }
+
+  static String todayKey() {
     final n = DateTime.now();
     return "${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}";
   }
@@ -98,14 +142,36 @@ class SensorMemory {
   /// Call before reading/writing lastTempMaxToday — clears it if the
   /// stored value belongs to a previous day.
   static void resetIfNewDay() {
-    final today = _todayKey();
+    final today = todayKey();
     if (lastTempMaxDate != today) {
-      lastTempMaxToday = 0;
+      setTempMaxToday(0);
       lastTempMaxDate = today;
     }
     if (lastHumidityMaxDate != today) {
-      lastHumidityMaxToday = 0;
+      setHumidityMaxToday(0);
       lastHumidityMaxDate = today;
+    }
+    // Clear chart/stats caches when the day rolls over so stale yesterday
+    // data is never shown as today's readings.
+    if (lastTempChartDate != today && lastTempChartDate.isNotEmpty) {
+      lastTempChartData = [];
+      tempChartLoaded = false;
+      lastTempChartDate = today;
+      lastTempDisplayMax = null;
+      lastTempDisplayMin = null;
+      lastTempDisplayAvg = null;
+      lastTempSessionMax = null;
+      lastTempSessionMin = null;
+    }
+    if (lastHumidityChartDate != today && lastHumidityChartDate.isNotEmpty) {
+      lastHumidityChartData = [];
+      humidityChartLoaded = false;
+      lastHumidityChartDate = today;
+      lastHumidityDisplayMax = null;
+      lastHumidityDisplayMin = null;
+      lastHumidityDisplayAvg = null;
+      lastHumiditySessionMax = null;
+      lastHumiditySessionMin = null;
     }
   }
 
@@ -157,10 +223,11 @@ class SensorMemory {
         final data = doc.data() as Map<String, dynamic>;
         lastTemp = (data['lastTemp'] as num?)?.toDouble() ?? 0;
         lastHumidity = (data['lastHumidity'] as num?)?.toDouble() ?? 0;
-        lastTempMaxToday = (data['tempMaxToday'] as num?)?.toDouble() ?? 0;
+        setTempMaxToday((data['tempMaxToday'] as num?)?.toDouble() ?? 0);
         lastTempMaxDate = data['tempMaxDate'] as String? ?? '--';
-        lastHumidityMaxToday =
-            (data['humidityMaxToday'] as num?)?.toDouble() ?? 0;
+        setHumidityMaxToday(
+          (data['humidityMaxToday'] as num?)?.toDouble() ?? 0,
+        );
         lastHumidityMaxDate = data['humidityMaxDate'] as String? ?? '--';
         lastPigStatus = data['lastPigStatus'] as String? ?? '--';
         resetIfNewDay();
@@ -193,18 +260,20 @@ class _DashboardScreenState extends State<DashboardScreen>
   int selectedIndex = 2;
 
   Timer? _timer;
-  bool _isLoading = true;
-  String _connectionStatus =
-      "Connecting..."; // Internet / Firestore reachability
-  String _sensorStatus =
-      "Connecting..."; // ESP32 physical sensor online/offline
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  // Skip loading spinner when cached values are already available from SensorMemory.
+  bool _isLoading = SensorMemory.lastTemp == 0 && SensorMemory.lastHumidity == 0;
+  String _connectionStatus = SensorMemory.lastConnectionStatus;
+  String _sensorStatus = "Sensor Offline";
+  int _consecutiveFailures = 0;
 
-  double _tempMax = 0;
+  // Pre-populate from cache so the UI shows last known values immediately on navigation.
+  double _tempMax = SensorMemory.lastTemp;
   String _tempStatus = "Normal";
   double _waterPct = 0;
   String _waterStatus = "Unknown";
-  double _lastKnownTemp = 0;
-  double _lastKnownHumidity = 0;
+  double _lastKnownTemp = SensorMemory.lastTemp;
+  double _lastKnownHumidity = SensorMemory.lastHumidity;
   bool _isSprinklerLoading = false;
   late double _tempMaxToday;
 
@@ -214,7 +283,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _duration = "--";
   String _pigStatus = "--";
   double _humidityMaxToday = 0;
-  double _humidityLive = 0;
+  double _humidityLive = SensorMemory.lastHumidity;
 
   bool _graphShowLast24hrs = false;
 
@@ -222,8 +291,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _mlCondition = "Analyzing...";
   List<String> _mlRecommendations = [];
   bool _mlLoading = true;
-  List<FlSpot> _graphSpots = [];
-  bool _graphLoading = true;
+  List<FlSpot> _graphSpots = List.of(SensorMemory.lastGraphSpots);
+  bool _graphLoading = !SensorMemory.graphLoaded;
 
   DateTime? _sprinklerActivatedAt;
   Timer? _durationTimer;
@@ -255,6 +324,32 @@ class _DashboardScreenState extends State<DashboardScreen>
     // _toggleTimer is now started inside _initializeData()
     context.read<ProfileCubit>().loadUserData();
     sprinklerNotifier.addListener(_onSprinklerNotifierChanged);
+    tempMaxTodayNotifier.addListener(_onTempMaxNotifierChanged);
+    humidityMaxTodayNotifier.addListener(_onHumidityMaxNotifierChanged);
+
+    // Set connection status immediately based on current network state.
+    Connectivity().checkConnectivity().then((results) {
+      if (!mounted) return;
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      setState(() {
+        _connectionStatus = hasNet ? "Live" : "Connecting...";
+        SensorMemory.lastConnectionStatus = _connectionStatus;
+      });
+    });
+
+    // Internet LOST → "Connecting..." / Internet BACK → "Live" immediately.
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      if (!mounted) return;
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      setState(() {
+        _connectionStatus = hasNet ? "Live" : "Connecting...";
+        SensorMemory.lastConnectionStatus = _connectionStatus;
+        if (!hasNet) {
+          _sensorStatus = "Sensor Offline";
+          SensorMemory.lastSensorStatus = "Sensor Offline";
+        }
+      });
+    });
 
     // Load memory first, THEN start fetching data
     // This ensures cached values are ready before the first fetch fails offline
@@ -277,46 +372,49 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _loadGraphData() async {
-    setState(() => _graphLoading = true);
+    // Show spinner only on first ever load; cached data stays visible on navigation.
+    if (!SensorMemory.graphLoaded) setState(() => _graphLoading = true);
     try {
       final now = DateTime.now();
       final DateTime rangeStart = _graphShowLast24hrs
           ? now.subtract(const Duration(hours: 24))
           : DateTime(now.year, now.month, now.day);
 
+      // orderBy BEFORE where — same pattern as temperaturemonitoring.dart.
       final snapshot = await FirebaseFirestore.instance
           .collection('temperature_readings')
+          .orderBy('timestamp', descending: false)
           .where(
             'timestamp',
             isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
           )
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-          .orderBy('timestamp')
+          .limit(500)
           .get();
 
-      // Group readings by hour and average them
+      // Group readings by hour and average them (original behaviour).
       final Map<int, List<double>> hourlyTemps = {};
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final ts = (data['timestamp'] as Timestamp?)?.toDate();
+        // Try every field name the firmware might use.
         final temp =
+            (data['tempAvg'] as num?)?.toDouble() ??
             (data['temperature'] as num?)?.toDouble() ??
             (data['tempMax'] as num?)?.toDouble();
         if (ts == null || temp == null) continue;
 
         int hourKey;
         if (_graphShowLast24hrs) {
-          // bucket by hour difference from rangeStart
           hourKey = now.difference(ts).inHours;
         } else {
           hourKey = ts.hour;
         }
-
         hourlyTemps.putIfAbsent(hourKey, () => []).add(temp);
       }
 
-      // Convert averaged buckets to FlSpots
+      // Convert averaged buckets to FlSpots.
       final List<FlSpot> spots = [];
       hourlyTemps.forEach((hourKey, temps) {
         final avgTemp = temps.reduce((a, b) => a + b) / temps.length;
@@ -326,16 +424,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         spots.add(FlSpot(x.clamp(0, _graphShowLast24hrs ? 24 : 23), avgTemp));
       });
 
-      // Sort by x so the line draws correctly
+      // Sort by x so the line draws correctly.
       spots.sort((a, b) => a.x.compareTo(b.x));
 
       if (!mounted) return;
+      SensorMemory.lastGraphSpots = spots;
+      SensorMemory.graphLoaded = true;
       setState(() {
         _graphSpots = spots;
         _graphLoading = false;
       });
     } catch (e) {
-      debugPrint('Error loading graph data: $e');
+      debugPrint('Dashboard graph error: $e');
       if (!mounted) return;
       setState(() => _graphLoading = false);
     }
@@ -346,8 +446,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     _timer?.cancel();
     _durationTimer?.cancel();
     _toggleTimer?.cancel();
+    _connectivitySub?.cancel();
     _fadeController.dispose();
     sprinklerNotifier.removeListener(_onSprinklerNotifierChanged);
+    tempMaxTodayNotifier.removeListener(_onTempMaxNotifierChanged);
+    humidityMaxTodayNotifier.removeListener(_onHumidityMaxNotifierChanged);
     super.dispose();
   }
 
@@ -360,7 +463,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       final mins = elapsed.inMinutes;
       final secs = elapsed.inSeconds % 60;
       final d = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
-      _SprinklerMemory.duration = d;
+      SprinklerMemory.duration = d;
       if (mounted) setState(() => _duration = d);
     });
   }
@@ -384,16 +487,22 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _initializeData() async {
     // 1. Wait for BOTH memory stores to finish loading before anything else
-    await Future.wait([SensorMemory.load(), _SprinklerMemory.load()]);
+    await Future.wait([SensorMemory.load(), SprinklerMemory.load()]);
     SensorMemory.resetIfNewDay();
 
     if (!mounted) return;
 
     // 2. Apply memory to state NOW — UI shows cached data before any network call
     setState(() {
-      if (SensorMemory.lastTemp > 0) _lastKnownTemp = SensorMemory.lastTemp;
-      if (SensorMemory.lastHumidity > 0)
+      if (SensorMemory.lastTemp > 0) {
+        _lastKnownTemp = SensorMemory.lastTemp;
+        _tempMax = SensorMemory.lastTemp;
+      }
+      if (SensorMemory.lastHumidity > 0) {
         _lastKnownHumidity = SensorMemory.lastHumidity;
+        _humidityLive = SensorMemory.lastHumidity;
+      }
+      _isLoading = false;
       if (SensorMemory.lastTempMaxToday > 0)
         _tempMaxToday = SensorMemory.lastTempMaxToday;
       if (SensorMemory.lastHumidityMaxToday > 0)
@@ -401,35 +510,36 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (SensorMemory.lastPigStatus != "--")
         _pigStatus = SensorMemory.lastPigStatus;
 
-      if (_SprinklerMemory.lastActivated != "--")
-        _lastActivated = _SprinklerMemory.lastActivated;
-      if (_SprinklerMemory.date != "--") _date = _SprinklerMemory.date;
-      if (_SprinklerMemory.duration != "--")
-        _duration = _SprinklerMemory.duration;
-      _sprinklerStatus = _SprinklerMemory.status;
+      if (SprinklerMemory.lastActivated != "--")
+        _lastActivated = SprinklerMemory.lastActivated;
+      if (SprinklerMemory.date != "--") _date = SprinklerMemory.date;
+      if (SprinklerMemory.duration != "--")
+        _duration = SprinklerMemory.duration;
+      _sprinklerStatus = SprinklerMemory.status;
       _sprinklerMemoryLoaded = true;
 
-      if (_SprinklerMemory.activatedAt != null && !_sprinklerJustToggled) {
-        _localIsActivated = _SprinklerMemory.status == "ON";
+      if (SprinklerMemory.activatedAt != null && !_sprinklerJustToggled) {
+        _localIsActivated = SprinklerMemory.status == "ON";
       }
     });
 
     // 3. Restart duration timer if sprinkler was active when app closed
-    if (_SprinklerMemory.activatedAt != null && _durationTimer == null) {
-      _sprinklerActivatedAt = _SprinklerMemory.activatedAt;
+    if (SprinklerMemory.activatedAt != null && _durationTimer == null) {
+      _sprinklerActivatedAt = SprinklerMemory.activatedAt;
       _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
-        final e = DateTime.now().difference(_SprinklerMemory.activatedAt!);
+        final e = DateTime.now().difference(SprinklerMemory.activatedAt!);
         final m = e.inMinutes;
         final s = e.inSeconds % 60;
         final d = m > 0 ? '${m}m ${s}s' : '${s}s';
-        _SprinklerMemory.duration = d;
+        SprinklerMemory.duration = d;
         setState(() => _duration = d);
       });
     }
 
     // 4. Only NOW start network calls — cached data is already visible
     _fetchData();
+    _fetchMLInsights();
     _loadGraphData();
     _syncTodayMaxFromFirestore();
     _timer = Timer.periodic(const Duration(seconds: 3), (_) => _fetchData());
@@ -449,11 +559,23 @@ class _DashboardScreenState extends State<DashboardScreen>
         _sprinklerStatus = newVal ? "ON" : "OFF";
         if (!newVal && _sprinklerActivatedAt != null) {
           _stopDurationTimer(keepDuration: true);
-          _SprinklerMemory.status = "OFF";
-          _SprinklerMemory.activatedAt = null;
+          SprinklerMemory.status = "OFF";
+          SprinklerMemory.activatedAt = null;
         }
       });
     }
+  }
+
+  void _onTempMaxNotifierChanged() {
+    if (!mounted) return;
+    final v = tempMaxTodayNotifier.value;
+    if (v != _tempMaxToday) setState(() => _tempMaxToday = v);
+  }
+
+  void _onHumidityMaxNotifierChanged() {
+    if (!mounted) return;
+    final v = humidityMaxTodayNotifier.value;
+    if (v != _humidityMaxToday) setState(() => _humidityMaxToday = v);
   }
 
   Future<void> _fetchMLInsights() async {
@@ -503,122 +625,173 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _fetchData() async {
+    Map<String, dynamic>? data;
+    bool isRemote = false;
+
+    // 1. Try local ESP32 first (same-WiFi / LAN).
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('sensor_live')
-          .doc('current')
-          .get(const GetOptions(source: Source.server));
+      final response = await http
+          .get(Uri.parse('http://$esp32Ip/sensor'))
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        data = jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
 
+    // 2. Fallback: Firestore live_sensor document (mobile data / any WiFi).
+    if (data == null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('live_sensor')
+            .doc('latest')
+            .get();
+        if (doc.exists && doc.data() != null) {
+          data = Map<String, dynamic>.from(doc.data()!);
+          isRemote = true;
+        }
+      } catch (_) {}
+    }
+
+    // 3. Both sources failed.
+    if (data == null) {
+      _consecutiveFailures++;
+      if (_consecutiveFailures < 2) return;
       if (!mounted) return;
+      final results = await Connectivity().checkConnectivity();
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      final connLabel = hasNet ? "Sensor Offline" : "No connection";
+      setState(() {
+        _connectionStatus = connLabel;
+        _sensorStatus = "Sensor Offline";
+        SensorMemory.lastConnectionStatus = connLabel;
+        SensorMemory.lastSensorStatus = "Sensor Offline";
+        _isLoading = false;
+      });
+      return;
+    }
 
-      if (doc.exists) {
-        final data = doc.data()!;
+    if (!mounted) return;
 
-        setState(() {
-          final newTemp = (data['tempMax'] as num?)?.toDouble();
-          if (newTemp != null && newTemp > 0) {
-            _tempMax = newTemp;
-            _lastKnownTemp = newTemp;
-            SensorMemory.lastTemp = newTemp;
-            SensorMemory.resetIfNewDay();
-            if (newTemp > SensorMemory.lastTempMaxToday) {
-              SensorMemory.lastTempMaxToday = newTemp;
-              SensorMemory.save();
-            }
-            _tempMaxToday = SensorMemory.lastTempMaxToday;
-          }
+    try {
+      // Timestamp: String from local HTTP, Firestore Timestamp when remote.
+      final tsField = data['timestamp'];
+      DateTime? ts;
+      if (tsField is Timestamp) {
+        ts = tsField.toDate();
+      } else if (tsField is String) {
+        ts = DateTime.tryParse(tsField);
+      }
+      final nowUtc = DateTime.now().toUtc();
+      final tsUtc = ts?.toUtc();
+      final diffSeconds = tsUtc != null
+          ? nowUtc.difference(tsUtc).inSeconds
+          : -1;
+      final stalenessLimit = isRemote ? 60 : 15;
+      final isStale = ts == null || diffSeconds > stalenessLimit;
 
-          final newHumidity =
-              (data['humidityMax'] as num?)?.toDouble() ??
-              (data['humidity'] as num?)?.toDouble();
-          if (newHumidity != null && newHumidity > 0) {
-            _humidityLive = newHumidity;
-            _lastKnownHumidity = newHumidity;
-            SensorMemory.lastHumidity = newHumidity;
-            SensorMemory.resetIfNewDay();
-            if (newHumidity > SensorMemory.lastHumidityMaxToday) {
-              SensorMemory.lastHumidityMaxToday = newHumidity;
-              SensorMemory.save();
-            }
-            _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
-          }
+      if (isStale) {
+        _consecutiveFailures++;
+      } else {
+        _consecutiveFailures = 0;
+      }
+      final shouldShowOffline = _consecutiveFailures >= 2;
 
-          _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
-          if (!_sprinklerJustToggled) {
-            final trustedVal = sprinklerNotifier.value;
-            _localIsActivated = trustedVal;
-            _sprinklerStatus = trustedVal ? "ON" : "OFF";
-          }
-
-          if (!_sprinklerMemoryLoaded && _lastActivated == "--") {
-            _lastActivated = data['lastActivated'] as String? ?? _lastActivated;
-          }
-          if (!_sprinklerMemoryLoaded && _date == "--") {
-            _date = data['date'] as String? ?? _date;
-          }
-          if (_duration == "--" && _lastActivated == "--") {
-            _duration = data['duration'] as String? ?? _duration;
-          }
-          final newPigStatus = data['pigStatus'] as String?;
-          if (newPigStatus != null && newPigStatus != "--") {
-            _pigStatus = newPigStatus;
-            SensorMemory.lastPigStatus = newPigStatus;
-          }
-
-          // Save ALL memory fields together AFTER pig status is also updated
-          if ((newTemp != null && newTemp > 0) ||
-              (newHumidity != null && newHumidity > 0) ||
-              (newPigStatus != null && newPigStatus != "--")) {
+      setState(() {
+        // Use actual live temperature — not data['tempMax'] which is the
+        // ESP32's internally-tracked daily peak and stays inflated all day,
+        // causing Dashboard "Temp Max Today" to differ from the Temperature
+        // screen's "Highest" (which tracks the live temperature reading).
+        final newTempLive = (data!['temperature'] as num?)?.toDouble()
+            ?? (data['tempAvg'] as num?)?.toDouble();
+        if (newTempLive != null && newTempLive > 0) {
+          _tempMax = newTempLive;
+          _lastKnownTemp = _tempMax;
+          SensorMemory.lastTemp = _tempMax;
+          SensorMemory.resetIfNewDay();
+          if (newTempLive > SensorMemory.lastTempMaxToday) {
+            SensorMemory.setTempMaxToday(newTempLive);
             SensorMemory.save();
           }
-          _waterPct = (data['waterPct'] as num?)?.toDouble() ?? _waterPct;
-          _waterStatus = data['waterStatus'] as String? ?? _waterStatus;
-          _isLoading = false;
+          _tempMaxToday = SensorMemory.lastTempMaxToday;
+        }
 
-          // We got a response from Firestore, so we have internet.
-          _connectionStatus = "Live";
-
-          // The ESP32 itself is only "online" if it pushed data recently.
-          // 5 seconds matches the firmware's 2s push interval with margin.
-          final ts = (data['timestamp'] as Timestamp?)?.toDate();
-          final nowUtc = DateTime.now().toUtc();
-          final tsUtc = ts?.toUtc();
-          final diffSeconds = tsUtc != null
-              ? nowUtc.difference(tsUtc).inSeconds
-              : -1;
-
-          if (ts == null || diffSeconds > 15) {
-            _sensorStatus = "Sensor Offline";
-          } else {
-            _sensorStatus = "Sensor Online";
+        // Use actual live humidity — not humidityMax for the same reason.
+        final newHumidity = (data['humidity'] as num?)?.toDouble();
+        if (newHumidity != null && newHumidity > 0) {
+          _humidityLive = newHumidity;
+          _lastKnownHumidity = newHumidity;
+          SensorMemory.lastHumidity = newHumidity;
+          SensorMemory.resetIfNewDay();
+          if (newHumidity > SensorMemory.lastHumidityMaxToday) {
+            SensorMemory.setHumidityMaxToday(newHumidity);
+            SensorMemory.save();
           }
-        });
-        await _fetchMLInsights();
+          _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
+        }
 
+        _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
         if (!_sprinklerJustToggled) {
           final trustedVal = sprinklerNotifier.value;
-          widget.onSprinklerChanged(trustedVal);
+          _localIsActivated = trustedVal;
+          _sprinklerStatus = trustedVal ? "ON" : "OFF";
+        }
 
-          if (!mounted) return;
-          if (!trustedVal && _sprinklerActivatedAt != null) {
-            final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
-            if (elapsed.inSeconds > 3) {
-              _stopDurationTimer(keepDuration: true);
-            }
+        if (!_sprinklerMemoryLoaded && _lastActivated == "--") {
+          _lastActivated = data['lastActivated'] as String? ?? _lastActivated;
+        }
+        if (!_sprinklerMemoryLoaded && _date == "--") {
+          _date = data['date'] as String? ?? _date;
+        }
+        if (_duration == "--" && _lastActivated == "--") {
+          _duration = data['duration'] as String? ?? _duration;
+        }
+        final newPigStatus = data['pigStatus'] as String?;
+        if (newPigStatus != null && newPigStatus != "--") {
+          _pigStatus = newPigStatus;
+          SensorMemory.lastPigStatus = newPigStatus;
+        }
+
+        if ((newTempLive != null && newTempLive > 0) ||
+            (newHumidity != null && newHumidity > 0) ||
+            (newPigStatus != null && newPigStatus != "--")) {
+          SensorMemory.save();
+        }
+        _waterPct = (data['waterPct'] as num?)?.toDouble() ?? _waterPct;
+        _waterStatus = data['waterStatus'] as String? ?? _waterStatus;
+        _isLoading = false;
+
+        if (!isStale) {
+          _connectionStatus = "Live";
+          SensorMemory.lastConnectionStatus = "Live";
+          _sensorStatus = "Sensor Online";
+          SensorMemory.lastSensorStatus = "Sensor Online";
+        } else if (shouldShowOffline) {
+          _connectionStatus = "Sensor Offline";
+          SensorMemory.lastConnectionStatus = "Sensor Offline";
+          _sensorStatus = "Sensor Offline";
+          SensorMemory.lastSensorStatus = "Sensor Offline";
+        }
+        // First stale poll: keep previous status
+      });
+
+      if (!_sprinklerJustToggled) {
+        final trustedVal = sprinklerNotifier.value;
+        widget.onSprinklerChanged(trustedVal);
+
+        if (!mounted) return;
+        if (!trustedVal && _sprinklerActivatedAt != null) {
+          final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
+          if (elapsed.inSeconds > 3) {
+            _stopDurationTimer(keepDuration: true);
           }
         }
       }
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _connectionStatus = "No connection";
         _sensorStatus = "Sensor Offline";
+        SensorMemory.lastSensorStatus = "Sensor Offline";
         _isLoading = false;
-        _tempMax = 0;
-        _humidityLive = 0;
-        // Memory was already loaded and applied in _initializeData()
-        // before _fetchData() was ever called, so these values are
-        // already in state — we just leave them untouched here.
       });
     }
   }
@@ -629,39 +802,96 @@ class _DashboardScreenState extends State<DashboardScreen>
       final todayStart = DateTime(now.year, now.month, now.day);
 
       // ── Temperature max from temperature_readings ──
-      final tempSnapshot = await FirebaseFirestore.instance
-          .collection('temperature_readings')
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-          )
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-          .orderBy('timestamp')
-          .get(const GetOptions(source: Source.server));
+      // Try cache FIRST (instant, works offline). Only fall back to the
+      // network if cache is empty, and bound that fallback with a
+      // timeout — Source.server with no timeout can hang far longer
+      // than the UI should ever wait, causing the same multi-second
+      // freeze that _fetchData() already guards against.
+      QuerySnapshot? tempSnapshot;
+      try {
+        tempSnapshot = await FirebaseFirestore.instance
+            .collection('temperature_readings')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+            )
+            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+            .orderBy('timestamp')
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        tempSnapshot = null;
+      }
+      if (tempSnapshot == null || tempSnapshot.docs.isEmpty) {
+        try {
+          tempSnapshot = await FirebaseFirestore.instance
+              .collection('temperature_readings')
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+              )
+              .where(
+                'timestamp',
+                isLessThanOrEqualTo: Timestamp.fromDate(now),
+              )
+              .orderBy('timestamp')
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          tempSnapshot = null;
+        }
+      }
 
       double firestoreTempMax = 0;
-      for (final doc in tempSnapshot.docs) {
-        final data = doc.data();
-        final t = (data['tempMax'] as num?)?.toDouble() ?? 0;
-        if (t > firestoreTempMax) firestoreTempMax = t;
+      if (tempSnapshot != null) {
+        for (final doc in tempSnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final t = (data['tempMax'] as num?)?.toDouble() ?? 0;
+          if (t > firestoreTempMax) firestoreTempMax = t;
+        }
       }
 
       // ── Humidity max from humidity_readings ──
-      final humiditySnapshot = await FirebaseFirestore.instance
-          .collection('humidity_readings')
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-          )
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-          .orderBy('timestamp')
-          .get(const GetOptions(source: Source.server));
+      QuerySnapshot? humiditySnapshot;
+      try {
+        humiditySnapshot = await FirebaseFirestore.instance
+            .collection('humidity_readings')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+            )
+            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+            .orderBy('timestamp')
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        humiditySnapshot = null;
+      }
+      if (humiditySnapshot == null || humiditySnapshot.docs.isEmpty) {
+        try {
+          humiditySnapshot = await FirebaseFirestore.instance
+              .collection('humidity_readings')
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+              )
+              .where(
+                'timestamp',
+                isLessThanOrEqualTo: Timestamp.fromDate(now),
+              )
+              .orderBy('timestamp')
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          humiditySnapshot = null;
+        }
+      }
 
       double firestoreHumidityMax = 0;
-      for (final doc in humiditySnapshot.docs) {
-        final data = doc.data();
-        final h = (data['humidityMax'] as num?)?.toDouble() ?? 0;
-        if (h > firestoreHumidityMax) firestoreHumidityMax = h;
+      if (humiditySnapshot != null) {
+        for (final doc in humiditySnapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final h = (data['humidityMax'] as num?)?.toDouble() ?? 0;
+          if (h > firestoreHumidityMax) firestoreHumidityMax = h;
+        }
       }
 
       if (!mounted) return;
@@ -670,7 +900,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (firestoreTempMax > 0) {
         SensorMemory.resetIfNewDay();
         if (firestoreTempMax > SensorMemory.lastTempMaxToday) {
-          SensorMemory.lastTempMaxToday = firestoreTempMax;
+          SensorMemory.setTempMaxToday(firestoreTempMax);
           SensorMemory.save();
         }
         setState(() {
@@ -682,7 +912,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (firestoreHumidityMax > 0) {
         SensorMemory.resetIfNewDay();
         if (firestoreHumidityMax > SensorMemory.lastHumidityMaxToday) {
-          SensorMemory.lastHumidityMaxToday = firestoreHumidityMax;
+          SensorMemory.setHumidityMaxToday(firestoreHumidityMax);
           SensorMemory.save();
         }
         setState(() {
@@ -735,12 +965,12 @@ class _DashboardScreenState extends State<DashboardScreen>
           final dateStr =
               '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
 
-          _SprinklerMemory.lastActivated = timeStr;
-          _SprinklerMemory.date = dateStr;
-          _SprinklerMemory.duration = '0s';
-          _SprinklerMemory.status = "ON";
-          _SprinklerMemory.activatedAt = now;
-          _SprinklerMemory.save();
+          SprinklerMemory.lastActivated = timeStr;
+          SprinklerMemory.date = dateStr;
+          SprinklerMemory.duration = '0s';
+          SprinklerMemory.status = "ON";
+          SprinklerMemory.activatedAt = now;
+          SprinklerMemory.save();
           _sprinklerJustToggled = true;
           setState(() {
             _sprinklerStatus = "ON";
@@ -763,10 +993,10 @@ class _DashboardScreenState extends State<DashboardScreen>
             final secs = elapsed.inSeconds % 60;
             finalDuration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
           }
-          _SprinklerMemory.duration = finalDuration;
-          _SprinklerMemory.status = "OFF";
-          _SprinklerMemory.activatedAt = null;
-          _SprinklerMemory.save();
+          SprinklerMemory.duration = finalDuration;
+          SprinklerMemory.status = "OFF";
+          SprinklerMemory.activatedAt = null;
+          SprinklerMemory.save();
           _stopDurationTimer();
           _sprinklerJustToggled = true;
           setState(() {
@@ -1045,7 +1275,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildWeatherCard(bool isDark) {
     final bool showTemp = _showingTemperature;
-    final String label = showTemp ? _tempStatus : "Humidity";
+    final String label = showTemp ? "Temperature" : "Humidity";
     final double displayTemp = _tempMax > 0 ? _tempMax : _lastKnownTemp;
     final double displayHumidity = _humidityLive > 0
         ? _humidityLive
@@ -1212,10 +1442,10 @@ class _DashboardScreenState extends State<DashboardScreen>
               [
                 "Max Temp Today: ${() {
                   SensorMemory.resetIfNewDay();
-                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : (_tempMaxToday > 0 ? _tempMaxToday : _lastKnownTemp);
+                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : (_tempMaxToday > 0 ? _tempMaxToday : 0);
                   return v == 0 ? '…' : '${v.toStringAsFixed(1)}°C';
                 }()}",
-                "Max Humidity Today: ${(_humidityMaxToday > 0 ? _humidityMaxToday : _lastKnownHumidity) == 0 ? '…' : '${(_humidityMaxToday > 0 ? _humidityMaxToday : _lastKnownHumidity).toStringAsFixed(1)}%'}",
+                "Max Humidity Today: ${(_humidityMaxToday > 0 ? _humidityMaxToday : 0) == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
                 "Pig Status: $_pigStatus",
               ],
               const Color(0xFFE53935),
@@ -1327,7 +1557,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 child: Text(
                   _graphShowLast24hrs
                       ? "Temperature (Last 24 hrs)"
-                      : "Temperature (Last 24 hrs)",
+                      : "Temperature (Today)",
                   style: TextStyle(
                     color: isDark ? Colors.white : Colors.black87,
                     fontWeight: FontWeight.bold,
