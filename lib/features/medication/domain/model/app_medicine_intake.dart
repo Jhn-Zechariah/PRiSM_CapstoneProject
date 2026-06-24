@@ -1,6 +1,7 @@
 class MedicineIntake {
   final String? id;
   final String pigId;
+  final String userId;
   final String category;
   final String medName;
   final String dosage;
@@ -8,24 +9,26 @@ class MedicineIntake {
   final String status;
   final String? nextSchedule;
   final String? purpose;
-  final DateTime dateTaken; // 🔹 Renamed from createdAt
+  final DateTime dateTaken;
 
   MedicineIntake({
     this.id,
     required this.pigId,
     required this.category,
+    required this.userId,
     required this.medName,
     required this.dosage,
     required this.unitOfMeasurement,
     required this.status,
     this.nextSchedule,
     this.purpose,
-    required this.dateTaken, // 🔹 Updated parameter
+    required this.dateTaken,
   });
 
   MedicineIntake copyWith({
     String? id,
     String? pigId,
+    String? userId,
     String? category,
     String? medName,
     String? dosage,
@@ -38,6 +41,7 @@ class MedicineIntake {
     return MedicineIntake(
       id: id ?? this.id,
       pigId: pigId ?? this.pigId,
+      userId: userId ?? this.userId,
       category: category ?? this.category,
       medName: medName ?? this.medName,
       dosage: dosage ?? this.dosage,
@@ -45,7 +49,7 @@ class MedicineIntake {
       status: status ?? this.status,
       nextSchedule: nextSchedule ?? this.nextSchedule,
       purpose: purpose ?? this.purpose,
-      dateTaken: dateTaken ?? this.dateTaken, // 🔹 Updated here
+      dateTaken: dateTaken ?? this.dateTaken,
     );
   }
 
@@ -54,6 +58,7 @@ class MedicineIntake {
       id: documentId ?? map['id'] as String?,
       pigId: map['pigId'] ?? '',
       category: map['category'] ?? '',
+      userId: map['userId'] ?? '',
       medName: map['medName'] ?? '',
       dosage: map['dosage'] ?? '',
       unitOfMeasurement: map['unitOfMeasurement'] ?? '',
@@ -62,13 +67,14 @@ class MedicineIntake {
       purpose: map['purpose'] as String?,
       dateTaken: map['dateTaken'] != null
           ? DateTime.parse(map['dateTaken'].toString())
-          : DateTime.now(), // 🔹 Updated here
+          : DateTime.now(),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
       'pigId': pigId,
+      'userId': userId, // 🔹 Added userId to Map
       'category': category,
       'medName': medName,
       'dosage': dosage,
@@ -76,7 +82,7 @@ class MedicineIntake {
       'status': status,
       'nextSchedule': nextSchedule,
       'purpose': purpose,
-      'dateTaken': dateTaken.toIso8601String(), // 🔹 Updated here
+      'dateTaken': dateTaken.toIso8601String(),
     };
   }
 }

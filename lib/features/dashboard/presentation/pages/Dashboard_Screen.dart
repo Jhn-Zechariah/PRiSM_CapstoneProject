@@ -260,15 +260,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   int selectedIndex = 2;
 
   Timer? _timer;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  // Skip loading spinner when cached values are already available from SensorMemory.
-  bool _isLoading = SensorMemory.lastTemp == 0 && SensorMemory.lastHumidity == 0;
-  String _connectionStatus = SensorMemory.lastConnectionStatus;
-  String _sensorStatus = "Sensor Offline";
-  int _consecutiveFailures = 0;
+  bool _isLoading = true;
+  String _connectionStatus =
+      "Connecting..."; // Internet / Firestore reachability
+  String _sensorStatus =
+      "Connecting..."; // ESP32 physical sensor online/offline
 
-  // Pre-populate from cache so the UI shows last known values immediately on navigation.
-  double _tempMax = SensorMemory.lastTemp;
+  double _tempMax = 0;
   String _tempStatus = "Normal";
   double _waterPct = 0;
   String _waterStatus = "Unknown";
@@ -609,7 +607,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() {
         _mlCondition = "Unavailable";
         _mlRecommendations = [
-          "Could not reach ML server. Make sure the Python API is running.",
+          e.toString(),
         ];
         _mlLoading = false;
       });

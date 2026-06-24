@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_feeding_record.dart';
+import '../cubits/feeding_record_cubit.dart';
+import '../cubits/feeding_record_states.dart';
 
-class FeedingRecordExpandedPreview extends StatelessWidget {
+class FeedingRecordExpandedPreview extends StatefulWidget {
   final AppPig pig;
   final Color pigColor;
 
@@ -13,7 +15,27 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
     required this.pigColor,
   });
 
-  //  Helper to calculate age from birthDate
+  @override
+  State<FeedingRecordExpandedPreview> createState() =>
+      _FeedingRecordExpandedPreviewState();
+}
+
+class _FeedingRecordExpandedPreviewState
+    extends State<FeedingRecordExpandedPreview> {
+
+  // 🔹 Local state variable to securely hold onto the latest record once received
+  AppFeedingRecord? _latestRecord;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<FeedingRecordCubit>().loadLatestRecord(widget.pig.pigId);
+      }
+    });
+  }
+
   String _calculateAge(DateTime birthDate) {
     final days = DateTime.now().difference(birthDate).inDays;
     if (days < 30) return '$days days';
@@ -21,37 +43,12 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
     return '$months months';
   }
 
-  //  Changed from Future to Stream, and .get() to .snapshots()
-  Stream<AppFeedingRecord?> _streamLatestFeedingRecord() {
-    return FirebaseFirestore.instance
-        .collection('pigs')
-        .doc(
-          pig.pigId,
-        ) // Make sure this is the exact string of the Firestore Document ID!
-        .collection('feeding_records')
-        .orderBy('timestamp', descending: true)
-        .limit(1)
-        .snapshots()
-        .map((snapshot) {
-          if (snapshot.docs.isNotEmpty) {
-            try {
-              return AppFeedingRecord.fromMap(snapshot.docs.first.data());
-            } catch (e) {
-              // If the data crashes while parsing, it will print here!
-              debugPrint(" ERROR PARSING FEEDING RECORD: $e");
-              return null;
-            }
-          }
-          return null;
-        });
-  }
-
   Widget _buildInfoText(
-    String label,
-    String value,
-    Color labelColor,
-    Color textColor,
-  ) {
+      String label,
+      String value,
+      Color labelColor,
+      Color textColor,
+      ) {
     return RichText(
       text: TextSpan(
         children: [
@@ -78,24 +75,38 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
 
-    return StreamBuilder<AppFeedingRecord?>(
-      stream: _streamLatestFeedingRecord(),
-      builder: (context, snapshot) {
-        String feedType = 'No data yet';
-        String amount = '0';
-
-        //  2. Add an explicit error check to show on the UI
-        if (snapshot.hasError) {
-          debugPrint(" STREAM ERROR: ${snapshot.error}");
-          feedType = 'Stream Error!';
-          amount = 'Error';
-        } else if (snapshot.hasData && snapshot.data != null) {
-          feedType = snapshot.data!.feedType;
-          amount = snapshot.data!.amount.toString();
-        } else if (snapshot.connectionState == ConnectionState.waiting) {
-          feedType = 'Loading...';
-          amount = '...';
+    // 🔹 Swapped BlocBuilder for BlocConsumer to intercept and preserve state changes locally
+    return BlocConsumer<FeedingRecordCubit, FeedingRecordState>(
+      listenWhen: (previous, current) =>
+      (current is LatestFeedingRecordLoaded && current.pigId == widget.pig.pigId) ||
+          (current is LatestFeedingRecordsBulkUpdated && current.updates.containsKey(widget.pig.pigId)),
+      listener: (context, state) {
+        // Capture single or bulk updates immediately into local component state
+        if (state is LatestFeedingRecordLoaded && state.pigId == widget.pig.pigId) {
+          setState(() => _latestRecord = state.record);
+        } else if (state is LatestFeedingRecordsBulkUpdated && state.updates.containsKey(widget.pig.pigId)) {
+          setState(() => _latestRecord = state.updates[widget.pig.pigId]);
         }
+      },
+      buildWhen: (previous, current) =>
+      (current is LatestFeedingRecordLoading && current.pigId == widget.pig.pigId) ||
+          (current is LatestFeedingRecordLoaded && current.pigId == widget.pig.pigId) ||
+          (current is LatestFeedingRecordError && current.pigId == widget.pig.pigId) ||
+          (current is LatestFeedingRecordsBulkUpdated && current.updates.containsKey(widget.pig.pigId)),
+      builder: (context, state) {
+        // Prioritize our persistent local state record, fallback to cubit cache if empty
+        AppFeedingRecord? activeRecord = _latestRecord ??
+            context.read<FeedingRecordCubit>().getCachedLatestRecord(widget.pig.pigId);
+
+        bool isLoading = false;
+
+        if (state is LatestFeedingRecordLoading && state.pigId == widget.pig.pigId) {
+          isLoading = true;
+        }
+
+        // Always display the absolute latest values resolved above safely
+        final feedType = isLoading ? '...' : (activeRecord?.feedType ?? 'No data yet');
+        final amount = isLoading ? '...' : (activeRecord?.amount.toString() ?? '0');
 
         return Row(
           children: [
@@ -105,7 +116,7 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
                 children: [
                   _buildInfoText(
                     'Age:',
-                    _calculateAge(pig.birthDate),
+                    _calculateAge(widget.pig.birthDate),
                     labelColor,
                     textColor,
                   ),
@@ -125,7 +136,7 @@ class FeedingRecordExpandedPreview extends StatelessWidget {
                 children: [
                   _buildInfoText(
                     'Stage:',
-                    pig.stage.isNotEmpty ? pig.stage : 'N/A',
+                    widget.pig.stage.isNotEmpty ? widget.pig.stage : 'N/A',
                     labelColor,
                     textColor,
                   ),
