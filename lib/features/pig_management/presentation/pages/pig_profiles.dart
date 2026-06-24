@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/pig_management/presentation/pages/pig_weight_history.dart';
-
-// Adjust these imports based on your exact folder structure
 import '../../../../core/widgets/header.dart';
 import '../../../../core/widgets/textlink.dart';
 import '../../data/firestore_pig_repo.dart';
@@ -107,7 +105,7 @@ class PigProfilesScreen extends StatelessWidget {
                                 MaterialPageRoute(
                                   builder: (context) => BlocProvider(
                                     create: (context) => WeightHistoryCubit(
-                                      pigRepo: FirebasePigRepo(),
+                                      pigRepo: context.read<FirebasePigRepo>(), // ✅ shared singleton from tree
                                     ),
                                     child: WeightHistoryScreen(
                                       // Pass ALL pigs to history so it can show everything

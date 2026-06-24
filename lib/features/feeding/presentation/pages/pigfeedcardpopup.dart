@@ -1,6 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+// --- Core Widgets ---
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/snackbar.dart';
@@ -8,6 +9,7 @@ import '../../../../core/widgets/textfield.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_feeding_record.dart';
 import '../cubits/feeding_record_cubit.dart';
+import '../cubits/feeding_record_states.dart';
 
 class PigFeedCardPopUp extends StatefulWidget {
   final AppPig pig;
@@ -28,30 +30,15 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
   final TextEditingController _feedTypeController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
 
-  // 🔹 Cache the stream in a variable to prevent infinite read loops
-  late Stream<AppFeedingRecord?> _latestFeedingStream;
-
   @override
   void initState() {
     super.initState();
-    // 🔹 Initialize the stream ONCE in initState
-    _latestFeedingStream = FirebaseFirestore.instance
-        .collection('pigs')
-        .doc(widget.pig.pigId)
-        .collection('feeding_records')
-        .orderBy('timestamp', descending: true)
-        .limit(1)
-        .snapshots()
-        .map((snapshot) {
-      if (snapshot.docs.isNotEmpty) {
-        try {
-          return AppFeedingRecord.fromMap(snapshot.docs.first.data());
-        } catch (e) {
-          debugPrint(" ERROR PARSING FEEDING RECORD: $e");
-          return null;
-        }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context
+            .read<FeedingRecordCubit>()
+            .loadLatestRecord(widget.pig.pigId);
       }
-      return null;
     });
   }
 
@@ -65,11 +52,16 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
   Future<void> _onSave() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final amount = double.tryParse(_amountController.text.trim());
+    // 🔹 FIXED: Added a protective layer guarding against 0 or negative numbers
+    if (amount == null || amount <= 0) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => CustomConfirmDialog(
         title: 'Confirm Feeding',
-        content: 'Save feeding record for ${widget.pig.breed} | ${widget.pig.displayId}?',
+        content:
+        'Save feeding record for ${widget.pig.breed} | ${widget.pig.displayId}?',
         confirmText: 'Save',
         cancelText: 'Cancel',
         confirmColor: const Color(0xFF2563EB),
@@ -84,28 +76,38 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
       barrierDismissible: false,
       builder: (_) => const Dialog(
         backgroundColor: Colors.transparent,
-        child: Center(child: CircularProgressIndicator(color: Color(0xFFF5A623))),
+        child: Center(
+          child: CircularProgressIndicator(color: Color(0xFFF5A623)),
+        ),
       ),
     );
 
     final recordToSave = AppFeedingRecord(
-      id: '', 
+      id: '',
+      userId: widget.pig.userId,
       pigId: widget.pig.pigId,
       feedType: _feedTypeController.text.trim(),
-      amount: double.parse(_amountController.text.trim()),
+      amount: amount,
       timestamp: DateTime.now(),
     );
 
-    final success = await context.read<FeedingRecordCubit>().addRecord(recordToSave);
+    final success =
+    await context.read<FeedingRecordCubit>().addRecord(recordToSave);
 
     if (!mounted) return;
     Navigator.pop(context); // Close loading spinner
 
     if (success) {
       Navigator.pop(context); // Close popup
-      CustomSnackbar.show(context: context, message: 'Feeding record saved successfully!');
+      CustomSnackbar.show(
+        context: context,
+        message: 'Feeding record saved successfully!',
+      );
     } else {
-      CustomSnackbar.show(context: context, message: 'Failed to save. Please try again.');
+      CustomSnackbar.show(
+        context: context,
+        message: 'Failed to save. Please try again.',
+      );
     }
   }
 
@@ -118,7 +120,10 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
       child: Container(
-        decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(16)),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+        ),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -127,7 +132,10 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                 width: 10,
                 decoration: BoxDecoration(
                   color: widget.pigColor,
-                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                  ),
                 ),
               ),
               Expanded(
@@ -142,50 +150,76 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text("Feeding Record", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+                            Text(
+                              'Feeding Record',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black,
+                              ),
+                            ),
                             IconButton(
                               icon: const Icon(Icons.close, size: 22),
                               onPressed: () => Navigator.pop(context),
-                              color: isDark ? Colors.white60 : Colors.black54,
+                              color:
+                              isDark ? Colors.white60 : Colors.black54,
                             ),
                           ],
                         ),
 
                         const SizedBox(height: 12),
 
-                        StreamBuilder<AppFeedingRecord?>(
-                          stream: _latestFeedingStream, // 🔹 Uses the cached stream
-                          builder: (context, snapshot) {
+                        // ── Latest record preview ──────────────────────────
+                        BlocBuilder<FeedingRecordCubit, FeedingRecordState>(
+                          buildWhen: (previous, current) =>
+                          (current is LatestFeedingRecordLoading &&
+                              current.pigId == widget.pig.pigId) ||
+                              (current is LatestFeedingRecordLoaded &&
+                                  current.pigId == widget.pig.pigId) ||
+                              (current is LatestFeedingRecordError &&
+                                  current.pigId == widget.pig.pigId),
+                          builder: (context, state) {
                             String recentFeed = 'No data';
                             String recentAmount = '0';
 
-                            if (snapshot.hasData && snapshot.data != null) {
-                              recentFeed = snapshot.data!.feedType;
-                              recentAmount = snapshot.data!.amount.toString();
-                            } else if (snapshot.connectionState == ConnectionState.waiting) {
+                            if (state is LatestFeedingRecordLoading &&
+                                state.pigId == widget.pig.pigId) {
                               recentFeed = '...';
                               recentAmount = '...';
+                            } else if (state is LatestFeedingRecordLoaded &&
+                                state.pigId == widget.pig.pigId) {
+                              final AppFeedingRecord? record = state.record;
+                              if (record != null) {
+                                recentFeed = record.feedType;
+                                recentAmount = record.amount.toString();
+                              }
                             }
 
                             return Row(
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                     children: [
-                                      _buildInfoText('Breed:', widget.pig.breed, isDark),
+                                      _buildInfoText(
+                                          'Breed:', widget.pig.breed, isDark),
                                       const SizedBox(height: 6),
-                                      _buildInfoText('Recent type:', recentFeed, isDark),
+                                      _buildInfoText(
+                                          'Recent type:', recentFeed, isDark),
                                     ],
                                   ),
                                 ),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                    CrossAxisAlignment.start,
                                     children: [
-                                      _buildInfoText('Stage:', widget.pig.stage, isDark),
+                                      _buildInfoText(
+                                          'Stage:', widget.pig.stage, isDark),
                                       const SizedBox(height: 6),
-                                      _buildInfoText('Recent amount:', recentAmount, isDark),
+                                      _buildInfoText(
+                                          'Recent amount:', recentAmount, isDark),
                                     ],
                                   ),
                                 ),
@@ -196,6 +230,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
 
                         const SizedBox(height: 16),
 
+                        // ── Input fields ───────────────────────────────────
                         Row(
                           children: [
                             Expanded(
@@ -203,7 +238,10 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                                 controller: _feedTypeController,
                                 label: 'Feed Type:',
                                 border: 6,
-                                validator: (value) => (value == null || value.trim().isEmpty) ? 'Required' : null,
+                                validator: (value) =>
+                                (value == null || value.trim().isEmpty)
+                                    ? 'Required'
+                                    : null,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -213,9 +251,19 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                                 label: 'Amount (kg):',
                                 border: 6,
                                 keyboardType: TextInputType.number,
+                                // 🔹 FIXED: Modified validator logic to block values <= 0
                                 validator: (value) {
-                                  if (value == null || value.trim().isEmpty) return 'Required';
-                                  if (double.tryParse(value) == null) return 'Invalid';
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Required';
+                                  }
+
+                                  final parsedAmount = double.tryParse(value);
+                                  if (parsedAmount == null) {
+                                    return 'Invalid';
+                                  }
+                                  if (parsedAmount <= 0) {
+                                    return 'Invalid amount';
+                                  }
                                   return null;
                                 },
                               ),
@@ -248,8 +296,21 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     return RichText(
       text: TextSpan(
         children: [
-          TextSpan(text: '$label ', style: TextStyle(fontSize: 12, color: isDark ? Colors.white60 : Colors.grey)),
-          TextSpan(text: value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)),
+          TextSpan(
+            text: '$label ',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.white60 : Colors.grey,
+            ),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
         ],
       ),
     );

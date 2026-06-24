@@ -11,6 +11,7 @@ import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
+import '../../features/feeding/data/firestore_feeding_record_repo.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
@@ -41,6 +42,7 @@ class _AppNavState extends State<AppNav> {
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
   Timer? _humidityTimer;
+  final _feedingRepo = FirestoreFeedingRecordRepo();
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -171,7 +173,7 @@ class _AppNavState extends State<AppNav> {
         isActivated: _sprinklerActive,
         onSprinklerChanged: (val) => setState(() => _sprinklerActive = val),
       ),
-      const FeedingRecordsPage(),
+      FeedingRecordsPage(repo: _feedingRepo),
       _showPigMeds
           ? pig_meds(
               onSwitchToStock: () {
