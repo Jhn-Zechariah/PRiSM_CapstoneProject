@@ -487,7 +487,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       setState(() {
         _mlCondition = "Unavailable";
         _mlRecommendations = [
-          "Could not reach ML server. Make sure the Python API is running.",
+          e.toString(),
         ];
         _mlLoading = false;
       });

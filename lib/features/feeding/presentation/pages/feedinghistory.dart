@@ -1,8 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 
-// --- Domain & State Layer Imports ---
 import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_feeding_history.dart';
 import '../cubits/feeding_history_cubit.dart';
@@ -18,87 +18,114 @@ class FeedingHistoryPage extends StatefulWidget {
 }
 
 class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
-  String? _selectedPigId =
-      'All'; //  Set 'All' as the initial default string option
+  String _selectedPigId = 'All';
   String _currentFilter = 'Active';
 
-  final List<Color> _accentColors = const [
-    Color(0xFFE57373), // Red
-    Color(0xFF81C784), // Green
-    Color(0xFF64B5F6), // Blue
-    Color(0xFFFFB74D), // Orange
-    Color(0xFFBA68C8), // Purple
+  final ScrollController _scrollController = ScrollController();
+  String? _currentUserId;
+
+  // Memoised so _filteredPigs isn't recomputed on every rebuild.
+  List<AppPig>? _cachedFilteredPigs;
+  String? _lastFilter;
+
+  static const _accentColors = [
+    Color(0xFFE57373),
+    Color(0xFF81C784),
+    Color(0xFF64B5F6),
+    Color(0xFFFFB74D),
+    Color(0xFFBA68C8),
   ];
 
-  List<AppPig> get _filteredPigs {
-    return widget.availablePigs.where((pig) {
-      final statusLower = pig.status.toLowerCase();
-      final isInactive = statusLower == 'sold' || statusLower == 'deceased';
-
-      if (_currentFilter == 'Active') {
-        return !isInactive;
-      } else {
-        return isInactive;
-      }
-    }).toList();
-  }
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
-    _loadInitialPig();
+    _currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    _scrollController.addListener(_onScroll);
   }
 
-  void _loadInitialPig() {
-    // 👈 Always reset selection back to 'All' when changing active/inactive tables
-    setState(() {
-      _selectedPigId = 'All';
-    });
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
   }
 
-  Color _getColorForPig(String pigId) {
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /// Returns the pigs matching [_currentFilter], memoised until the filter
+  /// value changes so we don't re-scan the pig list on every frame.
+  List<AppPig> get _filteredPigs {
+    if (_cachedFilteredPigs == null || _lastFilter != _currentFilter) {
+      _lastFilter = _currentFilter;
+      _cachedFilteredPigs = widget.availablePigs.where((pig) {
+        final statusLower = pig.status.toLowerCase();
+        final isInactive =
+            statusLower == 'sold' || statusLower == 'deceased';
+        return _currentFilter == 'Active' ? !isInactive : isInactive;
+      }).toList();
+    }
+    return _cachedFilteredPigs!;
+  }
+
+  Color _colorForPig(String pigId) {
     final index = widget.availablePigs.indexWhere((p) => p.pigId == pigId);
     if (index == -1) return Colors.grey;
     return _accentColors[index % _accentColors.length];
   }
 
+  // ── Scroll listener ────────────────────────────────────────────────────────
+
+  void _onScroll() {
+    if (!mounted) return;
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 200) {
+      final userId = _currentUserId;
+      if (userId == null) return;
+      context.read<FeedingHistoryCubit>().loadMoreHistory(userId);
+    }
+  }
+
+  // ── Filter bar ─────────────────────────────────────────────────────────────
+
   Widget _buildFiltersRow(bool isDark) {
-    final displayPigs = _filteredPigs;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final dropBg = isDark ? const Color(0xFF2C2C2C) : Colors.white;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // LEFT SIDE: Active/Inactive Filter Dropdown
+        // Active / Inactive filter
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _currentFilter,
-            icon: Icon(
-              Icons.filter_list,
-              size: 18,
-              color: isDark ? Colors.white : Colors.black87,
-            ),
+            icon: Icon(Icons.filter_list, size: 18, color: textColor),
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : Colors.black87,
+              color: textColor,
             ),
-            dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+            dropdownColor: dropBg,
             items: const [
               DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
-              DropdownMenuItem(value: 'Inactive', child: Text('Inactive Pigs')),
+              DropdownMenuItem(
+                  value: 'Inactive', child: Text('Inactive Pigs')),
             ],
             onChanged: (value) {
               if (value != null && value != _currentFilter) {
                 setState(() {
                   _currentFilter = value;
-                  _loadInitialPig();
+                  _cachedFilteredPigs = null; // bust memo
+                  _selectedPigId = 'All';
                 });
               }
             },
           ),
         ),
 
-        // RIGHT SIDE: Specific Sub-Selection with "All" Option Included
+        // Pig picker
         DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: _selectedPigId,
@@ -112,10 +139,9 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
-            dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
+            dropdownColor: dropBg,
             isDense: true,
             items: [
-              // 👇 Explicitly inserting the global tracking item entry
               const DropdownMenuItem<String>(
                 value: 'All',
                 child: Text(
@@ -127,8 +153,9 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                   ),
                 ),
               ),
-              ...displayPigs.map((pig) {
-                return DropdownMenuItem(
+              ..._filteredPigs.map((pig) {
+                final color = _colorForPig(pig.pigId);
+                return DropdownMenuItem<String>(
                   value: pig.pigId,
                   child: Row(
                     children: [
@@ -137,7 +164,7 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                         height: 8,
                         margin: const EdgeInsets.only(right: 6),
                         decoration: BoxDecoration(
-                          color: _getColorForPig(pig.pigId),
+                          color: color,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -165,14 +192,14 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
     );
   }
 
+  // ── Build ──────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDarkMode
-          ? const Color(0xFF121212)
-          : const Color(0xFFF5F5F5),
+      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -181,93 +208,133 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
             children: [
               const AppTopBar(title: 'Feeding History', showBackButton: true),
               const SizedBox(height: 12),
-
-              _buildFiltersRow(isDarkMode),
+              _buildFiltersRow(isDark),
               const SizedBox(height: 8),
-
               Expanded(
                 child: _filteredPigs.isEmpty
                     ? Center(
-                        child: Text(
-                          _currentFilter == 'Active'
-                              ? 'No active pigs available.'
-                              : 'No inactive pigs available.',
-                          style: TextStyle(
-                            color: isDarkMode ? Colors.white54 : Colors.black54,
-                          ),
-                        ),
-                      )
+                  child: Text(
+                    _currentFilter == 'Active'
+                        ? 'No active pigs available.'
+                        : 'No inactive pigs available.',
+                    style: TextStyle(
+                      color: isDark ? Colors.white54 : Colors.black54,
+                    ),
+                  ),
+                )
                     : BlocBuilder<FeedingHistoryCubit, FeedingHistoryState>(
-                        builder: (context, state) {
-                          if (state is FeedingHistoryLoading ||
-                              state is FeedingHistoryInitial) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          } else if (state is FeedingHistoryError) {
-                            return Center(
-                              child: Text(
-                                state.message,
-                                style: const TextStyle(color: Colors.red),
-                              ),
-                            );
-                          } else if (state is FeedingHistoryLoaded) {
-                            // 1. Map pigs to access details efficiently
-                            final pigMap = {
-                              for (var p in widget.availablePigs) p.pigId: p,
-                            };
+                  // Only rebuild on transitions that change visible content.
+                  buildWhen: (prev, curr) =>
+                  curr is FeedingHistoryLoading ||
+                      curr is FeedingHistoryInitial ||
+                      curr is FeedingHistoryLoaded ||
+                      curr is FeedingHistoryLoadingMore ||
+                      curr is FeedingHistoryError,
+                  builder: (context, state) {
+                    if (state is FeedingHistoryLoading ||
+                        state is FeedingHistoryInitial) {
+                      return const Center(
+                          child: CircularProgressIndicator());
+                    }
 
-                            // 2. Perform inline routing array modifications
-                            final targetRecords = state.historyRecords.where((
-                              record,
-                            ) {
-                              final associatedPig = pigMap[record.pigId];
-                              if (associatedPig == null) return false;
+                    if (state is FeedingHistoryError) {
+                      return Center(
+                        child: Text(
+                          state.message,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      );
+                    }
 
-                              // Verify record belongs to a pig matching the left-side filter context
-                              final statusLower = associatedPig.status
-                                  .toLowerCase();
-                              final isPigInactive =
-                                  statusLower == 'sold' ||
-                                  statusLower == 'deceased';
-                              final matchesStatus = _currentFilter == 'Active'
-                                  ? !isPigInactive
-                                  : isPigInactive;
+                    List<AppFeedingHistory> records = [];
+                    bool hasMore = false;
+                    bool isLoadingMore = false;
 
-                              if (!matchesStatus) return false;
+                    if (state is FeedingHistoryLoaded) {
+                      records = state.historyRecords;
+                      hasMore = state.hasMore;
+                    } else if (state is FeedingHistoryLoadingMore) {
+                      records = state.currentRecords;
+                      isLoadingMore = true;
+                    }
 
-                              // 👇 If 'All' is selected, display all records matching the status filter
-                              if (_selectedPigId == 'All') return true;
-                              return record.pigId == _selectedPigId;
-                            }).toList();
+                    if (records.isEmpty) {
+                      return const Center(
+                          child: Text('No feeding records found.'));
+                    }
 
-                            if (targetRecords.isEmpty) {
-                              return const Center(
-                                child: Text('No feeding records found.'),
-                              );
-                            }
+                    final pigMap = {
+                      for (final p in widget.availablePigs)
+                        p.pigId: p,
+                    };
 
-                            return ListView.builder(
-                              itemCount: targetRecords.length,
-                              itemBuilder: (context, index) {
-                                final record = targetRecords[index];
-                                final targetPig = pigMap[record.pigId];
-                                final cardAccentColor = _getColorForPig(
-                                  record.pigId,
-                                );
+                    // Filter records by active/inactive status and
+                    // selected pig, then sort latest-first by timestamp.
+                    final targetRecords = records
+                        .where((record) {
+                      final pig = pigMap[record.pigId];
+                      if (pig == null) return false;
 
-                                return _buildFeedingRecordCard(
-                                  record: record,
-                                  pig: targetPig,
-                                  accentColor: cardAccentColor,
-                                  isDarkMode: isDarkMode,
-                                );
-                              },
-                            );
-                          }
-                          return const SizedBox.shrink();
-                        },
-                      ),
+                      final statusLower =
+                      pig.status.toLowerCase();
+                      final isInactive = statusLower == 'sold' ||
+                          statusLower == 'deceased';
+                      final matchesStatus =
+                      _currentFilter == 'Active'
+                          ? !isInactive
+                          : isInactive;
+
+                      if (!matchesStatus) return false;
+                      if (_selectedPigId == 'All') return true;
+                      return record.pigId == _selectedPigId;
+                    })
+                        .toList()
+                    // Guarantee latest-first even after client-side
+                    // filter narrows a merged multi-pig result set.
+                      ..sort((a, b) =>
+                          b.timestamp.compareTo(a.timestamp));
+
+                    if (targetRecords.isEmpty) {
+                      return const Center(
+                          child: Text('No feeding records found.'));
+                    }
+
+                    // Only show the trailing spinner when there are
+                    // records AND more pages exist (or a load is
+                    // active). Without the non-empty guard, the spinner
+                    // persists when the current filter has no matching
+                    // records but Firestore has records on other pigs.
+                    final showTrailingSpinner =
+                        (isLoadingMore || hasMore) &&
+                            targetRecords.isNotEmpty;
+                    final itemCount = showTrailingSpinner
+                        ? targetRecords.length + 1
+                        : targetRecords.length;
+
+                    return ListView.builder(
+                      controller: _scrollController,
+                      itemCount: itemCount,
+                      itemBuilder: (context, index) {
+                        if (index == targetRecords.length) {
+                          return const Padding(
+                            padding:
+                            EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                                child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        final record = targetRecords[index];
+                        return _buildFeedingRecordCard(
+                          record: record,
+                          pig: pigMap[record.pigId],
+                          accentColor: _colorForPig(record.pigId),
+                          isDarkMode: isDark,
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -276,7 +343,8 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
     );
   }
 
-  // ── Unified Card Structural Representation ─────────────────────
+  // ── Cards ──────────────────────────────────────────────────────────────────
+
   Widget _buildFeedingRecordCard({
     required AppFeedingHistory record,
     required AppPig? pig,
@@ -285,11 +353,8 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
   }) {
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     final labelColor = isDarkMode ? Colors.white60 : Colors.black54;
-
-    // 👇 Dynamically construct header values from parsed cross-reference
-    final cardTitle = pig != null
-        ? '${pig.breed} | ${pig.displayId}'
-        : 'Unknown Pig';
+    final cardTitle =
+    pig != null ? '${pig.breed} | ${pig.displayId}' : 'Unknown Pig';
 
     return Container(
       width: double.infinity,
@@ -305,6 +370,7 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Colour accent strip
             Container(
               width: 10,
               decoration: BoxDecoration(
@@ -322,7 +388,7 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      cardTitle, // 👈 Dynamically populated string identifier
+                      cardTitle,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
@@ -333,42 +399,25 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildRichLabel(
-                            'Date:',
-                            record.formattedDate,
-                            labelColor,
-                            textColor,
-                          ),
+                          child: _buildRichLabel('Date:', record.formattedDate,
+                              labelColor, textColor),
                         ),
                         Expanded(
-                          child: _buildRichLabel(
-                            'Time:',
-                            record.formattedTime,
-                            labelColor,
-                            textColor,
-                          ),
+                          child: _buildRichLabel('Time:', record.formattedTime,
+                              labelColor, textColor),
                         ),
                       ],
                     ),
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        // Removed the extra "kg" suffix from Feed type
                         Expanded(
-                          child: _buildRichLabel(
-                            'Feed type:',
-                            record.feedType,
-                            labelColor,
-                            textColor,
-                          ),
+                          child: _buildRichLabel('Feed type:', record.feedType,
+                              labelColor, textColor),
                         ),
                         Expanded(
-                          child: _buildRichLabel(
-                            'Amount:',
-                            '${record.amount} kg',
-                            labelColor,
-                            textColor,
-                          ),
+                          child: _buildRichLabel('Amount:',
+                              '${record.amount} kg', labelColor, textColor),
                         ),
                       ],
                     ),
@@ -383,11 +432,11 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
   }
 
   Widget _buildRichLabel(
-    String label,
-    String value,
-    Color labelColor,
-    Color textColor,
-  ) {
+      String label,
+      String value,
+      Color labelColor,
+      Color textColor,
+      ) {
     return RichText(
       overflow: TextOverflow.ellipsis,
       text: TextSpan(

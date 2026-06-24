@@ -1,11 +1,26 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart'; // Handles user validation credentials
 
 class MlService {
-  // For Android emulator on the same PC:
-  static const String baseUrl = 'http://192.168.1.19:8000';
-  // For physical Android phone (same Wi-Fi), change to your PC's IP:
-  // static const String baseUrl = 'http://192.168.1.x:8000';
+  // Switch to 'http://127.0.0.1:8000' if you are using ADB USB port forwarding!
+  static const String baseUrl = 'http://127.0.0.1:8000';
+
+  /// Helper to fetch the current active user's JWT ID Token from Firebase Auth
+  static Future<String?> _getFirebaseToken() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        print("⚠️ Authentication Check Failed: No user logged into Firebase.");
+        return null;
+      }
+      // Force refresh the token to verify it hasn't expired
+      return await user.getIdToken(true);
+    } catch (e) {
+      print("❌ Error fetching active token from Firebase session: $e");
+      return null;
+    }
+  }
 
   /// Analyze farm-level conditions
   static Future<Map<String, dynamic>> analyzeFarm({
@@ -16,10 +31,18 @@ class MlService {
     int medicineGiven = 0,
   }) async {
     final url = Uri.parse('$baseUrl/api/farm/analyze');
+    final token = await _getFirebaseToken();
+
+    if (token == null) {
+      throw Exception('Authentication required to use ML analytics.');
+    }
 
     final response = await http.post(
       url,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token', // Attached security badge
+      },
       body: jsonEncode({
         'temperature_c': temperatureC,
         'humidity_pct': humidityPct,
@@ -32,7 +55,7 @@ class MlService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Farm analysis failed: ${response.statusCode}');
+      throw Exception('Farm analysis failed: ${response.statusCode} - ${response.body}');
     }
   }
 
@@ -44,10 +67,18 @@ class MlService {
     required double birthWeight,
   }) async {
     final url = Uri.parse('$baseUrl/api/pig/analyze');
+    final token = await _getFirebaseToken();
+
+    if (token == null) {
+      throw Exception('Authentication required to use ML analytics.');
+    }
 
     final response = await http.post(
       url,
-      headers: {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token', // Attached security badge
+      },
       body: jsonEncode({
         'pig_id': pigId,
         'birth_date': birthDate,
@@ -59,7 +90,7 @@ class MlService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Pig analysis failed: ${response.statusCode}');
+      throw Exception('Pig analysis failed: ${response.statusCode} - ${response.body}');
     }
   }
 }

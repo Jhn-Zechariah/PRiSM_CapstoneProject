@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart'; // Run `flutter pub add intl` if you don't have this yet
+import 'package:intl/intl.dart';
 
 class AppFeedingHistory {
   final String id;
@@ -16,16 +16,16 @@ class AppFeedingHistory {
     required this.timestamp,
   });
 
-  // Clean mapping that matches your previous save logic fields exactly
-  factory AppFeedingHistory.fromJson(Map<String, dynamic> json, String documentId) {
-    // 👇 1. Safely parse the timestamp regardless of how it was saved
-    DateTime parsedDate = DateTime.now(); // Default fallback
-
+  factory AppFeedingHistory.fromJson(
+      Map<String, dynamic> json,
+      String documentId,
+      ) {
+    // Already safe — handles both Timestamp and String. No changes needed.
+    DateTime parsedDate = DateTime.now();
     final rawTimestamp = json['timestamp'];
     if (rawTimestamp is Timestamp) {
       parsedDate = rawTimestamp.toDate();
     } else if (rawTimestamp is String) {
-      // If it was accidentally saved as a String, parse it cleanly
       parsedDate = DateTime.tryParse(rawTimestamp) ?? DateTime.now();
     }
 
@@ -33,16 +33,13 @@ class AppFeedingHistory {
       id: documentId,
       pigId: json['pigId'] ?? '',
       feedType: json['feedType'] ?? '',
-      amount: (json['amount'] ?? 0).toDouble(),
-      timestamp: parsedDate, // 👈 2. Use the safely parsed date here
+      amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+      timestamp: parsedDate,
     );
   }
 
-  // ── Convenience Getters for your UI ─────────────────────────────
+  // ── Convenience Getters ────────────────────────────────────────────────────
 
-  // 👇 Returns formatted date like: "May 26, 2026"
   String get formattedDate => DateFormat.yMMMMd().format(timestamp);
-
-  // 👇 Returns formatted time like: "8:30 PM"
   String get formattedTime => DateFormat.jm().format(timestamp);
 }

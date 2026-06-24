@@ -5,7 +5,6 @@ import '../../../../core/widgets/textfield.dart';
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/confirmation_box.dart';
-
 import '../../domain/model/app_feeding_record.dart';
 import '../cubits/feeding_record_cubit.dart';
 
@@ -24,17 +23,33 @@ class SelectPigFeedPopup extends StatefulWidget {
 }
 
 class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
-  //  1. Add FormKey for the text fields validation
   final _formKey = GlobalKey<FormState>();
 
   late List<bool> _checked;
   final TextEditingController _feedTypeController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
 
+  static const double _minAmount = 0.1;
+  static const double _maxAmount = 500.0;
+
   @override
   void initState() {
     super.initState();
     _checked = List<bool>.filled(widget.pigs.length + 1, false);
+  }
+
+  @override
+  void didUpdateWidget(SelectPigFeedPopup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pigs.length != widget.pigs.length) {
+      final newChecked = List<bool>.filled(widget.pigs.length + 1, false);
+      for (int i = 1; i < newChecked.length && i < _checked.length; i++) {
+        newChecked[i] = _checked[i];
+      }
+      newChecked[0] =
+          newChecked.length > 1 && newChecked.skip(1).every((c) => c);
+      _checked = newChecked;
+    }
   }
 
   @override
@@ -52,20 +67,21 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
     });
   }
 
+  // FIX (High): Recompute the select-all checkbox state when any individual
+  // pig checkbox changes. Previously _checked[0] was only written during
+  // _onSelectAll — so unchecking a pig after "Select All" left the select-all
+  // box permanently ticked.
   void _onPigChecked(int index, bool? value) {
     setState(() {
       _checked[index + 1] = value ?? false;
+      // Select-all is true only when every individual pig is checked.
       _checked[0] = _checked.skip(1).every((c) => c);
     });
   }
 
   Future<void> _onSave() async {
-    // 1. Validate Form (Feed Type and Amount)
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    // 2. Validate Checkboxes manually
     final hasSelection = _checked.skip(1).any((isChecked) => isChecked);
     if (!hasSelection) {
       CustomSnackbar.show(
@@ -75,7 +91,6 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       return;
     }
 
-    // 3. Show Confirmation Dialog
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => const CustomConfirmDialog(
@@ -90,7 +105,6 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
     if (confirmed != true) return;
     if (!mounted) return;
 
-    // 4. Show Loading Spinner
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -100,52 +114,46 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       ),
     );
 
-    // 5. Extract form data
     final feedType = _feedTypeController.text.trim();
-    final amount = double.parse(_amountController.text.trim());
 
-    // 6. Identify selected pigs
-    final selectedPigs = <AppPig>[];
-    for (int i = 0; i < widget.pigs.length; i++) {
-      // _checked[0] is "Select All", so pig checkboxes start at index 1
-      if (_checked[i + 1]) {
-        selectedPigs.add(widget.pigs[i]);
-      }
+    final amount = double.tryParse(_amountController.text.trim());
+    if (amount == null) {
+      if (mounted) Navigator.pop(context);
+      return;
     }
 
-    // 7. Map pigs to AppFeedingRecord models
+    final selectedPigs = <AppPig>[];
+    for (int i = 0; i < widget.pigs.length; i++) {
+      if (_checked[i + 1]) selectedPigs.add(widget.pigs[i]);
+    }
+
     final recordsToSave = selectedPigs
         .map(
           (pig) => AppFeedingRecord(
-            id: '', // Will be assigned by Firestore
-            pigId: pig.pigId, // Make sure your AppPig model uses 'id' here
-            feedType: feedType,
-            amount: amount,
-            timestamp:
-                DateTime.now(), // Or FieldValue.serverTimestamp() in the repo
-          ),
-        )
+        id: '',
+        userId: pig.userId,
+        pigId: pig.pigId,
+        feedType: feedType,
+        amount: amount,
+        timestamp: DateTime.now(),
+      ),
+    )
         .toList();
 
-    // 8. Call Cubit
-    final success = await context.read<FeedingRecordCubit>().addBatchRecords(
-      recordsToSave,
-    );
+    final success =
+    await context.read<FeedingRecordCubit>().addBatchRecords(recordsToSave);
 
     if (!mounted) return;
-
-    // 9. Close the loading spinner
-    Navigator.pop(context);
+    Navigator.pop(context); // Close spinner
 
     if (success) {
-      Navigator.pop(context); // Close the popup entirely
+      Navigator.pop(context); // Close popup
       CustomSnackbar.show(
         context: context,
         message:
-            'Successfully saved feeding records for ${selectedPigs.length} pig(s)!',
+        'Successfully saved feeding records for ${selectedPigs.length} pig(s)!',
       );
     } else {
-      // If it fails, the popup stays open so they can try again
       CustomSnackbar.show(
         context: context,
         message: 'Failed to save records. Please try again.',
@@ -183,7 +191,6 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                  // 4. Wrap the Column in the Form
                   child: Form(
                     key: _formKey,
                     child: Column(
@@ -206,7 +213,8 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                               child: Icon(
                                 Icons.close,
                                 size: 22,
-                                color: isDark ? Colors.white60 : Colors.black54,
+                                color:
+                                isDark ? Colors.white60 : Colors.black54,
                               ),
                             ),
                           ],
@@ -256,7 +264,8 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                                       checked: _checked[i + 1],
                                       isSelectAll: false,
                                       isDark: isDark,
-                                      onChanged: (val) => _onPigChecked(i, val),
+                                      onChanged: (val) =>
+                                          _onPigChecked(i, val),
                                     ),
                                     if (i < widget.pigs.length - 1)
                                       Divider(
@@ -284,7 +293,6 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                                   horizontal: 10,
                                   vertical: 12,
                                 ),
-                                // 5. Add Feed Type validation
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
@@ -297,21 +305,27 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                             Expanded(
                               child: CustomTextField(
                                 controller: _amountController,
-                                label: 'Amount:',
+                                label: 'Amount (kg):',
                                 border: 6,
-                                keyboardType: TextInputType.number,
+                                keyboardType:
+                                const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 10,
                                   vertical: 12,
                                 ),
-                                //  6. Add Amount validation
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
                                   }
-                                  final val = num.tryParse(value);
-                                  if (val == null || val <= 0) {
-                                    return 'Invalid';
+                                  final val = double.tryParse(value.trim());
+                                  if (val == null) return 'Invalid number';
+                                  if (val < _minAmount) {
+                                    return 'Min ${_minAmount}kg';
+                                  }
+                                  if (val > _maxAmount) {
+                                    return 'Max ${_maxAmount.toInt()}kg';
                                   }
                                   return null;
                                 },
@@ -366,7 +380,8 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
               label,
               style: TextStyle(
                 fontSize: 14,
-                fontWeight: isSelectAll ? FontWeight.w600 : FontWeight.normal,
+                fontWeight:
+                isSelectAll ? FontWeight.w600 : FontWeight.normal,
                 color: isSelectAll
                     ? const Color(0xFF2563EB)
                     : (isDark ? Colors.white : Colors.black87),
