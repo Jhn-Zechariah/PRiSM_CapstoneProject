@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -10,54 +11,54 @@ import 'medicine_states.dart';
 
 class MedicineCubit extends Cubit<MedicineState> {
   final MedicineRepository repository;
+  final Map<String, String> expiryCache = {};
+
+  // 🔹 New: cache of fetched stock batches, keyed by medicine id.
+  final Map<String, List<MedicineStock>> _stockCache = {};
+
+  List<Medicine> currentMedicines = [];
 
   StreamSubscription? _medicineSubscription;
   StreamSubscription? _intakeSubscription;
 
   String? _lastLoadedUid;
+  String? _lastIntakeUid; // also fixes the earlier multi-user intake bug
 
   MedicineCubit({required this.repository}) : super(MedicineInitial());
 
-  // ----------------------------------------------------------------------
-  // MEDICINE STREAM LOGIC
-  // ----------------------------------------------------------------------
   void listenToMedicines() {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
-
-    // Prevent restarting same stream
-    if (_lastLoadedUid == currentUser.uid &&
-        _medicineSubscription != null) {
-      return;
-    }
+    if (_lastLoadedUid == currentUser.uid && _medicineSubscription != null) return;
 
     _lastLoadedUid = currentUser.uid;
     _medicineSubscription?.cancel();
 
     emit(MedicineLoading());
 
-    _medicineSubscription =
-        repository.streamMedicines(currentUser.uid).listen(
-              (medicines) => emit(MedicineLoaded(medicines)),
-          onError: (e) => emit(MedicineError(e.toString())),
-        );
+    _medicineSubscription = repository.streamMedicines(currentUser.uid).listen(
+          (medicines) {
+        currentMedicines = medicines;
+        emit(MedicineLoaded(medicines));
+      },
+      onError: (e) => emit(MedicineError(e.toString())),
+    );
   }
 
-  // ----------------------------------------------------------------------
-  // MEDICINE INTAKE STREAM LOGIC
-  // ----------------------------------------------------------------------
   void listenToIntakes() {
-    if (_intakeSubscription != null) return;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
+    if (_lastIntakeUid == currentUser.uid && _intakeSubscription != null) return;
 
-    _intakeSubscription = repository.streamIntakes().listen(
+    _lastIntakeUid = currentUser.uid;
+    _intakeSubscription?.cancel();
+
+    _intakeSubscription = repository.streamIntakes(currentUser.uid).listen(
           (intakes) => emit(MedicineIntakesLoaded(intakes)),
       onError: (e) => emit(MedicineError(e.toString())),
     );
   }
 
-  // ----------------------------------------------------------------------
-  // CRUD LOGIC
-  // ----------------------------------------------------------------------
   Future<void> saveMedicineWithStock({
     required Medicine medicine,
     required MedicineStock initialBatch,
@@ -67,20 +68,36 @@ class MedicineCubit extends Cubit<MedicineState> {
         medicine: medicine,
         initialBatch: initialBatch,
       );
-
       emit(MedicineSaveSuccess());
     } catch (e) {
       emit(MedicineError(e.toString()));
     }
   }
 
-  Future<List<MedicineStock>> getStocksForMedicine(String medId) async {
+  // 🔹 Now serves from cache when available — avoids a Firestore read
+  // every time the same medicine is selected again in the dialog.
+  Future<List<MedicineStock>> getStocksForMedicine(
+      String medId, {
+        bool forceRefresh = false,
+      }) async {
+    if (!forceRefresh && _stockCache.containsKey(medId)) {
+      return _stockCache[medId]!;
+    }
     try {
-      return await repository.getMedicineStocks(medId);
+      final stocks = await repository.getMedicineStocks(medId);
+      _stockCache[medId] = stocks;
+      return stocks;
     } catch (e) {
-      emit(MedicineError("Failed to load stock dates: $e"));
+      emit(MedicineError('Failed to load stock dates: $e'));
       return [];
     }
+  }
+
+  // 🔹 Single place to invalidate both caches whenever stock changes.
+  void _invalidateStockCache(String? medId) {
+    if (medId == null) return;
+    expiryCache.remove(medId);
+    _stockCache.remove(medId);
   }
 
   Future<void> updateMedicineItem({
@@ -91,6 +108,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   }) async {
     try {
       emit(MedicineLoading());
+      _invalidateStockCache(medicine.medId);
 
       await repository.updateMedicineAndStock(
         medicine: medicine,
@@ -100,9 +118,6 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-
-      // Not needed if stream already active
-      // listenToMedicines();
     } catch (e) {
       emit(MedicineError(e.toString()));
     }
@@ -114,6 +129,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   }) async {
     try {
       emit(MedicineLoading());
+      _invalidateStockCache(medicine.medId);
 
       await repository.addNewStockBatch(
         medicine: medicine,
@@ -121,9 +137,6 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-
-      // Not needed if stream already active
-      // listenToMedicines();
     } catch (e) {
       emit(MedicineError(e.toString()));
     }
@@ -136,6 +149,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   }) async {
     try {
       emit(MedicineLoading());
+      _invalidateStockCache(medicineId); // 🔹 stock amount just changed too
 
       await repository.addIntakeAndReduceStock(
         intake: intake,
@@ -144,16 +158,9 @@ class MedicineCubit extends Cubit<MedicineState> {
       );
 
       emit(MedicineSaveSuccess());
-
-      // Not needed if stream already active
-      // listenToMedicines();
     } catch (e, stackTrace) {
-      print("🔥 FIRESTORE SAVE ERROR: $e");
-      print("🔥 STACKTRACE: $stackTrace");
-
-      final errorMessage =
-      e.toString().replaceAll('Exception: ', '');
-
+      dev.log('Firestore save error: $e', name: 'MedicineCubit', error: e, stackTrace: stackTrace);
+      final errorMessage = e.toString().replaceAll('Exception: ', '');
       emit(MedicineError(errorMessage));
     }
   }
