@@ -15,6 +15,7 @@ import joblib
 from dotenv import load_dotenv
 from datetime import date
 import firebase_admin
+import os
 from firebase_admin import credentials, auth
 
 load_dotenv()
