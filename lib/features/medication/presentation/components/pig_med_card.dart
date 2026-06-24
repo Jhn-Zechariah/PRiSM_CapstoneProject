@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/features/medication/presentation/components/medicine_intake_dialog.dart';
 
-import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
 import '../../domain/model/app_medicine_intake.dart';
 import '../cubits/medicine_cubit.dart';
-import '../cubits/medicine_states.dart';
+
 
 enum PigMedAction { medicine, vaccine, vitamin }
 
@@ -131,13 +130,7 @@ class PigMedCard extends StatelessWidget {
                           if (action == PigMedAction.vitamin) selectedType = 'Vitamin';
                           if (action == PigMedAction.vaccine) selectedType = 'Vaccine';
 
-                          // Grab your live medicines array from the loaded Cubit state
-                          final medicineState = context.read<MedicineCubit>().state;
-                          List<Medicine> availableMedicines = [];
 
-                          if (medicineState is MedicineLoaded) {
-                            availableMedicines = medicineState.medicines;
-                          }
 
                           // Open the dialog and await the result map
                           final result = await showDialog<Map<String, dynamic>>(
@@ -147,7 +140,6 @@ class PigMedCard extends StatelessWidget {
                               child: MedicineIntakeDialog(
                                 accentColor: accentColor,
                                 intakeType: selectedType,
-                                availableMedicines: availableMedicines,
                                 pigId: pig.pigId,
                               ),
                             ),

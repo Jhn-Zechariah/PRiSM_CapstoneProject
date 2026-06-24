@@ -1,8 +1,6 @@
-// ignore_for_file: camel_case_types
-
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // 🔹 Added for subcollection query
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/medication/presentation/components/medicine_card.dart';
 import 'package:prism_app/features/medication/presentation/components/add_medicine_stock.dart';
@@ -16,93 +14,95 @@ import '../../domain/model/app_medicine.dart';
 import '../cubits/medicine_cubit.dart';
 import '../cubits/medicine_states.dart';
 
-class meds_Stocks extends StatefulWidget {
+
+class MedicineStocksPage extends StatefulWidget {
   final VoidCallback? onSwitchToPigMeds;
 
-  const meds_Stocks({super.key, this.onSwitchToPigMeds});
+  const MedicineStocksPage({super.key, this.onSwitchToPigMeds});
 
   @override
-  State<meds_Stocks> createState() => _meds_StocksState();
+  State<MedicineStocksPage> createState() => _MedicineStocksPageState();
 }
 
-class _meds_StocksState extends State<meds_Stocks> {
+class _MedicineStocksPageState extends State<MedicineStocksPage> {
   int _selectedTab = 0;
-  TextEditingController searchController = TextEditingController();
-  String _searchQuery = "";
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  // 🗑️ REMOVED local _expiryCache map from here!
 
   @override
   void initState() {
     super.initState();
-    // 🔹 Start listening to live Firestore data using the new Cubit
-    context.read<MedicineCubit>().listenToMedicines();
+    final cubit = context.read<MedicineCubit>();
+    cubit.listenToMedicines();
+
+    // 🔹 FIXED: If returning to the page and the Cubit is already warm, trigger instantly
+    if (cubit.state is MedicineLoaded) {
+      _prefetchExpiries((cubit.state as MedicineLoaded).medicines);
+    }
   }
 
   @override
   void dispose() {
-    searchController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
-  // 🔹 Updated to accept double for compatibility with the new Medicine model
-  String _calculateStatus(double stock, double reorder) {
-    if (stock <= 0) {
-      return "No Stock";
-    } else if (stock <= (reorder * 0.5)) {
-      return "Low";
-    } else if (stock <= reorder) {
-      return "Average";
-    } else {
-      return "High";
-    }
-  }
+  Future<void> _prefetchExpiries(List<Medicine> medicines) async {
+    final cubit = context.read<MedicineCubit>();
+    bool changed = false;
 
-  // 🔹 Use the same dialog, but pass null for a new item
-  void _showAddNewItemDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => const AddNewMedDialog(),
-    );
-  }
+    for (final med in medicines) {
+      final id = med.medId ?? '';
+      // Point to cubit.expiryCache instead of local map
+      if (id.isEmpty || cubit.expiryCache.containsKey(id)) continue;
 
-  void _showUpdateDialog(BuildContext context, Medicine item) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => UpdateMedicineDialog(medicine: item,),
-    );
-  }
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('medicines')
+            .doc(id)
+            .collection('medicine_stock')
+            .orderBy('expiryDate')
+            .limit(1)
+            .get();
 
-  // 🔹 I also added a placeholder for your Add Stock feature!
-  void _showAddStockDialog(BuildContext context, Medicine item) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) => AddNewMedStockDialog(medicine: item),
-    );
-  }
-
-  // 🔹 Helper method to fetch the latest expiry date from the nested subcollection
-  Future<String> _getLatestExpiryDate(String medId) async {
-    try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('medicines')
-          .doc(medId)
-          .collection('medicine_stock')
-          .orderBy('expiryDate')
-          .limit(1)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        return querySnapshot.docs.first['expiryDate'] ?? 'N/A';
+        cubit.expiryCache[id] = snapshot.docs.isNotEmpty
+            ? (snapshot.docs.first['expiryDate'] as String? ?? 'N/A')
+            : 'N/A';
+      } catch (_) {
+        cubit.expiryCache[id] = 'Error';
       }
-      return 'N/A';
-    } catch (e) {
-      return 'Error';
+
+      changed = true;
     }
+
+    if (changed && mounted) setState(() {});
   }
 
+  String _calculateStatus(double stock, double reorder) {
+    if (stock <= 0) return 'No Stock';
+    if (stock <= reorder * 0.5) return 'Low';
+    if (stock <= reorder) return 'Average';
+    return 'High';
+  }
+
+  void _showAddNewItemDialog() {
+    showDialog(context: context, builder: (_) => const AddNewMedDialog());
+  }
+
+  void _showUpdateDialog(Medicine item) {
+    showDialog(context: context, builder: (_) => UpdateMedicineDialog(medicine: item));
+  }
+
+  void _showAddStockDialog(Medicine item) {
+    showDialog(context: context, builder: (_) => AddNewMedStockDialog(medicine: item));
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final cubit = context.read<MedicineCubit>(); // 🔹 Grab cubit reference for builder
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -129,68 +129,49 @@ class _meds_StocksState extends State<meds_Stocks> {
               children: [
                 CustomTabBar(
                   selectedIndex: _selectedTab,
-                  tabs: const ["Stock", "Pig Medications"],
+                  tabs: const ['Stock', 'Pig Medications'],
                   onTabSelected: (index) {
-                    setState(() {
-                      _selectedTab = index;
-                    });
-                    if (index == 1) {
-                      widget.onSwitchToPigMeds?.call();
-                    }
+                    setState(() => _selectedTab = index);
+                    if (index == 1) widget.onSwitchToPigMeds?.call();
                   },
                 ),
                 const SizedBox(height: 12),
 
                 MedicineSearchBar(
-                  controller: searchController,
-                  onChanged: (value) {
-                    setState(() {
-                      _searchQuery = value.toLowerCase();
-                    });
-                  },
+                  controller: _searchController,
+                  onChanged: (val) => setState(() => _searchQuery = val.toLowerCase()),
                   onClear: () {
-                    searchController.clear();
-                    setState(() {
-                      _searchQuery = "";
-                    });
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
                   },
                 ),
                 const SizedBox(height: 12),
 
-                // 🔹 BlocBuilder connected to the new MedicineCubit
-                // 🔹 Changed to BlocConsumer to listen for successes AND build the list
                 Expanded(
                   child: BlocConsumer<MedicineCubit, MedicineState>(
                     listener: (context, state) {
-                      // 🔹 Force the page to refresh the data when an item is added/updated
-                      if (state is MedicineSaveSuccess) {
-                        context.read<MedicineCubit>().listenToMedicines();
+                      // 🔹 Trigger prefetch anytime the backup list has items
+                      if (cubit.currentMedicines.isNotEmpty) {
+                        _prefetchExpiries(cubit.currentMedicines);
                       }
                     },
-                    buildWhen: (previous, current) {
-                      // 🔹 Tell the UI ONLY to rebuild if the state actually contains list data.
-                      // This prevents the screen from going blank during 'MedicineSaveSuccess'.
-                      return current is MedicineLoading ||
-                          current is MedicineLoaded ||
-                          current is MedicineError;
-                    },
+                    // Allow UI to refresh on SaveSuccess as well
+                    buildWhen: (prev, curr) => curr is MedicineLoading || curr is MedicineLoaded || curr is MedicineError || curr is MedicineSaveSuccess,
                     builder: (context, state) {
-                      if (state is MedicineLoading) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
 
-                      if (state is MedicineLoaded) {
-                        final filteredItems = state.medicines.where((med) {
-                          return med.name.toLowerCase().contains(_searchQuery);
-                        }).toList();
+                      // 1. 🔹 PRIMARY CHECK: If our safe backup has data, ALWAYS draw it.
+                      if (cubit.currentMedicines.isNotEmpty) {
+                        final filteredItems = cubit.currentMedicines
+                            .where((med) => med.name.toLowerCase().contains(_searchQuery))
+                            .toList();
 
                         if (filteredItems.isEmpty) {
                           return Center(
                             child: Text(
-                              _searchQuery.isNotEmpty ? "No medicines matched your search." : "No medicines found.",
-                              style: TextStyle(
-                                color: isDarkMode ? Colors.white54 : Colors.black54,
-                              ),
+                              _searchQuery.isNotEmpty
+                                  ? 'No medicines matched your search.'
+                                  : 'No medicines found.',
+                              style: TextStyle(color: isDarkMode ? Colors.white54 : Colors.black54),
                             ),
                           );
                         }
@@ -199,32 +180,31 @@ class _meds_StocksState extends State<meds_Stocks> {
                           itemCount: filteredItems.length,
                           itemBuilder: (context, index) {
                             final item = filteredItems[index];
+                            final id = item.medId ?? '';
 
-                            return FutureBuilder<String>(
-                              future: _getLatestExpiryDate(item.medId ?? ''),
-                              builder: (context, snapshot) {
-                                String displayExpiry = 'Loading...';
-                                if (snapshot.connectionState == ConnectionState.done) {
-                                  displayExpiry = snapshot.data ?? 'N/A';
-                                }
+                            final displayExpiry = cubit.expiryCache[id] ?? 'Loading...';
 
-                                return MedicineCard(
-                                  name: item.name,
-                                  category: item.category,
-                                  stock: item.totalStock.round(),
-                                  expiryDate: displayExpiry,
-                                  status: _calculateStatus(item.totalStock, item.reorderLevel),
-                                  unit: item.measurementUnit,
-                                  onTap: () {},
-                                  onEditMedicine: () => _showUpdateDialog(context, item),
-                                  onAddStock:  () => _showAddStockDialog(context, item),
-                                );
-                              },
+                            return MedicineCard(
+                              name: item.name,
+                              category: item.category,
+                              stock: item.totalStock,
+                              expiryDate: displayExpiry,
+                              status: _calculateStatus(item.totalStock, item.reorderLevel),
+                              unit: item.measurementUnit,
+                              onTap: () {},
+                              onEditMedicine: () => _showUpdateDialog(item),
+                              onAddStock: () => _showAddStockDialog(item),
                             );
                           },
                         );
                       }
 
+                      // 2. Fallback to loading spinner ONLY if the backup list is 100% empty
+                      if (state is MedicineLoading) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      // 3. Fallback to Errors
                       if (state is MedicineError) {
                         return Center(
                           child: Text('Error: ${state.message}', style: const TextStyle(color: Colors.red)),
