@@ -3,10 +3,10 @@ import '../model/app_medicine_intake.dart';
 import '../model/app_medicine_stock.dart';
 
 abstract class MedicineRepository {
-  /// Streams real-time updates for medicines belonging strictly to the specified user
+  /// Streams real-time updates for medicines belonging strictly to the specified user.
   Stream<List<Medicine>> streamMedicines(String userId);
 
-  /// Atomically saves a new medicine profile and its accompanying initial stock batch
+  /// Atomically saves a new medicine profile and its accompanying initial stock batch.
   Future<void> addMedicineWithInitialStock({
     required Medicine medicine,
     required MedicineStock initialBatch,
@@ -32,8 +32,9 @@ abstract class MedicineRepository {
     required String medicineId,
   });
 
-  Stream<List<MedicineIntake>> streamIntakes();
+  // FIX #3: userId is now required to prevent cross-user data leaks.
+  Stream<List<MedicineIntake>> streamIntakes(String userId);
 
-  /// Streams upcoming intakes for the specific user
+  /// Streams upcoming intakes for the specific user.
   Stream<List<MedicineIntake>> streamUpcomingIntakes(String userId);
 }

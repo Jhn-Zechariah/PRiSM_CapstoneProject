@@ -11,6 +11,9 @@ import '../../domain/model/app_medicine_stock.dart';
 import '../cubits/medicine_cubit.dart';
 import '../cubits/medicine_states.dart';
 
+
+const _kNoExpiry = 'No Expiry Date Set';
+
 class AddNewMedStockDialog extends StatefulWidget {
   final Color accentColor;
   final Medicine medicine;
@@ -27,35 +30,16 @@ class AddNewMedStockDialog extends StatefulWidget {
 
 class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
   bool _isLoading = false;
-  static const _fieldPadding = EdgeInsets.symmetric(
-    horizontal: 12,
-    vertical: 13,
-  );
+  static const _fieldPadding =
+  EdgeInsets.symmetric(horizontal: 12, vertical: 13);
 
-  final _nameController = TextEditingController();
   final _qtyController = TextEditingController();
   final _expiryController = TextEditingController();
-  final _reorderController = TextEditingController();
-  final _descController = TextEditingController();
-  final _mgFocusNode = FocusNode();
-
-  String selectedCategory = 'Medicine';
-  String selectedType = 'Capsule';
-
-  @override
-  void initState() {
-    super.initState();
-    _mgFocusNode.addListener(() => setState(() {}));
-  }
 
   @override
   void dispose() {
-    _nameController.dispose();
     _qtyController.dispose();
     _expiryController.dispose();
-    _reorderController.dispose();
-    _descController.dispose();
-    _mgFocusNode.dispose();
     super.dispose();
   }
 
@@ -84,9 +68,10 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
         child: child!,
       ),
     );
+
     if (picked != null) {
       setState(() {
-        _expiryController.text = "${picked.toLocal()}".split(' ')[0];
+        _expiryController.text = '${picked.toLocal()}'.split(' ')[0];
       });
     }
   }
@@ -100,21 +85,12 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
       return;
     }
 
-    final double parsedQty = double.tryParse(_qtyController.text) ?? -1.0;
+    final double parsedQty =
+        double.tryParse(_qtyController.text) ?? -1.0;
     if (parsedQty <= 0) {
       CustomErrorDialog.show(
         context: context,
         message: 'Amount must be greater than zero.',
-      );
-      return;
-    }
-
-    final double parsedReorder =
-        double.tryParse(_reorderController.text) ?? 0.0;
-    if (parsedReorder < 0) {
-      CustomErrorDialog.show(
-        context: context,
-        message: 'Re-order alert level cannot be negative.',
       );
       return;
     }
@@ -131,19 +107,20 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
     );
 
     if (confirmed == true && mounted) {
+
+      final expiryToSave = _expiryController.text.trim().isEmpty
+          ? _kNoExpiry
+          : _expiryController.text.trim();
+
       final newStock = MedicineStock(
         id: '',
         medicineId: widget.medicine.medId ?? '',
         amount: parsedQty,
-        expiryDate: _expiryController.text.trim().isEmpty ? 'No Expiry Date Set' : _expiryController.text.trim(),
-      );
-
-      final updatedMedicine = widget.medicine.copyWith(
-        reorderLevel: parsedReorder,
+        expiryDate: expiryToSave,
       );
 
       context.read<MedicineCubit>().addNewStockBatch(
-        medicine: updatedMedicine,
+        medicine: widget.medicine,
         newStock: newStock,
       );
     }
@@ -179,7 +156,7 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
           Navigator.pop(context);
           CustomSnackbar.show(
             context: context,
-            message: 'Item added successfully!',
+            message: 'Stock added successfully!',
           );
         } else if (state is MedicineError) {
           setState(() => _isLoading = false);
@@ -192,7 +169,8 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
       },
       child: Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: IntrinsicHeight(
@@ -209,24 +187,27 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
                                 'Add new stock',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
-                                  color: Theme.of(
-                                    context,
-                                  ).textTheme.bodyLarge?.color,
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodyLarge
+                                      ?.color,
                                 ),
                               ),
                               IconButton(
                                 icon: Icon(
                                   Icons.close,
-                                  color: Theme.of(
-                                    context,
-                                  ).textTheme.bodyMedium?.color,
+                                  color: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.color,
                                 ),
                                 onPressed: () => Navigator.pop(context),
                               ),
@@ -234,10 +215,10 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                           ),
 
                           const SizedBox(height: 12),
+
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              // 🔹 Fixed narrow width for quantity field
                               SizedBox(
                                 width: 110,
                                 child: CustomTextField(
@@ -249,7 +230,6 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              // 🔹 Expiry date fills remaining space
                               Expanded(
                                 child: _labeledField(
                                   label: 'Expiry date:',
@@ -271,9 +251,12 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
                               ),
                             ],
                           ),
+
                           const SizedBox(height: 20),
+
                           CustomButton(
-                            text: _isLoading ? 'Adding...' : 'Add Stock',
+                            text:
+                            _isLoading ? 'Adding...' : 'Add Stock',
                             border: 8,
                             backgroundColor: const Color(0xFF2563EB),
                             color: Colors.white,

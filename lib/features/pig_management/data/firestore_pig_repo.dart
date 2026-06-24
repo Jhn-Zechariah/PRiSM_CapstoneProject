@@ -37,20 +37,16 @@ class FirebasePigRepo implements PigRepo {
         throw Exception("No authenticated user");
       }
 
-
       final docRef = _pigsCollection.doc();
       final counterRef = _countersCollection.doc(userId);
 
-
       await _firestore.runTransaction((transaction) async {
         final counterSnap = await transaction.get(counterRef);
-
 
         final int currentTotal = (counterSnap.exists
             ? (counterSnap.data() as Map<String, dynamic>)['pigCount'] ?? 0
             : 0) as int;
         final int nextNumber = currentTotal + 1;
-
 
         final pigData = pig.toJson();
         pigData['userId'] = userId;
@@ -58,9 +54,7 @@ class FirebasePigRepo implements PigRepo {
         pigData['displayId'] = 'P-${nextNumber.toString().padLeft(3, '0')}';
         pigData['createdAt'] = FieldValue.serverTimestamp();
 
-
         transaction.set(docRef, pigData);
-
 
         transaction.set(
           counterRef,
@@ -68,14 +62,20 @@ class FirebasePigRepo implements PigRepo {
           SetOptions(merge: true),
         );
 
-
-        // Initial weight history entry, folded into the same transaction
-        // instead of a separate .add() call after the fact.
-        final historyRef = docRef.collection('weight_history').doc();
-        transaction.set(historyRef, {
-          'weightKg': pig.currentWeightKg,
+        // 1. Birth weight history entry
+        final birthHistoryRef = docRef.collection('weight_history').doc();
+        transaction.set(birthHistoryRef, {
+          'weightKg': 1.4, // Changed from '1.4' to 1.4 (see note below)
           'dateRecorded': FieldValue.serverTimestamp(),
           'notes': 'Birth weight',
+        });
+
+        // 2. Initial weight history entry
+        final initialHistoryRef = docRef.collection('weight_history').doc();
+        transaction.set(initialHistoryRef, {
+          'weightKg': pig.currentWeightKg,
+          'dateRecorded': FieldValue.serverTimestamp(),
+          'notes': 'Initial weight',
         });
       });
     } catch (e) {
