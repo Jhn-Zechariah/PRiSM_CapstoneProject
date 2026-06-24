@@ -30,13 +30,13 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   final TextEditingController _birthDateController = TextEditingController();
   final TextEditingController _breedController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
+  final TextEditingController _stageController = TextEditingController();
 
 
   // dropdown options
   String? _selectedSex;
   final List<String> _sexOptions = ['Male', 'Female'];
   String? _selectedStage;
-  final List<String> _stageOptions = ['Piglet', 'Weanling', 'Grower', "Barrow"];
   String? _selectedStatus;
 
 
@@ -61,9 +61,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
       if (_sexOptions.contains(pig.sex)) {
         _selectedSex = pig.sex;
       }
-      if (_stageOptions.contains(pig.stage)) {
-        _selectedStage = pig.stage;
-      }
       if (_statusOptions.contains(pig.status)) {
         _selectedStatus = pig.status;
       }
@@ -71,6 +68,9 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
       // ADD MODE: Only Healthy and Sick options available
       _statusOptions = ['Normal/Healthy', 'Abnormal/Sick'];
     }
+
+    // Stage is always derived automatically from the birth date.
+    _updateStageFromBirthDate();
   }
 
 
@@ -79,7 +79,50 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
     _birthDateController.dispose();
     _breedController.dispose();
     _weightController.dispose();
+    _stageController.dispose();
     super.dispose();
+  }
+
+
+  /// Calculates the pig's life stage based on its age in days:
+  /// - Piglet: 0-21 days
+  /// - Nursery: 22-70 days
+  /// - Grower: 71-120 days
+  /// - Finisher: 121-170 days
+  /// - Mature: 171+ days (fallback for anything beyond the finisher window)
+  String _calculateStage(DateTime birthDate) {
+    final ageInDays = DateTime.now().difference(birthDate).inDays;
+
+    if (ageInDays < 0) {
+      // Defensive fallback; birth date should never be in the future.
+      return 'Piglet';
+    } else if (ageInDays <= 21) {
+      return 'Piglet';
+    } else if (ageInDays <= 70) {
+      return 'Nursery';
+    } else if (ageInDays <= 120) {
+      return 'Grower';
+    } else if (ageInDays <= 170) {
+      return 'Finisher';
+    } else {
+      return 'Mature';
+    }
+  }
+
+
+  /// Re-derives the stage from whatever is currently in the birth date
+  /// field and pushes it into both the backing value and its controller.
+  void _updateStageFromBirthDate() {
+    final parsedDate = DateTime.tryParse(_birthDateController.text);
+    if (parsedDate == null) {
+      _selectedStage = null;
+      _stageController.text = '';
+      return;
+    }
+
+    final stage = _calculateStage(parsedDate);
+    _selectedStage = stage;
+    _stageController.text = stage;
   }
 
 
@@ -189,9 +232,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         birthDate:
         DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,
-        birthWeightKg: double.parse(
-          _weightController.text,
-        ), // Default birth weight (can be updated later)
+        birthWeightKg: double.parse('1.4'), // Default birth weight (can be updated later)
         currentWeightKg: double.parse(_weightController.text),
         notes: 'Pig Registered ',
         stage: _selectedStage!,
@@ -387,22 +428,18 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                               const SizedBox(height: 12),
 
 
-                              CustomDropdown(
+                              // Stage is now a disabled/read-only text field whose
+                              // value is computed automatically from the birth date
+                              // (Piglet: 0-21d, Nursery: 22-70d, Grower: 71-120d,
+                              // Finisher: 121-170d).
+                              CustomTextField(
                                 label: 'Stage:',
-                                value: _selectedStage,
-                                items: _stageOptions,
+                                readonly: true,
+                                enabled: false,
+                                controller: _stageController,
                                 borderColor: Colors.black54,
                                 border: 6,
                                 contentPadding: fieldPadding,
-                                readonly: isReadOnly,
-                                enabled: !isReadOnly,
-                                onChanged: (newValue) {
-                                  setState(() => _selectedStage = newValue!);
-                                },
-                                validator: (value) =>
-                                value == null || value.isEmpty
-                                    ? 'Required'
-                                    : null,
                               ),
                               const SizedBox(height: 12),
 
@@ -457,17 +494,22 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
 
   Future<void> _selectDate(BuildContext context) async {
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+
     DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: todayOnly,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2090),
+      // Cap selection at today so a future birth date can't be chosen.
+      lastDate: todayOnly,
     );
 
 
     if (picked != null) {
       setState(() {
         _birthDateController.text = picked.toString().split(' ')[0];
+        _updateStageFromBirthDate();
       });
     }
   }
