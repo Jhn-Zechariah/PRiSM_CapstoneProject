@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+// --- Core Widgets ---
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/textfield.dart';
+import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_feeding_record.dart';
 import '../cubits/feeding_record_cubit.dart';
+import '../cubits/feeding_record_states.dart';
 
 class PigFeedCardPopUp extends StatefulWidget {
-  final String pigId;
+  final AppPig pig;
   final Color pigColor;
 
   const PigFeedCardPopUp({
     super.key,
-    required this.pigId,
+    required this.pig,
     required this.pigColor,
   });
 
@@ -22,11 +26,21 @@ class PigFeedCardPopUp extends StatefulWidget {
 }
 
 class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
-  //  1. Add a FormKey to manage validation
   final _formKey = GlobalKey<FormState>();
-
   final TextEditingController _feedTypeController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context
+            .read<FeedingRecordCubit>()
+            .loadLatestRecord(widget.pig.pigId);
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -36,17 +50,18 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
   }
 
   Future<void> _onSave() async {
-    // 1. Validate Form
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    // 2. Show Confirmation Dialog
+    final amount = double.tryParse(_amountController.text.trim());
+    // 🔹 FIXED: Added a protective layer guarding against 0 or negative numbers
+    if (amount == null || amount <= 0) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => CustomConfirmDialog(
         title: 'Confirm Feeding',
-        content: 'Save feeding record for ${widget.pigId}?',
+        content:
+        'Save feeding record for ${widget.pig.breed} | ${widget.pig.displayId}?',
         confirmText: 'Save',
         cancelText: 'Cancel',
         confirmColor: const Color(0xFF2563EB),
@@ -56,7 +71,6 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     if (confirmed != true) return;
     if (!mounted) return;
 
-    // 3. Show Loading Spinner
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -68,32 +82,23 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
       ),
     );
 
-    // 4. Extract Data
-    final feedType = _feedTypeController.text.trim();
-    final amount = double.parse(_amountController.text.trim());
-
-    // 5. Prepare Record
     final recordToSave = AppFeedingRecord(
-      id: '', // Handled by repo
-      pigId: widget.pigId, //  Make sure widget.pigId exists!
-      feedType: feedType,
+      id: '',
+      userId: widget.pig.userId,
+      pigId: widget.pig.pigId,
+      feedType: _feedTypeController.text.trim(),
       amount: amount,
       timestamp: DateTime.now(),
     );
 
-    // 6. Call Cubit
-    final success = await context.read<FeedingRecordCubit>().addRecord(
-      recordToSave,
-    );
+    final success =
+    await context.read<FeedingRecordCubit>().addRecord(recordToSave);
 
     if (!mounted) return;
+    Navigator.pop(context); // Close loading spinner
 
-    // 7. Close loading indicator
-    Navigator.pop(context);
-
-    // 8. Handle Result
     if (success) {
-      Navigator.pop(context); // Close popup entirely
+      Navigator.pop(context); // Close popup
       CustomSnackbar.show(
         context: context,
         message: 'Feeding record saved successfully!',
@@ -101,7 +106,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     } else {
       CustomSnackbar.show(
         context: context,
-        message: 'Failed to save feeding record. Please try again.',
+        message: 'Failed to save. Please try again.',
       );
     }
   }
@@ -126,7 +131,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
               Container(
                 width: 10,
                 decoration: BoxDecoration(
-                  color: Colors.blue,
+                  color: widget.pigColor,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(16),
                     bottomLeft: Radius.circular(16),
@@ -135,9 +140,8 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
               ),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                  padding: const EdgeInsets.all(16),
                   child: Form(
-                    //  3. Wrap the Column in a Form and attach the key
                     key: _formKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,98 +151,118 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              "Feeding Record",
+                              'Feeding Record',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black,
                               ),
                             ),
-                            GestureDetector(
-                              onTap: () => Navigator.pop(context),
-                              child: Icon(
-                                Icons.close,
-                                size: 22,
-                                color: isDark ? Colors.white60 : Colors.black54,
-                              ),
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 22),
+                              onPressed: () => Navigator.pop(context),
+                              color:
+                              isDark ? Colors.white60 : Colors.black54,
                             ),
                           ],
                         ),
 
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
 
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildInfoLabel('Breed:', isDark),
-                                  const SizedBox(height: 6),
-                                  _buildInfoLabel('Type of feeds:', isDark),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildInfoLabel('Stage: ', isDark),
-                                  const SizedBox(height: 6),
-                                  _buildInfoLabel('Amount of feeds:', isDark),
-                                ],
-                              ),
-                            ),
-                          ],
+                        // ── Latest record preview ──────────────────────────
+                        BlocBuilder<FeedingRecordCubit, FeedingRecordState>(
+                          buildWhen: (previous, current) =>
+                          (current is LatestFeedingRecordLoading &&
+                              current.pigId == widget.pig.pigId) ||
+                              (current is LatestFeedingRecordLoaded &&
+                                  current.pigId == widget.pig.pigId) ||
+                              (current is LatestFeedingRecordError &&
+                                  current.pigId == widget.pig.pigId),
+                          builder: (context, state) {
+                            String recentFeed = 'No data';
+                            String recentAmount = '0';
+
+                            if (state is LatestFeedingRecordLoading &&
+                                state.pigId == widget.pig.pigId) {
+                              recentFeed = '...';
+                              recentAmount = '...';
+                            } else if (state is LatestFeedingRecordLoaded &&
+                                state.pigId == widget.pig.pigId) {
+                              final AppFeedingRecord? record = state.record;
+                              if (record != null) {
+                                recentFeed = record.feedType;
+                                recentAmount = record.amount.toString();
+                              }
+                            }
+
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                    children: [
+                                      _buildInfoText(
+                                          'Breed:', widget.pig.breed, isDark),
+                                      const SizedBox(height: 6),
+                                      _buildInfoText(
+                                          'Recent type:', recentFeed, isDark),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                    children: [
+                                      _buildInfoText(
+                                          'Stage:', widget.pig.stage, isDark),
+                                      const SizedBox(height: 6),
+                                      _buildInfoText(
+                                          'Recent amount:', recentAmount, isDark),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
 
                         const SizedBox(height: 16),
 
+                        // ── Input fields ───────────────────────────────────
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // ── Feed Type — CustomTextField ────────────────
                             Expanded(
                               child: CustomTextField(
                                 controller: _feedTypeController,
                                 label: 'Feed Type:',
                                 border: 6,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 12,
-                                ),
-                                // 4. Add validator for Feed Type
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  return null;
-                                },
+                                validator: (value) =>
+                                (value == null || value.trim().isEmpty)
+                                    ? 'Required'
+                                    : null,
                               ),
                             ),
-
                             const SizedBox(width: 12),
-
-                            // ── Amount — CustomTextField with spinner ──────
                             Expanded(
                               child: CustomTextField(
                                 controller: _amountController,
-                                label: 'Amount:',
+                                label: 'Amount (kg):',
                                 border: 6,
                                 keyboardType: TextInputType.number,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 12,
-                                ),
-                                // 5. Add validator for Amount
+                                // 🔹 FIXED: Modified validator logic to block values <= 0
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
                                   }
-                                  // Optional: verify it's an actual number greater than 0
-                                  final val = num.tryParse(value);
-                                  if (val == null || val <= 0) {
+
+                                  final parsedAmount = double.tryParse(value);
+                                  if (parsedAmount == null) {
                                     return 'Invalid';
+                                  }
+                                  if (parsedAmount <= 0) {
+                                    return 'Invalid amount';
                                   }
                                   return null;
                                 },
@@ -249,14 +273,12 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
 
                         const SizedBox(height: 16),
 
-                        // ── Save — CustomButton ────────────────────────────
                         CustomButton(
                           text: 'Save Record',
                           onPressed: _onSave,
-                          backgroundColor: Colors.blue,
+                          backgroundColor: widget.pigColor,
                           color: Colors.white,
                           border: 10,
-                          borderColor: false,
                         ),
                       ],
                     ),
@@ -270,12 +292,26 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     );
   }
 
-  Widget _buildInfoLabel(String label, bool isDark) {
-    return Text(
-      label,
-      style: TextStyle(
-        fontSize: 12,
-        color: isDark ? Colors.white60 : Colors.grey,
+  Widget _buildInfoText(String label, String value, bool isDark) {
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: '$label ',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.white60 : Colors.grey,
+            ),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+        ],
       ),
     );
   }

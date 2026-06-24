@@ -53,3 +53,12 @@ prism-ml/*.pkl
 # Python cache files
 prism-ml/__pycache__/
 prism-ml/*.pyc
+
+# Firebase private credentials
+firebase_credentials.json
+
+# Local environment variables
+.env
+
+venv/
+__pycache__/

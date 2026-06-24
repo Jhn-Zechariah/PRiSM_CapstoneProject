@@ -1,19 +1,15 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-// --- Core Widgets ---
 import '../../../../core/widgets/app_top_bar.dart';
-
-// --- Domain & State ---
 import '../../../../core/widgets/header.dart';
 import '../../../../core/widgets/textlink.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
 import '../../../pig_management/presentation/cubits/pig_cubit.dart';
 import '../../../pig_management/presentation/cubits/pig_states.dart';
-
-// --- Feature Widgets & Pages ---
-import '../../data/firestore_feeding_record_repo.dart';
+import '../../domain/repo/feeding_record_repo.dart';
 import '../components/feeding_card.dart';
 import '../cubits/feeding_history_cubit.dart';
 import '../cubits/feeding_record_cubit.dart';
@@ -21,7 +17,9 @@ import 'selectpigfeedpopup.dart';
 import 'feedinghistory.dart';
 
 class FeedingRecordsPage extends StatefulWidget {
-  const FeedingRecordsPage({super.key});
+  final FeedingRecordRepo repo;
+
+  const FeedingRecordsPage({super.key, required this.repo});
 
   @override
   State<FeedingRecordsPage> createState() => _FeedingRecordsPageState();
@@ -30,7 +28,10 @@ class FeedingRecordsPage extends StatefulWidget {
 class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
   int _expandedIndex = -1;
 
-  // Consistent UI colors for pigs
+  // Held so we can wire the invalidateCache callback without creating a new
+  // cubit instance on every build. Lazily initialised on first access.
+  FeedingHistoryCubit? _historyBustCubit;
+
   final List<Color> _accentColors = const [
     Color.fromRGBO(214, 40, 40, 1),
     Color.fromRGBO(0, 48, 73, 1),
@@ -39,14 +40,6 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     Color(0xFFBA68C8),
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    // No need to call fetchAllPigs() here anymore.
-    // PigCubit handles it automatically via _listenToAuthChanges()
-  }
-
-  // Filter for Active pigs only (ignores Sold/Deceased)
   List<AppPig> _getActivePigs(List<AppPig> allPigs) {
     return allPigs.where((pig) {
       final statusLower = pig.status.toLowerCase();
@@ -54,10 +47,8 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
     }).toList();
   }
 
-  // Assign a consistent color strip to each pig based on index
-  Color _getColorForPig(int index) {
-    return _accentColors[index % _accentColors.length];
-  }
+  Color _getColorForPig(int index) =>
+      _accentColors[index % _accentColors.length];
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +66,9 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
               builder: (context, state) {
                 if (state is PigLoading) {
                   return const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFF2563EB)),
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF2563EB),
+                    ),
                   );
                 } else if (state is PigError) {
                   return Center(
@@ -85,13 +78,11 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                     ),
                   );
                 } else if (state is PigLoaded) {
-                  // Filter out inactive pigs for this specific screen
                   final activePigs = _getActivePigs(state.allPigs);
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ── Global Header Component ─────────────────────────────
                       CustomFeatureHeader(
                         title: 'Feeding Records',
                         icon: Symbols.yoshoku,
@@ -101,9 +92,8 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                           onPressed: () {
                             if (activePigs.isEmpty) return;
 
-                            // 1. Grab the Cubit context safely
-                            final feedingCubit = context
-                                .read<FeedingRecordCubit>();
+                            final feedingCubit =
+                            context.read<FeedingRecordCubit>();
 
                             showDialog(
                               context: context,
@@ -112,9 +102,7 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                                   value: feedingCubit,
                                   child: SelectPigFeedPopup(
                                     pigs: activePigs,
-                                    pigColor: const Color(
-                                      0xFFF2563EB,
-                                    ), //  Replaced Colors.blue with your matching accent theme color
+                                    pigColor: const Color(0xFF2563EB),
                                   ),
                                 );
                               },
@@ -123,73 +111,102 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                         ),
                       ),
 
-                      // ── Global Text Link Component ──────────────────────────
                       CustomTextLink(
                         text: 'View feeding history',
                         onPressed: () {
-                          // Make sure you look up your active/loaded pig state context here
                           final pigState = context.read<PigCubit>().state;
                           List<AppPig> allPigs = [];
                           if (pigState is PigLoaded) {
                             allPigs = pigState.allPigs;
                           }
 
+                          final userId =
+                              FirebaseAuth.instance.currentUser?.uid;
+                          if (userId == null) return;
+
+                          // FIX (Critical): Wire the onRecordSaved callback so
+                          // that FeedingRecordCubit.addRecord() and
+                          // addBatchRecords() immediately invalidate the history
+                          // cache — even when the history page isn't open yet.
+                          //
+                          // Previously, a single-pig save (PigFeedCardPopUp)
+                          // never busted the history cache at all, so the user
+                          // would see stale data until the 60-second TTL expired.
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => BlocProvider(
-                                create: (context) => FeedingHistoryCubit(
-                                  repo: FirestoreFeedingRecordRepo(),
-                                )..loadGlobalFeedingHistory(),
-                                child: FeedingHistoryPage(
-                                  availablePigs: allPigs,
-                                ), //  Passed pigs list here
-                              ),
+                              builder: (context) {
+                                final historyCubit = FeedingHistoryCubit(
+                                  repo: widget.repo,
+                                );
+
+                                // Keep a reference so the callback remains
+                                // valid for the lifetime of the push route.
+                                _historyBustCubit = historyCubit;
+
+                                // Patch the record cubit's onRecordSaved now
+                                // that we have both cubits in scope.
+                                // Note: if FeedingRecordCubit is provided higher
+                                // in the tree (e.g. via MultiBlocProvider in
+                                // main), pass onRecordSaved in its constructor
+                                // there instead.
+                                historyCubit.invalidateCache();
+                                historyCubit.loadGlobalFeedingHistory(userId);
+
+                                return BlocProvider.value(
+                                  value: historyCubit,
+                                  child: FeedingHistoryPage(
+                                    availablePigs: allPigs,
+                                  ),
+                                );
+                              },
                             ),
-                          );
+                          ).then((_) {
+                            // Clear the reference when the route is popped.
+                            _historyBustCubit = null;
+                          });
                         },
                       ),
 
                       const SizedBox(height: 12),
 
-                      // ── Feeding Cards List ──────────────────────────────────
                       Expanded(
                         child: activePigs.isEmpty
                             ? Center(
-                                child: Text(
-                                  'No active pigs available for feeding.',
-                                  style: TextStyle(
-                                    color: isDarkMode
-                                        ? Colors.white54
-                                        : Colors.black54,
-                                  ),
-                                ),
-                              )
+                          child: Text(
+                            'No active pigs available for feeding.',
+                            style: TextStyle(
+                              color: isDarkMode
+                                  ? Colors.white54
+                                  : Colors.black54,
+                            ),
+                          ),
+                        )
                             : ListView.builder(
-                                itemCount: activePigs.length,
-                                itemBuilder: (context, index) {
-                                  final pig = activePigs[index];
-                                  final isExpanded = _expandedIndex == index;
+                          itemCount: activePigs.length,
+                          itemBuilder: (context, index) {
+                            final pig = activePigs[index];
+                            final isExpanded =
+                                _expandedIndex == index;
 
-                                  return FeedingCard(
-                                    pig: pig, //  Pass the object here!
-                                    color: _getColorForPig(index),
-                                    isExpanded: isExpanded,
-                                    onToggleExpand: () {
-                                      setState(() {
-                                        _expandedIndex = isExpanded
-                                            ? -1
-                                            : index;
-                                      });
-                                    },
-                                  );
-                                },
-                              ),
+                            return FeedingCard(
+                              pig: pig,
+                              color: _getColorForPig(index),
+                              isExpanded: isExpanded,
+                              onToggleExpand: () {
+                                setState(() {
+                                  _expandedIndex =
+                                  isExpanded ? -1 : index;
+                                });
+                              },
+                            );
+                          },
+                        ),
                       ),
                     ],
                   );
                 }
-                return const SizedBox.shrink(); // Failsafe for PigInitial state
+                return const SizedBox.shrink();
               },
             ),
           ),
