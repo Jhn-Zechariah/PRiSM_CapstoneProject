@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/widgets/textfield.dart';
-import '../../domain/model/app_medicine.dart'; // Adjust path to CustomTextField
+import '../../domain/model/app_medicine.dart';
 
 class MedicineSearchComboBox extends StatefulWidget {
   final String label;
@@ -24,10 +24,19 @@ class _MedicineSearchComboBoxState extends State<MedicineSearchComboBox> {
   final GlobalKey _autocompleteKey = GlobalKey();
   final TextEditingController _internalController = TextEditingController();
 
+  // 🔹 Tracks which controller we've already attached a listener to.
+  TextEditingController? _attachedController;
+
   @override
   void dispose() {
     _internalController.dispose();
     super.dispose();
+  }
+
+  void _onControllerChanged(TextEditingController controller) {
+    if (!mounted) return;
+    _internalController.text = controller.text;
+    if (controller.text.isEmpty) widget.onCleared();
   }
 
   @override
@@ -45,13 +54,12 @@ class _MedicineSearchComboBoxState extends State<MedicineSearchComboBox> {
         },
         displayStringForOption: (item) => item.name,
         fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-          if (_internalController.text != controller.text && _internalController.text.isEmpty) {
-            controller.text = _internalController.text;
+          // 🔹 Only attach once per controller instance — fixes the leak.
+          if (_attachedController != controller) {
+            _attachedController = controller;
+            controller.addListener(() => _onControllerChanged(controller));
           }
-          controller.addListener(() {
-            _internalController.text = controller.text;
-            if (controller.text.isEmpty) widget.onCleared();
-          });
+
           return CustomTextField(
             label: widget.label,
             controller: controller,

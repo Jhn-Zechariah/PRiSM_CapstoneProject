@@ -1,4 +1,4 @@
-import 'dart:async'; // 👈 ADD THIS for Timer
+import 'dart:async';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,6 +12,7 @@ import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
 import '../../features/feeding/data/firestore_feeding_record_repo.dart';
+import '../../features/medication/presentation/pages/meds_stocks.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
@@ -21,11 +22,10 @@ import '../../features/pig_management/presentation/pages/pig_profiles.dart';
 import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
-import '../../features/medication/presentation/pages/meds_stocks.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
+ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AppNav extends StatefulWidget {
-  // 🔹 CHANGED: Change VoidCallback to a function that accepts the current theme state
   final Function(ThemeMode selectedMode) onThemeToggle;
 
   const AppNav({super.key, required this.onThemeToggle});
@@ -58,9 +58,9 @@ class _AppNavState extends State<AppNav> {
     _preloadMaxValues();
     _humidityTimer = Timer.periodic(
       const Duration(seconds: 5),
-      (_) => _refreshHumidityMax(),
+          (_) => _refreshHumidityMax(),
     );
-  } // ✅ only ONE closing brace here
+  }
 
   @override
   void dispose() {
@@ -119,9 +119,9 @@ class _AppNavState extends State<AppNav> {
       final humiditySnap = await FirebaseFirestore.instance
           .collection('humidity_readings')
           .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-          )
+        'timestamp',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
+      )
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
           .get();
 
@@ -145,28 +145,27 @@ class _AppNavState extends State<AppNav> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final List<Widget> screens = [
-      PigProfilesScreen(), // Index 0: Pig Profiles
-      // Index 1: Temperature / Humidity Monitor Option
+      PigProfilesScreen(),
       _showHumidity
           ? HumidityMonitoring(
-              onSwitchToTemperature: () {
-                setState(() => _showHumidity = false);
-              },
-              isActivated: _sprinklerActive,
-              onSprinklerChanged: (val) =>
-                  setState(() => _sprinklerActive = val),
-              onMaxHumidityChanged: (max) =>
-                  setState(() => _humidityMaxToday = max),
-            )
+        onSwitchToTemperature: () {
+          setState(() => _showHumidity = false);
+        },
+        isActivated: _sprinklerActive,
+        onSprinklerChanged: (val) =>
+            setState(() => _sprinklerActive = val),
+        onMaxHumidityChanged: (max) =>
+            setState(() => _humidityMaxToday = max),
+      )
           : TemperatureMonitoring(
-              onSwitchToHumidity: () {
-                setState(() => _showHumidity = true);
-              },
-              isActivated: _sprinklerActive,
-              onSprinklerChanged: (val) =>
-                  setState(() => _sprinklerActive = val),
-              onMaxTempChanged: (max) => setState(() => _tempMaxToday = max),
-            ),
+        onSwitchToHumidity: () {
+          setState(() => _showHumidity = true);
+        },
+        isActivated: _sprinklerActive,
+        onSprinklerChanged: (val) =>
+            setState(() => _sprinklerActive = val),
+        onMaxTempChanged: (max) => setState(() => _tempMaxToday = max),
+      ),
       DashboardScreen(
         tempMaxToday: _tempMaxToday,
         humidityMaxToday: _humidityMaxToday,
@@ -176,20 +175,20 @@ class _AppNavState extends State<AppNav> {
       FeedingRecordsPage(repo: _feedingRepo),
       _showPigMeds
           ? pig_meds(
-              onSwitchToStock: () {
-                setState(() => _showPigMeds = false);
-              },
-            )
-          : meds_Stocks(
-              onSwitchToPigMeds: () {
-                setState(() => _showPigMeds = true);
-              },
-            ),
+        onSwitchToStock: () {
+          setState(() => _showPigMeds = false);
+        },
+      )
+      // FIX #12: meds_Stocks → MedicineStocksPage
+          : MedicineStocksPage(
+        onSwitchToPigMeds: () {
+          setState(() => _showPigMeds = true);
+        },
+      ),
     ];
 
     return BlocListener<AuthCubit, AuthState>(
       listener: (context, state) {
-        // When the user clicks logout, this catches it and boots them to login!
         if (state is Unauthenticated) {
           Navigator.pushAndRemoveUntil(
             context,
@@ -197,7 +196,7 @@ class _AppNavState extends State<AppNav> {
               builder: (context) =>
                   LandingPage(onThemeToggle: widget.onThemeToggle),
             ),
-            (route) => false, // Completely destroys the dashboard history
+                (route) => false,
           );
         }
       },
@@ -257,7 +256,7 @@ class _AppNavState extends State<AppNav> {
               indent: 20,
               endIndent: 20,
             ),
-            _drawerTile(Icons.person_outline, "My Profile", () {
+            _drawerTile(Icons.person_outline, 'My Profile', () {
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -269,59 +268,51 @@ class _AppNavState extends State<AppNav> {
                 ),
               );
             }),
-            _drawerTile(Symbols.barcode_reader, "IoT Control", () {
+            _drawerTile(Symbols.barcode_reader, 'IoT Control', () {
               Navigator.pop(context);
               showDialog(
                 context: context,
-                builder: (BuildContext context) {
-                  return const IoTControlsDialog();
-                },
+                builder: (BuildContext context) =>
+                const IoTControlsDialog(),
               );
             }),
-            _drawerTile(Symbols.notifications_active, "Notification", () {
+            _drawerTile(Symbols.notifications_active, 'Notification', () {
               Navigator.pop(context);
               showDialog(
                 context: context,
-                builder: (BuildContext context) {
-                  return const NotificationControlsDialog();
-                },
+                builder: (BuildContext context) =>
+                const NotificationControlsDialog(),
               );
             }),
             _drawerTile(
               Icons.brightness_6,
-              "Theme Settings",
-                  () async { // 🔹 1. Add 'async' here!
-                Navigator.pop(context); // Close the drawer first
+              'Theme Settings',
+                  () async {
+                Navigator.pop(context);
 
-                // 🔹 2. Ask SharedPreferences what the user actually saved last time
                 final prefs = await SharedPreferences.getInstance();
-                final savedThemeIndex = prefs.getInt('theme_mode') ?? 0; // Default to 0 (System)
-                final actualCurrentTheme = ThemeMode.values[savedThemeIndex];
+                final savedThemeIndex = prefs.getInt('theme_mode') ?? 0;
+                final actualCurrentTheme =
+                ThemeMode.values[savedThemeIndex];
 
-                // 🔹 3. Only show the dialog if the widget is still on screen
                 if (context.mounted) {
                   showDialog(
                     context: context,
-                    builder: (BuildContext context) {
-                      return ThemeSettingsDialog(
-                        // 🔹 4. Pass the real saved theme instead of ThemeMode.system!
-                        currentTheme: actualCurrentTheme,
-                        onThemeSelected: (selectedMode) {
-                          widget.onThemeToggle(selectedMode);
-                        },
-                      );
-                    },
+                    builder: (BuildContext context) => ThemeSettingsDialog(
+                      currentTheme: actualCurrentTheme,
+                      onThemeSelected: (selectedMode) {
+                        widget.onThemeToggle(selectedMode);
+                      },
+                    ),
                   );
                 }
               },
             ),
-
             const Spacer(),
             const Divider(color: Colors.white24),
-            _drawerTile(Icons.logout, "Log Out", () {
+            _drawerTile(Icons.logout, 'Log Out', () {
               Navigator.pop(context);
-              final authCubit = context.read<AuthCubit>();
-              authCubit.logout();
+              context.read<AuthCubit>().logout();
             }),
             const SizedBox(height: 20),
             const SizedBox(height: 20),

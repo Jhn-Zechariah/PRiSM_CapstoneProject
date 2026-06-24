@@ -10,19 +10,20 @@ import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
 import '../../domain/model/app_medicine_intake.dart';
 import '../cubits/medicine_cubit.dart';
+import '../cubits/medicine_states.dart';
 import 'meds_combo_box.dart';
 
 class MedicineIntakeDialog extends StatefulWidget {
   final Color accentColor;
   final String intakeType;
-  final List<Medicine> availableMedicines;
+  //final List<Medicine> availableMedicines;
   final String pigId;
 
   const MedicineIntakeDialog({
     super.key,
     required this.accentColor,
     required this.intakeType,
-    required this.availableMedicines,
+    //required this.availableMedicines,
     required this.pigId,
   });
 
@@ -86,14 +87,13 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     }
   }
 
-  List<Medicine> get _filteredMedicines {
+  List<Medicine> _filteredMedicines(List<Medicine> allMedicines) {
     String targetCategory = '';
     final type = widget.intakeType.toLowerCase();
     if (type == 'medicine') targetCategory = 'medicine';
     else if (type == 'vitamin') targetCategory = 'vitamin';
     else if (type == 'vaccine') targetCategory = 'vaccine';
-
-    return widget.availableMedicines.where((med) {
+    return allMedicines.where((med) {
       return med.category.toLowerCase() == targetCategory && med.totalStock > 0;
     }).toList();
   }
@@ -111,6 +111,8 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
 
   String _formatBatch(MedicineStock batch) => '${batch.expiryDate} | (${batch.amount.round()} ${_dosageUnit})';
 
+  DateTime? _selectedNextSchedule; // 🔹 new field, replaces parsing the text controller
+
   Future<void> _selectDate() async {
     final tomorrow = DateTime.now().add(const Duration(days: 1));
     final picked = await showDatePicker(
@@ -124,7 +126,10 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
       ),
     );
     if (picked != null) {
-      setState(() => _scheduleController.text = "${picked.toLocal()}".split(' ')[0]);
+      setState(() {
+        _selectedNextSchedule = DateTime(picked.year, picked.month, picked.day);
+        _scheduleController.text = "${picked.toLocal()}".split(' ')[0]; // display only
+      });
     }
   }
 
@@ -160,7 +165,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
       dosage: _dosageController.text.trim(),
       unitOfMeasurement: _dosageUnit,
       status: _selectedStatus,
-      nextSchedule: _scheduleController.text.isEmpty ? null : _scheduleController.text,
+      nextSchedule: _selectedNextSchedule, // 🔹 DateTime?, not a string
       purpose: _purposeController.text.isEmpty ? null : _purposeController.text,
       dateTaken: DateTime.now(),
     );
@@ -177,6 +182,13 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     final theme = Theme.of(context);
     final batchOptions = _fetchedBatches.map(_formatBatch).toList();
     final selectedBatchString = _selectedStockBatch != null ? _formatBatch(_selectedStockBatch!) : '';
+
+    return BlocBuilder<MedicineCubit, MedicineState>(
+    buildWhen: (prev, curr) => curr is MedicineLoaded,
+    builder: (context, state) {
+    final allMedicines = state is MedicineLoaded
+    ? state.medicines
+        : context.read<MedicineCubit>().currentMedicines;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -205,7 +217,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                       const SizedBox(height: 16),
                       MedicineSearchComboBox(
                         label: '${widget.intakeType}:',
-                        medicines: _filteredMedicines,
+                        medicines: _filteredMedicines(allMedicines),
                         onCleared: () => setState(() {
                           _selectedMedicine = null;
                           _fetchedBatches = [];
@@ -302,5 +314,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
         ),
       ),
     );
-  }
+  },
+  );
+}
 }
