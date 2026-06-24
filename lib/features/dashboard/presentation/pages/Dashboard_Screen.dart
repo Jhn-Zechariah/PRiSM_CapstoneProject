@@ -260,6 +260,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   int selectedIndex = 2;
 
   Timer? _timer;
+  int _consecutiveFailures = 0;
+  StreamSubscription? _connectivitySub;
   bool _isLoading = true;
   String _connectionStatus =
       "Connecting..."; // Internet / Firestore reachability
