@@ -45,7 +45,11 @@ class MedsIntakeScheduleScreen extends StatelessWidget {
                       );
                     }
 
-                    final schedules = snapshot.data ?? [];
+                    // 🔹 Filter out any records with no schedule date at all,
+                    // since nextSchedule is nullable.
+                    final schedules = (snapshot.data ?? [])
+                        .where((intake) => intake.nextSchedule != null)
+                        .toList();
 
                     if (schedules.isEmpty) {
                       return const Center(
@@ -71,9 +75,9 @@ class MedsIntakeScheduleScreen extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final intake = schedules[index];
 
-                        final scheduleDate = DateTime.parse(
-                          intake.nextSchedule!,
-                        );
+                        // 🔹 No more DateTime.parse — nextSchedule is
+                        // already a DateTime, set directly from Firestore.
+                        final scheduleDate = intake.nextSchedule!;
 
                         final targetDate = DateTime(
                           scheduleDate.year,
@@ -86,7 +90,11 @@ class MedsIntakeScheduleScreen extends StatelessWidget {
 
                         String displayDays;
 
-                        if (diffDays == 0) {
+                        if (diffDays < 0) {
+                          // 🔹 Handles overdue schedules gracefully instead
+                          // of showing a confusing negative day count.
+                          displayDays = "Overdue";
+                        } else if (diffDays == 0) {
                           displayDays = "Scheduled today";
                         } else if (diffDays == 1) {
                           displayDays = "Scheduled tomorrow";
