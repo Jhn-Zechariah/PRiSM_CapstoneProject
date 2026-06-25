@@ -1,4 +1,4 @@
-import 'dart:async'; // 👈 ADD THIS for Timer
+
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -22,7 +22,6 @@ import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AppNav extends StatefulWidget {
   // 🔹 CHANGED: Change VoidCallback to a function that accepts the current theme state
@@ -38,10 +37,7 @@ class _AppNavState extends State<AppNav> {
   int selectedIndex = 2;
   bool _showHumidity = false;
   bool _showPigMeds = false;
-  bool _sprinklerActive = false;
-  double _tempMaxToday = 0;
-  double _humidityMaxToday = 0;
-  Timer? _humidityTimer;
+
   final _feedingRepo = FirestoreFeedingRecordRepo();
 
   final List<Widget> _navItems = const [
@@ -55,90 +51,15 @@ class _AppNavState extends State<AppNav> {
   @override
   void initState() {
     super.initState();
-    _preloadMaxValues();
-    _humidityTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _refreshHumidityMax(),
-    );
   } // ✅ only ONE closing brace here
 
   @override
   void dispose() {
-    _humidityTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _preloadMaxValues() async {
-    try {
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      final start = Timestamp.fromDate(startOfDay);
-      final end = Timestamp.fromDate(now);
 
-      final tempSnap = await FirebaseFirestore.instance
-          .collection('temperature_readings')
-          .where('timestamp', isGreaterThanOrEqualTo: start)
-          .where('timestamp', isLessThanOrEqualTo: end)
-          .get();
 
-      final humiditySnap = await FirebaseFirestore.instance
-          .collection('humidity_readings')
-          .where('timestamp', isGreaterThanOrEqualTo: start)
-          .where('timestamp', isLessThanOrEqualTo: end)
-          .get();
-
-      if (!mounted) return;
-
-      double maxTemp = 0;
-      for (final doc in tempSnap.docs) {
-        final val = (doc.data()['tempMax'] as num?)?.toDouble() ?? 0;
-        if (val > maxTemp) maxTemp = val;
-      }
-
-      double maxHumidity = 0;
-      for (final doc in humiditySnap.docs) {
-        final val = (doc.data()['humidityMax'] as num?)?.toDouble() ?? 0;
-        if (val > maxHumidity) maxHumidity = val;
-      }
-
-      if (!mounted) return;
-      setState(() {
-        if (maxTemp > 0) _tempMaxToday = maxTemp;
-        if (maxHumidity > 0) _humidityMaxToday = maxHumidity;
-      });
-    } catch (e) {
-      debugPrint('Error preloading max values: $e');
-    }
-  }
-
-  Future<void> _refreshHumidityMax() async {
-    try {
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-
-      final humiditySnap = await FirebaseFirestore.instance
-          .collection('humidity_readings')
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-          )
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-          .get();
-
-      if (!mounted) return;
-
-      double maxHumidity = 0;
-      for (final doc in humiditySnap.docs) {
-        final val = (doc.data()['humidityMax'] as num?)?.toDouble() ?? 0;
-        if (val > maxHumidity) maxHumidity = val;
-      }
-
-      if (!mounted) return;
-      if (maxHumidity > 0) setState(() => _humidityMaxToday = maxHumidity);
-    } catch (e) {
-      debugPrint('Error refreshing humidity max: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -149,30 +70,14 @@ class _AppNavState extends State<AppNav> {
       // Index 1: Temperature / Humidity Monitor Option
       _showHumidity
           ? HumidityMonitoring(
-              onSwitchToTemperature: () {
-                setState(() => _showHumidity = false);
-              },
-              isActivated: _sprinklerActive,
-              onSprinklerChanged: (val) =>
-                  setState(() => _sprinklerActive = val),
-              onMaxHumidityChanged: (max) =>
-                  setState(() => _humidityMaxToday = max),
-            )
+        onSwitchToTemperature: () => setState(() => _showHumidity = false),
+        // 🔹 These now read from sprinklerNotifier directly inside the screen
+        // so no need to pass isActivated / onSprinklerChanged / onMaxChanged
+      )
           : TemperatureMonitoring(
-              onSwitchToHumidity: () {
-                setState(() => _showHumidity = true);
-              },
-              isActivated: _sprinklerActive,
-              onSprinklerChanged: (val) =>
-                  setState(() => _sprinklerActive = val),
-              onMaxTempChanged: (max) => setState(() => _tempMaxToday = max),
+              onSwitchToHumidity: () => setState(() => _showHumidity = true),
             ),
-      DashboardScreen(
-        tempMaxToday: _tempMaxToday,
-        humidityMaxToday: _humidityMaxToday,
-        isActivated: _sprinklerActive,
-        onSprinklerChanged: (val) => setState(() => _sprinklerActive = val),
-      ),
+      DashboardScreen(),
       FeedingRecordsPage(repo: _feedingRepo),
       _showPigMeds
           ? pig_meds(
