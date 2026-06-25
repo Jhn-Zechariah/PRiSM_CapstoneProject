@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -107,5 +108,12 @@ class ProfileCubit extends Cubit<ProfileState> {
       loadUserData();
       return false;
     }
+  }
+
+  Future<void> syncIotThresholds(String uid, Map<String, dynamic> data) async {
+    await FirebaseFirestore.instance
+        .collection('admins')
+        .doc(uid)
+        .set({'iotThresholds': data}, SetOptions(merge: true));
   }
 }

@@ -1,4 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/widgets/snackbar.dart';
+import '../../../auth/presentation/cubits/profile_cubit.dart';
 
 class IoTControlsDialog extends StatefulWidget {
   const IoTControlsDialog({super.key});
@@ -16,6 +21,14 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   final TextEditingController _scheduleController = TextEditingController();
   final TextEditingController _durationController = TextEditingController();
 
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
   @override
   void dispose() {
     _tempController.dispose();
@@ -25,16 +38,78 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     super.dispose();
   }
 
+  // Load preferences from SharedPreferences
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      isIotEnabled = prefs.getBool('isIotEnabled') ?? true;
+      isSprinklerAuto = prefs.getBool('isSprinklerAuto') ?? true;
+      _tempController.text = prefs.getString('iotMaxTemp') ?? '';
+      _humidityController.text = prefs.getString('iotMaxHumidity') ?? '';
+      _scheduleController.text = prefs.getString('iotSchedule') ?? '';
+      _durationController.text = prefs.getString('iotDuration') ?? '';
+      _isLoading = false;
+    });
+  }
+
+  // Save preferences to SharedPreferences AND sync to Firestore
+  Future<void> _savePreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isIotEnabled', isIotEnabled);
+    await prefs.setBool('isSprinklerAuto', isSprinklerAuto);
+    await prefs.setString('iotMaxTemp', _tempController.text);
+    await prefs.setString('iotMaxHumidity', _humidityController.text);
+    await prefs.setString('iotSchedule', _scheduleController.text);
+    await prefs.setString('iotDuration', _durationController.text);
+
+    final maxTemp = double.tryParse(_tempController.text);
+    final maxHumidity = double.tryParse(_humidityController.text);
+
+    // 🔹 Synchronize thresholds to Firestore so the backend (Cloud
+    // Functions) can compare incoming live sensor readings against them.
+    if (mounted) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final profileCubit = context.read<ProfileCubit>();
+        await profileCubit.syncIotThresholds(user.uid, {
+          'isIotEnabled': isIotEnabled,
+          'isSprinklerAuto': isSprinklerAuto,
+          'maxTemp': maxTemp,
+          'maxHumidity': maxHumidity,
+          'schedule': _scheduleController.text,
+          'durationMins': int.tryParse(_durationController.text),
+        });
+      }
+
+      CustomSnackbar.show(
+        context: context,
+        message: "IoT settings saved and synced!",
+      );
+      Navigator.pop(context);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 1. Define theme variables
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.textTheme.bodyLarge?.color;
 
+    if (_isLoading) {
+      return const Dialog(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      // 2. Adapt background color
       backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
@@ -48,7 +123,6 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
-                  // Keep branding color consistent
                   color: Colors.orange[800],
                 ),
               ),
@@ -66,8 +140,6 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               onChanged: (val) {
                 setState(() {
                   isIotEnabled = val;
-                  // If the master switch is turned OFF,
-                  // we force the sprinkler auto activation to OFF as well.
                   if (!val) {
                     isSprinklerAuto = false;
                   }
@@ -134,13 +206,13 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 _buildActionButton(
                   'Cancel',
                   textColor,
-                  () => Navigator.pop(context),
+                      () => Navigator.pop(context),
                 ),
                 const SizedBox(width: 8),
                 _buildActionButton(
                   'Save',
                   isIotEnabled ? textColor : theme.disabledColor,
-                  isIotEnabled ? () => Navigator.pop(context) : () {},
+                  isIotEnabled ? _savePreferences : () {},
                 ),
               ],
             ),
@@ -170,10 +242,10 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   }
 
   Widget _buildActionButton(
-    String label,
-    Color? color,
-    VoidCallback onPressed,
-  ) {
+      String label,
+      Color? color,
+      VoidCallback onPressed,
+      ) {
     return TextButton(
       onPressed: onPressed,
       child: Text(
@@ -258,7 +330,6 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
             child: Container(
               height: 32,
               decoration: BoxDecoration(
-                // Input background adapts
                 color: isDark
                     ? Colors.white.withValues(alpha: 0.1)
                     : Colors.grey[300],
@@ -266,17 +337,16 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 boxShadow: isDark
                     ? []
                     : [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 2,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 2,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
               child: TextField(
                 controller: controller,
                 enabled: enabled,
-                // Text and Hint color adapt
                 style: TextStyle(
                   color: theme.textTheme.bodyLarge?.color,
                   fontSize: 13,
