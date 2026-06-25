@@ -5,14 +5,14 @@ import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 
-const List<String> kTimeRanges = [
+const List<String> kHumidityTimeRanges = [
   'This Month',
   'This Week',
   'Today',
-  'Custom Range',
+  'Custom',
 ];
 
-String _formatDateTime(DateTime dt) {
+String _humFormatDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
   final m = dt.month.toString().padLeft(2, '0');
   final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
@@ -21,11 +21,11 @@ String _formatDateTime(DateTime dt) {
   return '$d/$m/${dt.year}  $h:$min $p';
 }
 
-String _formatDate(DateTime d) =>
+String _humFormatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/'
-        '${d.month.toString().padLeft(2, '0')}/${d.year}';
+    '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
-String _formatTime(TimeOfDay t) {
+String _humFormatTime(TimeOfDay t) {
   final h = t.hour == 0
       ? 12
       : t.hour > 12
@@ -36,11 +36,11 @@ String _formatTime(TimeOfDay t) {
   return '${h.toString().padLeft(2, '0')}:$min $p';
 }
 
-DateTimeRange? _resolveTimeRange(
-    int index,
-    DateTime? customStart,
-    DateTime? customEnd,
-    ) {
+DateTimeRange? _humResolveTimeRange(
+  int index,
+  DateTime? customStart,
+  DateTime? customEnd,
+) {
   final now = DateTime.now();
   switch (index) {
     case 0:
@@ -84,68 +84,27 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   int _selectedTab = 1;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
-  static bool _humidityCacheIsToday() =>
-      SensorMemory.lastHumidityChartDate == SensorMemory.todayKey();
 
   bool _isLoading = !SensorMemory.humidityChartLoaded ||
-      !_humidityCacheIsToday();
+      SensorMemory.lastHumidityChartDate != SensorMemory.todayKey();
 
-  // Now mirrors LiveSensorService directly instead of maintaining its own
-  // HTTP polling / failure-counting logic.
   String _connectionStatus = LiveSensorService.connectionStatus.value;
   String _sensorStatus = LiveSensorService.sensorStatus.value;
-
-  // ── THEME HELPERS ──────────────────────────────────────────────────
-  Color _cardBg(bool isDark) => isDark ? const Color(0xFF1E1E1E) : Colors.white;
-  Color _textPrimary(bool isDark) =>
-      isDark ? Colors.white : const Color(0xFF1B3A4B);
-  Color _textSecondary(bool isDark) =>
-      isDark ? Colors.white54 : Colors.grey.shade500;
-  Color _dividerColor(bool isDark) =>
-      isDark ? Colors.white12 : Colors.grey.shade200;
-  BoxDecoration _bentoCard(bool isDark, {Color? accentColor}) => BoxDecoration(
-    color: _cardBg(isDark),
-    borderRadius: BorderRadius.circular(20),
-    border: Border.all(
-      color:
-      accentColor?.withValues(alpha: 0.2) ??
-          (isDark
-              ? Colors.white.withValues(alpha: 0.07)
-              : Colors.grey.shade200),
-      width: 1.2,
-    ),
-    boxShadow: [
-      BoxShadow(
-        color:
-        accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
-            Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
-        blurRadius: 16,
-        spreadRadius: 0,
-        offset: const Offset(0, 6),
-      ),
-      if (!isDark)
-        BoxShadow(
-          color: Colors.white.withValues(alpha: 0.9),
-          blurRadius: 1,
-          offset: const Offset(0, -1),
-        ),
-    ],
-  );
 
   Timer? _durationTimer;
   DateTime? _sprinklerActivatedAt;
 
-  // Live reading (current snapshot)
   double? _currentHumidity;
   DateTime? _lastAppliedTimestamp;
 
-  // Display stats shown in the review card.
+  static bool _humidityCacheIsToday() =>
+      SensorMemory.lastHumidityChartDate == SensorMemory.todayKey();
+
   double? _displayMax = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMax : null;
-  double? _displayMin = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMin : null;
   double? _displayAvg = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayAvg : null;
+  double? _displayMin = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMin : null;
 
   // Per-session cache for This Week (index 1) and This Month (index 0).
-  // Keyed by hour so they auto-refresh once a new hourly doc lands.
   static List<Map<String, double>> _cachedWeekData = [];
   static double? _cachedWeekMax;
   static double? _cachedWeekMin;
@@ -160,14 +119,15 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
   String get _humidityStatus {
     if (_currentHumidity == null) return "";
-    final h = _currentHumidity!;
+    final h = _displayMax;
+    if (h == null) return "";
     if (h >= 80) return "High";
     if (h <= 40) return "Low";
     return "Normal";
   }
 
   final List<Map<String, double>> _chartData =
-  _humidityCacheIsToday() ? List.of(SensorMemory.lastHumidityChartData) : [];
+      _humidityCacheIsToday() ? List.of(SensorMemory.lastHumidityChartData) : [];
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -181,19 +141,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     _initData();
     _loadSprinklerState();
     humidityMaxTodayNotifier.addListener(_onHumidityMaxNotifierChanged);
-
-    // Listen to the single shared poller instead of running our own
-    // Timer + http.get() against the ESP32. This now only feeds the
-    // live numeric readout on the status card — the chart itself is
-    // sourced entirely from humidity_hourly (see _loadChartFromFirestore).
     LiveSensorService.latestData.addListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
-
-    // ESP32 writes one new humidity_hourly doc per hour, so there's no
-    // point re-querying more often. This timer just triggers a check —
-    // _loadChartFromFirestore() itself is a no-op (zero reads) if the
-    // current hour key hasn't advanced since the last successful load.
     _hourlyRefreshTimer = Timer.periodic(
         const Duration(hours: 1), (_) => _loadChartFromFirestore());
   }
@@ -207,19 +157,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     });
   }
 
-  /// Updates only the live numeric readout shown on the status card.
-  /// The chart, averages, and min/max stats all come from
-  /// humidity_hourly via _loadChartFromFirestore — this no longer
-  /// feeds the chart at all, since hourly docs are the single source
-  /// of truth for "Today" as well as Week/Month/Custom ranges now.
   void _onLiveDataChanged() {
     if (!mounted) return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
 
-    final hRaw = data['humidity'];
-    if (hRaw == null) return;
-    final h = (hRaw as num).toDouble();
+    final humLive = (data['humidity'] as num?)?.toDouble();
+    if (humLive == null || humLive < 0) return;
 
     if (_lastAppliedTimestamp != null) {
       final tsField = data['timestamp'];
@@ -241,7 +185,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     }
 
     setState(() {
-      _currentHumidity = h;
+      _currentHumidity = humLive;
       _isLoading = false;
     });
   }
@@ -292,8 +236,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     await _loadChartFromFirestore();
     if (!mounted) return;
     setState(() => _isLoading = false);
-    // Apply whatever the shared service already has, in case it fetched
-    // before this screen's listener was attached.
     if (LiveSensorService.latestData.value != null) {
       _onLiveDataChanged();
     }
@@ -310,23 +252,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     super.dispose();
   }
 
-  // ── Chart data — sourced entirely from humidity_hourly ──────────────
-  //
-  // The ESP32 writes exactly one new document to humidity_hourly per
-  // hour, for every time range (Today/Week/Month/Custom). Each hourly
-  // doc already carries its own humidityMax/humidityMin/humidityAvg, so
-  // min/max/avg for the whole range can be derived directly from the
-  // SAME docs fetched for the chart — no second uncapped query needed.
+  void _clearStatsForRangeSwitch() {
+    _chartData.clear();
+    _displayMax = null;
+    _displayMin = null;
+    _displayAvg = null;
+  }
 
   Future<void> _loadChartFromFirestore() async {
     final rangeIndexAtLoad = _selectedTimeRange;
 
-    final range = _resolveTimeRange(rangeIndexAtLoad, _customStart, _customEnd);
+    final range = _humResolveTimeRange(rangeIndexAtLoad, _customStart, _customEnd);
     if (range == null) return;
 
-    // Serve cached result for This Week / This Month so tab switches are
-    // instant. Cache is date-keyed and auto-invalidates at midnight.
-    // Max/min are always re-merged with today's live data on cache hit.
     final today = SensorMemory.todayKey();
     final hourKey = currentHourKey();
 
@@ -335,50 +273,58 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         SensorMemory.lastHumidityChartHourKey == hourKey &&
         SensorMemory.lastHumidityChartDate == today &&
         SensorMemory.humidityChartLoaded) {
-      return; // already up to date, zero reads
+      if (mounted) {
+        setState(() {
+          _chartData..clear()..addAll(SensorMemory.lastHumidityChartData);
+          _displayMax = SensorMemory.lastHumidityDisplayMax;
+          _displayMin = SensorMemory.lastHumidityDisplayMin;
+          _displayAvg = SensorMemory.lastHumidityDisplayAvg;
+        });
+      }
+      return;
     }
+
     // Week/Month: cache hit if loaded within this same hour.
     if (rangeIndexAtLoad == 1 &&
         _cachedWeekHourKey == hourKey &&
         _cachedWeekData.isNotEmpty) {
-      setState(() {
-        _chartData..clear()..addAll(_cachedWeekData);
-        _displayMax = _cachedWeekMax;
-        _displayMin = _cachedWeekMin;
-        _displayAvg = _cachedWeekAvg;
-      });
+      if (mounted) {
+        setState(() {
+          _chartData..clear()..addAll(_cachedWeekData);
+          _displayMax = _cachedWeekMax;
+          _displayMin = _cachedWeekMin;
+          _displayAvg = _cachedWeekAvg;
+        });
+      }
       return;
     }
     if (rangeIndexAtLoad == 0 &&
         _cachedMonthHourKey == hourKey &&
         _cachedMonthData.isNotEmpty) {
-      setState(() {
-        _chartData..clear()..addAll(_cachedMonthData);
-        _displayMax = _cachedMonthMax;
-        _displayMin = _cachedMonthMin;
-        _displayAvg = _cachedMonthAvg;
-      });
+      if (mounted) {
+        setState(() {
+          _chartData..clear()..addAll(_cachedMonthData);
+          _displayMax = _cachedMonthMax;
+          _displayMin = _cachedMonthMin;
+          _displayAvg = _cachedMonthAvg;
+        });
+      }
       return;
     }
 
     try {
-      // Single source of truth for ALL ranges: humidity_hourly. The
-      // ESP32 writes one doc/hour here, so even a Month-wide query only
-      // returns on the order of ~720-750 docs — a fraction of what the
-      // old per-reading collection (plus its separate uncapped accurate-
-      // stats query) would have returned for the same range.
       final snapshot = await _db
           .collection('humidity_hourly')
           .orderBy('timestamp', descending: false)
           .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
-      )
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
+          )
           .where(
-        'timestamp',
-        isLessThanOrEqualTo: Timestamp.fromDate(range.end),
-      )
-          .limit(800) // generous ceiling for a ~31-day month of hourly docs
+            'timestamp',
+            isLessThanOrEqualTo: Timestamp.fromDate(range.end),
+          )
+          .limit(800)
           .get();
 
       if (!mounted || _selectedTimeRange != rangeIndexAtLoad) return;
@@ -403,6 +349,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         return;
       }
 
+      // Roll up across EVERY hourly doc gathered in the range:
+      //   Highest = max of all hourly humidityMax values
+      //   Lowest  = min of all hourly humidityMin values
+      //   Average = simple (equal-weight) mean of all hourly humidityAvg values
+      // A doc that is missing humidityMin/humidityAvg is excluded from that
+      // particular stat instead of being faked from humidityMax, so a single
+      // incomplete doc can't silently drag Lowest/Average toward Highest.
       final allData = <Map<String, double>>[];
       final allMaxValues = <double>[];
       final allMinValues = <double>[];
@@ -410,24 +363,22 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
       for (final doc in docs) {
         final d = doc.data();
-        final rawAvg = d['humidityAvg'];
-        if (rawAvg == null) continue;
+        final rawMax = d['humidityMax'];
+        if (rawMax == null) continue;
 
-        final avg = (rawAvg as num).toDouble();
-        final max = (d['humidityMax'] as num?)?.toDouble() ?? avg;
-        final min = (d['humidityMin'] as num?)?.toDouble() ?? avg;
+        final max = (rawMax as num).toDouble();
+        final rawMin = d['humidityMin'];
+        final rawAvg = d['humidityAvg'];
 
         final docTs = (d['timestamp'] as Timestamp?)?.toDate();
         if (docTs != null) {
-          // X-axis = actual elapsed hours since the range's start, so gaps
-          // in coverage (e.g. sensor downtime) show as gaps in the line
-          // instead of being silently compressed away by a sequential index.
           final x = docTs.difference(range.start).inMinutes / 60.0;
           allData.add({'x': x, 'humidity': max});
         }
+
         allMaxValues.add(max);
-        allMinValues.add(min);
-        allAvgValues.add(avg);
+        if (rawMin != null) allMinValues.add((rawMin as num).toDouble());
+        if (rawAvg != null) allAvgValues.add((rawAvg as num).toDouble());
       }
 
       if (allMaxValues.isEmpty) {
@@ -440,14 +391,15 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         return;
       }
 
-      // Derived directly from the hourly docs already fetched above —
-      // each doc already carries its own pre-aggregated max/min/avg for
-      // that hour, so no second query is needed to get an accurate
-      // range-wide max/min/avg.
       final historicalMax = allMaxValues.reduce((a, b) => a > b ? a : b);
-      final historicalMin = allMinValues.reduce((a, b) => a < b ? a : b);
-      final historicalAvg =
-          allAvgValues.reduce((a, b) => a + b) / allAvgValues.length;
+      final historicalMin = allMinValues.isNotEmpty
+          ? allMinValues.reduce((a, b) => a < b ? a : b)
+          : null;
+      final historicalAvg = allAvgValues.isNotEmpty
+          ? allAvgValues.reduce((a, b) => a + b) / allAvgValues.length
+          : null;
+
+      if (!mounted || _selectedTimeRange != rangeIndexAtLoad) return;
 
       setState(() {
         _chartData
@@ -466,7 +418,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         }
       });
 
-      // Cache Today so navigating back / hourly re-checks are instant.
+      // Persist Today cache.
       if (rangeIndexAtLoad == 2) {
         SensorMemory.lastHumidityChartData = List.of(_chartData);
         SensorMemory.humidityChartLoaded = true;
@@ -477,7 +429,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         SensorMemory.lastHumidityDisplayAvg = _displayAvg;
         SensorMemory.save();
       }
-      // Cache Week/Month, keyed by hour so they refresh once an hour.
+      // Persist Week/Month session cache.
       if (rangeIndexAtLoad == 1) {
         _cachedWeekData = List.of(_chartData);
         _cachedWeekMax = historicalMax;
@@ -493,8 +445,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       }
     } catch (e) {
       debugPrint('Firestore load error: $e');
-      // Don't wipe existing display values on network failure —
-      // keep whatever was already showing
       return;
     }
   }
@@ -509,8 +459,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
-
-      sprinklerNotifier.value = turnOn; // instantly notify dashboard
+      sprinklerNotifier.value = turnOn;
       final now = DateTime.now();
 
       if (turnOn) {
@@ -519,18 +468,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         final period = now.hour < 12 ? 'AM' : 'PM';
         final timeStr = '$hour:$minute $period';
         const months = [
-          'Jan',
-          'Feb',
-          'Mar',
-          'Apr',
-          'May',
-          'Jun',
-          'Jul',
-          'Aug',
-          'Sep',
-          'Oct',
-          'Nov',
-          'Dec',
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
         ];
         final dateStr =
             '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
@@ -571,14 +510,50 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     }
   }
 
+  Color _cardBg(bool isDark) => isDark ? const Color(0xFF1E1E1E) : Colors.white;
+  Color _textPrimary(bool isDark) =>
+      isDark ? Colors.white : const Color(0xFF1B3A4B);
+  Color _textSecondary(bool isDark) =>
+      isDark ? Colors.white54 : Colors.grey.shade500;
+  Color _dividerColor(bool isDark) =>
+      isDark ? Colors.white12 : Colors.grey.shade200;
+
+  BoxDecoration _bentoCard(bool isDark, {Color? accentColor}) => BoxDecoration(
+    color: _cardBg(isDark),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(
+      color:
+          accentColor?.withValues(alpha: 0.2) ??
+          (isDark
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.grey.shade200),
+      width: 1.2,
+    ),
+    boxShadow: [
+      BoxShadow(
+        color:
+            accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
+            Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
+        blurRadius: 16,
+        offset: const Offset(0, 6),
+      ),
+      if (!isDark)
+        BoxShadow(
+          color: Colors.white.withValues(alpha: 0.9),
+          blurRadius: 1,
+          offset: const Offset(0, -1),
+        ),
+    ],
+  );
+
   Widget _buildConnectionBadge() {
     final Color badgeColor;
     final Color bgColor;
     if (_connectionStatus == "Live") {
       badgeColor = Colors.green;
       bgColor = Colors.green.shade100;
-    } else if (_connectionStatus == "Connecting..." ||
-        _connectionStatus == "Reconnecting...") {
+    } else if (_connectionStatus == "Reconnecting..." ||
+        _connectionStatus == "Connecting...") {
       badgeColor = Colors.orange;
       bgColor = Colors.orange.shade100;
     } else {
@@ -605,7 +580,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     );
   }
 
-
   bool _isSprinklerDialogOpen = false;
 
   Future<void> _confirmSprinkler() async {
@@ -614,7 +588,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
     final isOn = sprinklerNotifier.value;
 
-    // Block activation when sensor is offline (deactivation always allowed)
     if (_sensorStatus != "Sensor Online" && !isOn) {
       await showDialog(
         context: context,
@@ -635,14 +608,15 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
-      _isSprinklerDialogOpen = false; // ← reset before returning
+      _isSprinklerDialogOpen = false;
       return;
     }
 
@@ -666,7 +640,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: isOn ? const Color(0xFFD32F2F) : Colors.green,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
             ),
             child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
@@ -682,11 +657,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   // ── Custom range picker ─────────────────────────────────────────────────────
 
   Future<void> _showCustomRangePicker() async {
-    await showModalBottomSheet(
+    final applied = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CustomRangeSheet(
+      builder: (_) => _HumidityCustomRangeSheet(
         initialStart: _customStart,
         initialEnd: _customEnd,
         onApply: (start, end) {
@@ -694,11 +669,26 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             _customStart = start;
             _customEnd = end;
             _selectedTimeRange = 3;
+            _clearStatsForRangeSwitch();
           });
           _loadChartFromFirestore();
         },
       ),
     );
+
+    if (!mounted) return;
+
+    // If the sheet was dismissed (X button, back gesture, or tap outside)
+    // without the user ever applying a range, don't leave the UI parked
+    // on an empty Custom tab — fall back to Today.
+    final wasApplied = applied == true;
+    if (!wasApplied && _customStart == null) {
+      setState(() {
+        _selectedTimeRange = 2;
+        _clearStatsForRangeSwitch();
+      });
+      _loadChartFromFirestore();
+    }
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────
@@ -836,17 +826,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               _isLoading
                   ? const CircularProgressIndicator()
                   : Text(
-                humLabel,
-                style: TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                  color: (_currentHumidity ?? 0) >= 80
-                      ? Colors.red
-                      : (_currentHumidity ?? 100) <= 40
-                      ? Colors.orange
-                      : _textPrimary(isDark),
-                ),
-              ),
+                      humLabel,
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                        color: (_currentHumidity ?? 0) >= 80
+                            ? Colors.red
+                            : (_currentHumidity ?? 100) <= 40
+                            ? Colors.orange
+                            : _textPrimary(isDark),
+                      ),
+                    ),
             ],
           ),
           Column(
@@ -877,35 +867,35 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                     ),
                     child: _isSprinklerLoading
                         ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isActive ? Icons.check_circle : Icons.shower,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          isActive ? 'Active' : 'Activate',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isActive ? Icons.check_circle : Icons.shower,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                isActive ? 'Active' : 'Activate',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  ), // closes AnimatedContainer
-                ), // closes GestureDetector
-              ), // closes ValueListenableBuilder
+                  ),
+                ),
+              ),
             ],
           ),
         ],
@@ -915,13 +905,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
   Widget _buildTimeRangeSelector(bool isDark) {
     return Row(
-      children: List.generate(kTimeRanges.length, (index) {
+      children: List.generate(kHumidityTimeRanges.length, (index) {
         final isSelected = _selectedTimeRange == index;
         final isCustom = index == 3;
         return Expanded(
           child: GestureDetector(
             onTap: () async {
-              setState(() => _selectedTimeRange = index);
+              setState(() {
+                _selectedTimeRange = index;
+                _clearStatsForRangeSwitch();
+              });
               if (isCustom) {
                 await _showCustomRangePicker();
               } else {
@@ -931,7 +924,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: EdgeInsets.only(
-                right: index < kTimeRanges.length - 1 ? 6 : 0,
+                right: index < kHumidityTimeRanges.length - 1 ? 6 : 0,
               ),
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
@@ -946,12 +939,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: isSelected
                     ? [
-                  BoxShadow(
-                    color: const Color(0xFFE8622A).withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ]
+                        BoxShadow(
+                          color:
+                              const Color(0xFFE8622A).withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
                     : [],
               ),
               alignment: Alignment.center,
@@ -961,7 +955,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                 children: [
                   if (isCustom) ...[
                     Icon(
-                      Icons.calendar_month_outlined,
+                      Icons.date_range_outlined,
                       size: 11,
                       color: isSelected
                           ? Colors.white
@@ -970,7 +964,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                     const SizedBox(width: 3),
                   ],
                   Text(
-                    kTimeRanges[index],
+                    kHumidityTimeRanges[index],
                     style: TextStyle(
                       color: isSelected
                           ? Colors.white
@@ -978,9 +972,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                           ? const Color(0xFFE8622A)
                           : _textSecondary(isDark),
                       fontSize: 11,
-                      fontWeight: isSelected
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+                      fontWeight:
+                          isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
                 ],
@@ -1009,7 +1002,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              '${_formatDateTime(_customStart!)}  →  ${_formatDateTime(_customEnd!)}',
+              '${_humFormatDateTime(_customStart!)}  →  ${_humFormatDateTime(_customEnd!)}',
               style: const TextStyle(
                 fontSize: 11,
                 color: Color(0xFFE8622A),
@@ -1023,6 +1016,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                 _customStart = null;
                 _customEnd = null;
                 _selectedTimeRange = 2;
+                _clearStatsForRangeSwitch();
               });
               _loadChartFromFirestore();
             },
@@ -1034,7 +1028,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildChart(bool isDark) {
-    final range = _resolveTimeRange(_selectedTimeRange, _customStart, _customEnd);
+    final range = _humResolveTimeRange(_selectedTimeRange, _customStart, _customEnd);
     final now = DateTime.now();
     return Container(
       decoration: _bentoCard(isDark, accentColor: const Color(0xFFEF5350)),
@@ -1043,30 +1037,26 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         height: 210,
         width: double.infinity,
         child: _isLoading
-            ? Center(
-          child: CircularProgressIndicator(
-            color: const Color(0xFFE8622A),
-          ),
-        )
+            ? const Center(child: CircularProgressIndicator())
             : _chartData.isEmpty
             ? Center(
-          child: Text(
-            "No data for selected range",
-            style: TextStyle(color: _textSecondary(isDark)),
-          ),
-        )
+                child: Text(
+                  "No data for selected range",
+                  style: TextStyle(color: _textSecondary(isDark)),
+                ),
+              )
             : ClipRect(
-          child: CustomPaint(
-            painter: _HumidityChartPainter(
-              data: List.from(_chartData),
-              isDark: isDark,
-              rangeIndex: _selectedTimeRange,
-              rangeStart: range?.start ?? now,
-              rangeEnd: range?.end ?? now,
-            ),
-            child: const SizedBox(height: 210, width: double.infinity),
-          ),
-        ),
+                child: CustomPaint(
+                  painter: _HumidityChartPainter(
+                    data: List.from(_chartData),
+                    isDark: isDark,
+                    rangeIndex: _selectedTimeRange,
+                    rangeStart: range?.start ?? now,
+                    rangeEnd: range?.end ?? now,
+                  ),
+                  child: const SizedBox(height: 210, width: double.infinity),
+                ),
+              ),
       ),
     );
   }
@@ -1141,11 +1131,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildReviewStat(
-      String label,
-      String value,
-      Color valueColor,
-      bool isDark,
-      ) {
+    String label,
+    String value,
+    Color valueColor,
+    bool isDark,
+  ) {
     return Expanded(
       child: Column(
         children: [
@@ -1172,6 +1162,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildInsights(bool isDark) {
+    final accentAlpha = isDark ? 0.25 : 0.15;
+    final shadowAlpha = isDark ? 0.12 : 0.06;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1181,14 +1173,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             : const Color(0xFFFFF9C4),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFE8A020).withValues(alpha: 0.3),
-          width: 1,
+          color: const Color(0xFFE8A020).withValues(alpha: accentAlpha),
+          width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE8A020).withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: const Color(0xFFE8A020).withValues(alpha: shadowAlpha),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -1229,22 +1221,24 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
 // ── Custom Range Bottom Sheet ─────────────────────────────────────────────────
 
-class _CustomRangeSheet extends StatefulWidget {
+class _HumidityCustomRangeSheet extends StatefulWidget {
   final DateTime? initialStart;
   final DateTime? initialEnd;
   final void Function(DateTime start, DateTime end) onApply;
 
-  const _CustomRangeSheet({
+  const _HumidityCustomRangeSheet({
     required this.onApply,
     this.initialStart,
     this.initialEnd,
   });
 
   @override
-  State<_CustomRangeSheet> createState() => _CustomRangeSheetState();
+  State<_HumidityCustomRangeSheet> createState() =>
+      _HumidityCustomRangeSheetState();
 }
 
-class _CustomRangeSheetState extends State<_CustomRangeSheet> {
+class _HumidityCustomRangeSheetState
+    extends State<_HumidityCustomRangeSheet> {
   late DateTime _startDate;
   late TimeOfDay _startTime;
   late DateTime _endDate;
@@ -1261,19 +1255,19 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
   }
 
   DateTime get _fullStart => DateTime(
-    _startDate.year,
-    _startDate.month,
-    _startDate.day,
-    _startTime.hour,
-    _startTime.minute,
-  );
+        _startDate.year,
+        _startDate.month,
+        _startDate.day,
+        _startTime.hour,
+        _startTime.minute,
+      );
   DateTime get _fullEnd => DateTime(
-    _endDate.year,
-    _endDate.month,
-    _endDate.day,
-    _endTime.hour,
-    _endTime.minute,
-  );
+        _endDate.year,
+        _endDate.month,
+        _endDate.day,
+        _endTime.hour,
+        _endTime.minute,
+      );
   bool get _isValid => _fullStart.isBefore(_fullEnd);
 
   Future<void> _pickDate(bool isStart) async {
@@ -1284,7 +1278,8 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
       lastDate: DateTime(2100),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(primary: Color(0xFFE8622A)),
+          colorScheme:
+              const ColorScheme.light(primary: Color(0xFFE8622A)),
         ),
         child: child!,
       ),
@@ -1302,7 +1297,8 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
         data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: false),
         child: Theme(
           data: Theme.of(ctx).copyWith(
-            colorScheme: const ColorScheme.light(primary: Color(0xFFE8622A)),
+            colorScheme:
+                const ColorScheme.light(primary: Color(0xFFE8622A)),
           ),
           child: child!,
         ),
@@ -1342,7 +1338,8 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
           const SizedBox(height: 20),
           Row(
             children: [
-              const Icon(Icons.date_range, color: Color(0xFFE8622A), size: 20),
+              const Icon(Icons.date_range,
+                  color: Color(0xFFE8622A), size: 20),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
@@ -1355,8 +1352,12 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
                 ),
               ),
               GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Icon(Icons.close, color: Colors.grey.shade400, size: 22),
+                // Returning `false` tells the caller this sheet was
+                // dismissed without applying a range, so the parent
+                // can snap the selected tab back to Today.
+                onTap: () => Navigator.pop(context, false),
+                child: Icon(Icons.close,
+                    color: Colors.grey.shade400, size: 22),
               ),
             ],
           ),
@@ -1365,15 +1366,15 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
           const SizedBox(height: 8),
           Row(
             children: [
-              _DateTimeChip(
+              _HumidityDateTimeChip(
                 icon: Icons.calendar_today_outlined,
-                label: _formatDate(_startDate),
+                label: _humFormatDate(_startDate),
                 onTap: () => _pickDate(true),
               ),
               const SizedBox(width: 8),
-              _DateTimeChip(
+              _HumidityDateTimeChip(
                 icon: Icons.access_time,
-                label: _formatTime(_startTime),
+                label: _humFormatTime(_startTime),
                 onTap: () => _pickTime(true),
               ),
             ],
@@ -1384,11 +1385,8 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
               Expanded(child: Divider(color: Colors.grey.shade200)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Icon(
-                  Icons.arrow_downward,
-                  size: 16,
-                  color: Colors.grey.shade400,
-                ),
+                child: Icon(Icons.arrow_downward,
+                    size: 16, color: Colors.grey.shade400),
               ),
               Expanded(child: Divider(color: Colors.grey.shade200)),
             ],
@@ -1398,15 +1396,15 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
           const SizedBox(height: 8),
           Row(
             children: [
-              _DateTimeChip(
+              _HumidityDateTimeChip(
                 icon: Icons.calendar_today_outlined,
-                label: _formatDate(_endDate),
+                label: _humFormatDate(_endDate),
                 onTap: () => _pickDate(false),
               ),
               const SizedBox(width: 8),
-              _DateTimeChip(
+              _HumidityDateTimeChip(
                 icon: Icons.access_time,
-                label: _formatTime(_endTime),
+                label: _humFormatTime(_endTime),
                 onTap: () => _pickTime(false),
               ),
             ],
@@ -1431,9 +1429,11 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
             child: ElevatedButton(
               onPressed: _isValid
                   ? () {
-                Navigator.pop(context);
-                widget.onApply(_fullStart, _fullEnd);
-              }
+                      // Returning `true` tells the caller a range was
+                      // actually applied, so it should NOT snap back to Today.
+                      Navigator.pop(context, true);
+                      widget.onApply(_fullStart, _fullEnd);
+                    }
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE8622A),
@@ -1458,24 +1458,24 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
   }
 
   Widget _rowLabel(String text) => Text(
-    text,
-    style: TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.w600,
-      color: Colors.grey.shade500,
-      letterSpacing: 0.5,
-    ),
-  );
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey.shade500,
+          letterSpacing: 0.5,
+        ),
+      );
 }
 
 // ── Date/time chip ────────────────────────────────────────────────────────────
 
-class _DateTimeChip extends StatelessWidget {
+class _HumidityDateTimeChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
 
-  const _DateTimeChip({
+  const _HumidityDateTimeChip({
     required this.icon,
     required this.label,
     required this.onTap,
@@ -1487,7 +1487,8 @@ class _DateTimeChip extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: const Color(0xFFE8622A).withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(10),
@@ -1536,10 +1537,10 @@ class _HumidityChartPainter extends CustomPainter {
   });
 
   List<Map<String, double>> _sampleData(
-      List<Map<String, double>> src,
-      int maxPts,
-      String key,
-      ) {
+    List<Map<String, double>> src,
+    int maxPts,
+    String key,
+  ) {
     if (src.length <= maxPts) return src;
     final result = <Map<String, double>>[];
     final step = src.length / maxPts;
@@ -1557,15 +1558,15 @@ class _HumidityChartPainter extends CustomPainter {
     return result;
   }
 
-  // Returns (xHours, label) pairs for X-axis tick marks.
   List<(double, String)> _getXLabels() {
     switch (rangeIndex) {
-      case 2: // Today — label every 6 hours
+      case 2: // Today — every 6 hours from midnight
         return const [
           (0.0, '12AM'),
           (6.0, '6AM'),
           (12.0, '12PM'),
           (18.0, '6PM'),
+          (24.0, '12AM'),
         ];
       case 1: // This Week — one label per day
         return List.generate(7, (i) {
@@ -1573,7 +1574,7 @@ class _HumidityChartPainter extends CustomPainter {
           final d = rangeStart.add(Duration(days: i));
           return (i * 24.0, days[d.weekday - 1]);
         });
-      case 0: // This Month — label every 7 days
+      case 0: // This Month — every 7 days
         final labels = <(double, String)>[];
         for (var i = 0; ; i += 7) {
           final d = rangeStart.add(Duration(days: i));
@@ -1581,13 +1582,13 @@ class _HumidityChartPainter extends CustomPainter {
           labels.add((i * 24.0, '${d.day}/${d.month}'));
         }
         return labels;
-      case 3: // Custom Range — auto based on duration
+      case 3: // Custom range — auto-scale
         final totalH = rangeEnd.difference(rangeStart).inHours.toDouble();
         if (totalH <= 0) return const [];
         if (totalH <= 48) {
           final step = (totalH / 4).roundToDouble().clamp(1.0, 12.0);
           final labels = <(double, String)>[];
-          for (var h = 0.0; h <= totalH; h += step) {
+          for (var h = 0.0; h <= totalH + 0.01; h += step) {
             final dt = rangeStart.add(Duration(hours: h.toInt()));
             final hh = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
             final ampm = dt.hour < 12 ? 'AM' : 'PM';
@@ -1613,14 +1614,28 @@ class _HumidityChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
+
     const double leftPadding = 48;
     const double bottomPadding = 36;
     const double topPadding = 8;
     final double chartWidth = size.width - leftPadding;
     final double chartHeight = size.height - bottomPadding - topPadding;
     if (chartWidth <= 0 || chartHeight <= 0) return;
-    const yMax = 100.0;
-    const yMin = 0.0;
+
+    const double yMin = 0.0;
+    const double yMax = 100.0;
+
+    final double totalHours =
+        rangeEnd.difference(rangeStart).inMinutes / 60.0;
+    if (totalHours <= 0) return;
+
+    double getX(double hoursFromStart) =>
+        leftPadding + (hoursFromStart / totalHours) * chartWidth;
+
+    double getY(double hum) =>
+        topPadding +
+        chartHeight -
+        ((hum.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
 
     final gridPaint = Paint()
       ..color = isDark
@@ -1638,16 +1653,14 @@ class _HumidityChartPainter extends CustomPainter {
     );
 
     for (final step in [0, 25, 50, 75, 100]) {
-      final y =
-          topPadding +
-              chartHeight -
-              ((step - yMin) / (yMax - yMin)) * chartHeight;
-      canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
+      final y = getY(step.toDouble());
+      canvas.drawLine(
+          Offset(leftPadding, y), Offset(size.width, y), gridPaint);
       final tp = TextPainter(
         text: TextSpan(
           text: '$step%',
           style: TextStyle(
-            color: isDark ? Colors.white38 : Colors.grey.shade500,
+            color: isDark ? Colors.white54 : Colors.grey.shade500,
             fontSize: 10,
           ),
         ),
@@ -1670,21 +1683,10 @@ class _HumidityChartPainter extends CustomPainter {
     if (data.length < 2) return;
 
     final sampled = _sampleData(data, 80, 'humidity');
-    final xMin = sampled.first['x']!;
-    final xMax = sampled.last['x']!;
-    if (xMax == xMin) return;
 
-    double getX(double v) =>
-        leftPadding + ((v - xMin) / (xMax - xMin)) * chartWidth;
-    double getY(double h) =>
-        topPadding +
-            chartHeight -
-            ((h.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
-
-    // X-axis time labels.
     for (final (xHours, label) in _getXLabels()) {
       final xCanvas = getX(xHours);
-      if (xCanvas < leftPadding || xCanvas > size.width) continue;
+      if (xCanvas < leftPadding - 4 || xCanvas > size.width + 4) continue;
       final tp = TextPainter(
         text: TextSpan(text: label, style: labelStyle),
         textDirection: TextDirection.ltr,
@@ -1727,17 +1729,19 @@ class _HumidityChartPainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFFEF5350).withValues(alpha: isDark ? 0.5 : 0.85),
-            const Color(0xFFEF5350).withValues(alpha: 0.05),
+            const Color(0xFFEF5350).withValues(alpha: 0.85),
+            const Color(0xFFEF5350).withValues(alpha: 0.15),
           ],
-        ).createShader(Rect.fromLTWH(0, topPadding, size.width, chartHeight))
+        ).createShader(
+            Rect.fromLTWH(0, topPadding, size.width, chartHeight))
         ..style = PaintingStyle.fill,
     );
 
     canvas.drawPath(
       linePath,
       Paint()
-        ..color = isDark ? const Color(0xFFEF9A9A) : const Color(0xFFC62828)
+        ..color =
+            isDark ? const Color(0xFFEF9A9A) : const Color(0xFFC62828)
         ..strokeWidth = 2.0
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round

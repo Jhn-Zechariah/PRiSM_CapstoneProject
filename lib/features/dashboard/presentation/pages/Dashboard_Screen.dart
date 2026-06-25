@@ -72,12 +72,15 @@ class LiveSensorService {
 
   /// Latest raw sensor JSON, however it was sourced (LAN or Firestore).
   /// Screens listen to this directly via ValueListenableBuilder.
-  static final ValueNotifier<Map<String, dynamic>?> latestData =
-  ValueNotifier(null);
-  static final ValueNotifier<String> connectionStatus =
-  ValueNotifier<String>("Connecting...");
-  static final ValueNotifier<String> sensorStatus =
-  ValueNotifier<String>("Sensor Offline");
+  static final ValueNotifier<Map<String, dynamic>?> latestData = ValueNotifier(
+    null,
+  );
+  static final ValueNotifier<String> connectionStatus = ValueNotifier<String>(
+    "Connecting...",
+  );
+  static final ValueNotifier<String> sensorStatus = ValueNotifier<String>(
+    "Sensor Offline",
+  );
 
   /// Call once, guarded, from DashboardScreen.initState().
   static void start() {
@@ -147,11 +150,11 @@ class LiveSensorService {
         .doc('latest')
         .snapshots()
         .listen((snap) {
-      if (!snap.exists) return;
-      final data = snap.data();
-      if (data == null) return;
-      _applyData(data);
-    }, onError: (_) {});
+          if (!snap.exists) return;
+          final data = snap.data();
+          if (data == null) return;
+          _applyData(data);
+        }, onError: (_) {});
   }
 
   static void _applyData(Map<String, dynamic> data) {
@@ -165,8 +168,7 @@ class LiveSensorService {
 
     final nowUtc = DateTime.now().toUtc();
     final tsUtc = ts?.toUtc();
-    final diffSeconds =
-    tsUtc != null ? nowUtc.difference(tsUtc).inSeconds : -1;
+    final diffSeconds = tsUtc != null ? nowUtc.difference(tsUtc).inSeconds : -1;
     final isStale = ts == null || diffSeconds.abs() > _stalenessLimitSeconds;
 
     if (isStale) {
@@ -222,13 +224,14 @@ class SprinklerMemory {
           .collection('sprinkler_state')
           .doc('latest')
           .set({
-        'lastActivated': lastActivated,
-        'date': date,
-        'duration': duration,
-        'status': status,
-        'activatedAt':
-        activatedAt != null ? Timestamp.fromDate(activatedAt!) : null,
-      });
+            'lastActivated': lastActivated,
+            'date': date,
+            'duration': duration,
+            'status': status,
+            'activatedAt': activatedAt != null
+                ? Timestamp.fromDate(activatedAt!)
+                : null,
+          });
     } catch (e) {
       debugPrint('Error saving sprinkler state: $e');
     }
@@ -366,14 +369,14 @@ class SensorMemory {
           .collection('sensor_memory')
           .doc('latest')
           .set({
-        'lastTemp': lastTemp,
-        'lastHumidity': lastHumidity,
-        'tempMaxToday': lastTempMaxToday,
-        'tempMaxDate': lastTempMaxDate,
-        'humidityMaxToday': lastHumidityMaxToday,
-        'humidityMaxDate': lastHumidityMaxDate,
-        'lastPigStatus': lastPigStatus,
-      });
+            'lastTemp': lastTemp,
+            'lastHumidity': lastHumidity,
+            'tempMaxToday': lastTempMaxToday,
+            'tempMaxDate': lastTempMaxDate,
+            'humidityMaxToday': lastHumidityMaxToday,
+            'humidityMaxDate': lastHumidityMaxDate,
+            'lastPigStatus': lastPigStatus,
+          });
     } catch (e) {
       debugPrint('Error saving sensor memory: $e');
     }
@@ -407,7 +410,8 @@ class SensorMemory {
         setTempMaxToday((data['tempMaxToday'] as num?)?.toDouble() ?? 0);
         lastTempMaxDate = data['tempMaxDate'] as String? ?? '--';
         setHumidityMaxToday(
-            (data['humidityMaxToday'] as num?)?.toDouble() ?? 0);
+          (data['humidityMaxToday'] as num?)?.toDouble() ?? 0,
+        );
         lastHumidityMaxDate = data['humidityMaxDate'] as String? ?? '--';
         lastPigStatus = data['lastPigStatus'] as String? ?? '--';
         resetIfNewDay();
@@ -489,8 +493,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       duration: const Duration(milliseconds: 300),
       value: 1.0,
     );
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    );
 
     context.read<ProfileCubit>().loadUserData();
 
@@ -520,8 +526,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     tempMaxTodayNotifier.removeListener(_onTempMaxNotifierChanged);
     humidityMaxTodayNotifier.removeListener(_onHumidityMaxNotifierChanged);
     LiveSensorService.latestData.removeListener(_onLiveDataChanged);
-    LiveSensorService.connectionStatus
-        .removeListener(_onConnectionStatusChanged);
+    LiveSensorService.connectionStatus.removeListener(
+      _onConnectionStatusChanged,
+    );
     LiveSensorService.sensorStatus.removeListener(_onSensorStatusChanged);
     // NOTE: we do NOT call LiveSensorService.stop() here — Temperature and
     // Humidity screens may still be alive and depend on it continuing to run.
@@ -532,7 +539,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _onConnectionStatusChanged() {
     if (!mounted) return;
-    setState(() {}); // _buildHeader reads LiveSensorService.connectionStatus.value directly
+    setState(
+      () {},
+    ); // _buildHeader reads LiveSensorService.connectionStatus.value directly
   }
 
   void _onSensorStatusChanged() {
@@ -546,7 +555,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (data == null) return;
 
     setState(() {
-      final newTempLive = (data['tempAvg'] as num?)?.toDouble();
+      final newTempLive =
+          (data['tempMax'] as num?)?.toDouble() ??
+          (data['tempAvg'] as num?)?.toDouble();
       if (newTempLive != null && newTempLive > 0) {
         _tempMax = newTempLive;
         _lastKnownTemp = _tempMax;
@@ -742,13 +753,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     _syncTodayMaxFromFirestore();
 
     _toggleTimer = Timer.periodic(
-        const Duration(seconds: 3), (_) => _crossfadeToggle());
+      const Duration(seconds: 3),
+      (_) => _crossfadeToggle(),
+    );
 
     // Re-check the rolling 24h graph once per hour. _loadGraphData() itself
     // is a no-op (zero Firestore reads) if the hour key hasn't advanced
     // since the last load, so this is safe to fire on a simple timer.
-    _hourlyRefreshTimer =
-        Timer.periodic(const Duration(hours: 1), (_) => _loadGraphData());
+    _hourlyRefreshTimer = Timer.periodic(
+      const Duration(hours: 1),
+      (_) => _loadGraphData(),
+    );
   }
 
   // ── Crossfade temp/humidity display ─────────
@@ -771,9 +786,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       QuerySnapshot? tempSnapshot;
       try {
         tempSnapshot = await FirebaseFirestore.instance
-            .collection('temperature_readings')
-            .where('timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+            .collection('temperature_hourly')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+            )
             .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
             .orderBy('timestamp')
             .get(const GetOptions(source: Source.cache));
@@ -783,11 +800,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (tempSnapshot == null || tempSnapshot.docs.isEmpty) {
         try {
           tempSnapshot = await FirebaseFirestore.instance
-              .collection('temperature_readings')
-              .where('timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-              .where('timestamp',
-              isLessThanOrEqualTo: Timestamp.fromDate(now))
+              .collection('temperature_hourly')
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+              )
+              .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
               .orderBy('timestamp')
               .get(const GetOptions(source: Source.server))
               .timeout(const Duration(seconds: 4));
@@ -804,13 +822,14 @@ class _DashboardScreenState extends State<DashboardScreen>
           if (t > firestoreTempMax) firestoreTempMax = t;
         }
       }
-
-      QuerySnapshot? humiditySnapshot;
+     QuerySnapshot? humiditySnapshot;
       try {
         humiditySnapshot = await FirebaseFirestore.instance
-            .collection('humidity_readings')
-            .where('timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+            .collection('humidity_hourly')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+            )
             .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
             .orderBy('timestamp')
             .get(const GetOptions(source: Source.cache));
@@ -820,11 +839,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (humiditySnapshot == null || humiditySnapshot.docs.isEmpty) {
         try {
           humiditySnapshot = await FirebaseFirestore.instance
-              .collection('humidity_readings')
-              .where('timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-              .where('timestamp',
-              isLessThanOrEqualTo: Timestamp.fromDate(now))
+              .collection('humidity_hourly')
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+              )
+              .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
               .orderBy('timestamp')
               .get(const GetOptions(source: Source.server))
               .timeout(const Duration(seconds: 4));
@@ -841,26 +861,20 @@ class _DashboardScreenState extends State<DashboardScreen>
           if (h > firestoreHumidityMax) firestoreHumidityMax = h;
         }
       }
-
       if (!mounted) return;
 
       if (firestoreTempMax > 0) {
-        SensorMemory.resetIfNewDay();
-        if (firestoreTempMax > SensorMemory.lastTempMaxToday) {
-          SensorMemory.setTempMaxToday(firestoreTempMax);
-          SensorMemory.save();
-        }
-        setState(() => _tempMaxToday = SensorMemory.lastTempMaxToday);
+        SensorMemory.setTempMaxToday(firestoreTempMax);
+        SensorMemory.save();
+        if (mounted) setState(() => _tempMaxToday = firestoreTempMax);
       }
 
       if (firestoreHumidityMax > 0) {
-        SensorMemory.resetIfNewDay();
-        if (firestoreHumidityMax > SensorMemory.lastHumidityMaxToday) {
-          SensorMemory.setHumidityMaxToday(firestoreHumidityMax);
-          SensorMemory.save();
-        }
-        setState(() => _humidityMaxToday = SensorMemory.lastHumidityMaxToday);
+        SensorMemory.setHumidityMaxToday(firestoreHumidityMax);
+        SensorMemory.save();
+        if (mounted) setState(() => _humidityMaxToday = firestoreHumidityMax);
       }
+
     } catch (e) {
       debugPrint('Error syncing today max from Firestore: $e');
     }
@@ -898,8 +912,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       final snapshot = await FirebaseFirestore.instance
           .collection('temperature_hourly')
           .orderBy('timestamp', descending: false)
-          .where('timestamp',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
+          )
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
           .limit(30) // at most ~24-25 docs expected in a rolling 24h window
           .get();
@@ -908,7 +924,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final ts = (data['timestamp'] as Timestamp?)?.toDate();
-        final temp = (data['tempAvg'] as num?)?.toDouble() ??
+        final temp =
+            (data['tempAvg'] as num?)?.toDouble() ??
             (data['temperature'] as num?)?.toDouble() ??
             (data['tempMax'] as num?)?.toDouble();
         if (ts == null || temp == null) continue;
@@ -978,12 +995,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape:
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text('$action Sprinkler?'),
-        content: Text(_localIsActivated
-            ? 'Are you sure you want to turn the sprinkler off?'
-            : 'Are you sure you want to turn the sprinkler on?'),
+        content: Text(
+          _localIsActivated
+              ? 'Are you sure you want to turn the sprinkler off?'
+              : 'Are you sure you want to turn the sprinkler on?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -992,13 +1010,14 @@ class _DashboardScreenState extends State<DashboardScreen>
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor:
-              _localIsActivated ? const Color(0xFFD32F2F) : Colors.green,
+              backgroundColor: _localIsActivated
+                  ? const Color(0xFFD32F2F)
+                  : Colors.green,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
-            child:
-            Text(action, style: const TextStyle(color: Colors.white)),
+            child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -1028,8 +1047,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         final period = now.hour < 12 ? 'AM' : 'PM';
         final timeStr = '$hour:$minute $period';
         const months = [
-          'Jan','Feb','Mar','Apr','May','Jun',
-          'Jul','Aug','Sep','Oct','Nov','Dec'
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
         ];
         final dateStr =
             '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
@@ -1096,7 +1125,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       borderRadius: BorderRadius.circular(20),
       border: Border.all(
-        color: accentColor?.withValues(alpha: 0.25) ??
+        color:
+            accentColor?.withValues(alpha: 0.25) ??
             (isDark
                 ? Colors.white.withValues(alpha: 0.07)
                 : Colors.black.withValues(alpha: 0.06)),
@@ -1104,7 +1134,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
       boxShadow: [
         BoxShadow(
-          color: accentColor?.withValues(alpha: 0.10) ??
+          color:
+              accentColor?.withValues(alpha: 0.10) ??
               (isDark
                   ? Colors.black.withValues(alpha: 0.4)
                   : Colors.black.withValues(alpha: 0.08)),
@@ -1168,8 +1199,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             CircleAvatar(
               radius: 24,
               backgroundColor: Colors.transparent,
-              child: Icon(Symbols.account_circle,
-                  size: 50, color: isDark ? Colors.white : Colors.black),
+              child: Icon(
+                Symbols.account_circle,
+                size: 50,
+                color: isDark ? Colors.white : Colors.black,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1177,14 +1211,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const CustomText(
-                      type: TextType.username,
-                      prefix: 'Hello, ',
-                      suffix: '👋',
-                      fontSize: 20),
-                  Text("Here's what's happening in your farm.",
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: isDark ? Colors.white60 : Colors.grey)),
+                    type: TextType.username,
+                    prefix: 'Hello, ',
+                    suffix: '👋',
+                    fontSize: 20,
+                  ),
+                  Text(
+                    "Here's what's happening in your farm.",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1223,9 +1261,14 @@ class _DashboardScreenState extends State<DashboardScreen>
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -1234,8 +1277,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildWeatherCard(bool isDark) {
     final showTemp = _showingTemperature;
     final displayTemp = _tempMax > 0 ? _tempMax : _lastKnownTemp;
-    final displayHumidity =
-    _humidityLive > 0 ? _humidityLive : _lastKnownHumidity;
+    final displayHumidity = _humidityLive > 0
+        ? _humidityLive
+        : _lastKnownHumidity;
     final sensStatus = LiveSensorService.sensorStatus.value;
     final connStatus = LiveSensorService.connectionStatus.value;
     final isOffline =
@@ -1246,15 +1290,14 @@ class _DashboardScreenState extends State<DashboardScreen>
         : isOffline
         ? "--"
         : showTemp
-        ? (displayTemp > 0
-        ? "${displayTemp.toStringAsFixed(1)}°"
-        : "--")
+        ? (displayTemp > 0 ? "${displayTemp.toStringAsFixed(1)}°" : "--")
         : (displayHumidity > 0
-        ? "${displayHumidity.toStringAsFixed(1)}%"
-        : "--");
+              ? "${displayHumidity.toStringAsFixed(1)}%"
+              : "--");
 
-    final icon =
-    showTemp ? Icons.thermostat_outlined : Icons.water_drop_outlined;
+    final icon = showTemp
+        ? Icons.thermostat_outlined
+        : Icons.water_drop_outlined;
     final iconColor = showTemp ? Colors.orange : Colors.blue;
 
     return Container(
@@ -1269,49 +1312,61 @@ class _DashboardScreenState extends State<DashboardScreen>
               children: [
                 FadeTransition(
                   opacity: _fadeAnimation,
-                  child: Row(children: [
-                    Icon(icon, size: 14, color: iconColor),
-                    const SizedBox(width: 4),
-                    Text(showTemp ? "Temperature" : "Humidity",
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 14, color: iconColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        showTemp ? "Temperature" : "Humidity",
                         style: TextStyle(
-                            color: isDark ? Colors.white60 : Colors.grey,
-                            fontSize: 12)),
-                  ]),
+                          color: isDark ? Colors.white60 : Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 4),
                 _isLoading
                     ? const SizedBox(
-                    height: 40,
-                    width: 40,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                        height: 40,
+                        width: 40,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    transitionBuilder: (child, animation) =>
-                        SlideTransition(
-                          position: Tween<Offset>(
-                              begin: const Offset(0, 0.2),
-                              end: Offset.zero)
-                              .animate(animation),
-                          child: FadeTransition(
-                              opacity: animation, child: child),
+                        opacity: _fadeAnimation,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (child, animation) =>
+                              SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.2),
+                                  end: Offset.zero,
+                                ).animate(animation),
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                              ),
+                          child: Text(
+                            value,
+                            key: ValueKey(value),
+                            style: TextStyle(
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
                         ),
-                    child: Text(value,
-                        key: ValueKey(value),
-                        style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color:
-                            isDark ? Colors.white : Colors.black)),
-                  ),
-                ),
+                      ),
                 const SizedBox(height: 6),
-                Row(children: [
-                  _buildDot(isActive: showTemp, color: Colors.orange),
-                  const SizedBox(width: 4),
-                  _buildDot(isActive: !showTemp, color: Colors.blue),
-                ]),
+                Row(
+                  children: [
+                    _buildDot(isActive: showTemp, color: Colors.orange),
+                    const SizedBox(width: 4),
+                    _buildDot(isActive: !showTemp, color: Colors.blue),
+                  ],
+                ),
               ],
             ),
           ),
@@ -1319,8 +1374,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             onTap: _isSprinklerLoading ? null : _confirmSprinkler,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding:
-              const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
                 color: _isSprinklerLoading
                     ? Colors.grey.shade400
@@ -1331,28 +1385,32 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               child: _isSprinklerLoading
                   ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                      _localIsActivated
-                          ? Icons.check_circle
-                          : Icons.shower,
-                      color: Colors.white,
-                      size: 18),
-                  const SizedBox(width: 6),
-                  Text(
-                      _localIsActivated ? 'Active' : 'Activate',
-                      style: const TextStyle(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _localIsActivated ? Icons.check_circle : Icons.shower,
                           color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14)),
-                ],
-              ),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _localIsActivated ? 'Active' : 'Activate',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ],
@@ -1385,9 +1443,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               [
                 "Max Temp Today: ${() {
                   SensorMemory.resetIfNewDay();
-                  final v = SensorMemory.lastTempMaxToday > 0
-                      ? SensorMemory.lastTempMaxToday
-                      : _tempMaxToday;
+                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : _tempMaxToday;
                   return v == 0 ? '…' : '${v.toStringAsFixed(1)}°C';
                 }()}",
                 "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
@@ -1398,59 +1454,67 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           const SizedBox(width: 5),
           Expanded(
-            child: _buildInfoCard(
-              isDark,
-              Symbols.shower,
-              "Sprinkler Info",
-              [
-                "Status: $_sprinklerStatus",
-                "Time: $_lastActivated",
-                "Date: $_date",
-                "Duration: $_duration",
-              ],
-              const Color(0xFF1E88E5),
-            ),
+            child: _buildInfoCard(isDark, Symbols.shower, "Sprinkler Info", [
+              "Status: $_sprinklerStatus",
+              "Time: $_lastActivated",
+              "Date: $_date",
+              "Duration: $_duration",
+            ], const Color(0xFF1E88E5)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoCard(bool isDark, IconData icon, String title,
-      List<String> items, Color iconColor) {
+  Widget _buildInfoCard(
+    bool isDark,
+    IconData icon,
+    String title,
+    List<String> items,
+    Color iconColor,
+  ) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: _bentoDecoration(isDark, accentColor: iconColor),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
                   color: iconColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Icon(icon, size: 15, color: iconColor),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(title,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 15, color: iconColor),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  title,
                   style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: isDark ? Colors.white : Colors.black)),
-            ),
-          ]),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          ...items.map((e) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(e,
+          ...items.map(
+            (e) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                e,
                 style: TextStyle(
-                    color: isDark
-                        ? Colors.white60
-                        : const Color(0xFF707070),
-                    fontSize: 12)),
-          )),
+                  color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1470,34 +1534,42 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Symbols.monitoring,
-                  color: Colors.green, size: 16),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Symbols.monitoring,
+                  color: Colors.green,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
                   "Temperature (Last 24 hrs)",
                   style: TextStyle(
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-            ),
-          ]),
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("°C",
-                  style: TextStyle(fontSize: 10, color: labelColor)),
+              Text("°C", style: TextStyle(fontSize: 10, color: labelColor)),
               Text(
-                  "Hourly Graph",
-                  style: TextStyle(fontSize: 10, color: labelColor)),
+                "Hourly Graph",
+                style: TextStyle(fontSize: 10, color: labelColor),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1505,145 +1577,156 @@ class _DashboardScreenState extends State<DashboardScreen>
             height: 220,
             child: _graphLoading
                 ? Center(
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.green))
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.green,
+                    ),
+                  )
                 : !hasData
                 ? Center(
-                child: Text("No temperature data available",
-                    style: TextStyle(
-                        color: labelColor, fontSize: 12)))
-                : LineChart(LineChartData(
-              minX: 0,
-              maxX: xMax,
-              minY: 18,
-              maxY: 47,
-              lineBarsData: [
-                LineChartBarData(
-                  spots: spots,
-                  isCurved: true,
-                  curveSmoothness: 0.6,
-                  color: lineColor,
-                  barWidth: 2.5,
-                  dotData: FlDotData(
-                    show: true,
-                    getDotPainter: (s, p, b, i) =>
-                        FlDotCirclePainter(
-                            radius: 2,
-                            color: Colors.green,
-                            strokeWidth: 0,
-                            strokeColor: Colors.transparent),
-                  ),
-                  belowBarData: BarAreaData(
-                    show: true,
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.green.withValues(alpha: 0.35),
-                        Colors.green.withValues(alpha: 0.10),
+                    child: Text(
+                      "No temperature data available",
+                      style: TextStyle(color: labelColor, fontSize: 12),
+                    ),
+                  )
+                : LineChart(
+                    LineChartData(
+                      minX: 0,
+                      maxX: xMax,
+                      minY: 18,
+                      maxY: 47,
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: spots,
+                          isCurved: true,
+                          curveSmoothness: 0.6,
+                          color: lineColor,
+                          barWidth: 2.5,
+                          dotData: FlDotData(
+                            show: true,
+                            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
+                              radius: 2,
+                              color: Colors.green,
+                              strokeWidth: 0,
+                              strokeColor: Colors.transparent,
+                            ),
+                          ),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.green.withValues(alpha: 0.35),
+                                Colors.green.withValues(alpha: 0.10),
+                              ],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                          ),
+                        ),
                       ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 5,
+                        getDrawingHorizontalLine: (_) => FlLine(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : Colors.black.withValues(alpha: 0.06),
+                          strokeWidth: 1,
+                        ),
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border(
+                          bottom: BorderSide(color: axisColor, width: 1.5),
+                          left: BorderSide(color: axisColor, width: 1.5),
+                        ),
+                      ),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 22,
+                            interval: 1,
+                            getTitlesWidget: (value, meta) {
+                              // x is "hours-ago", 0 = 24h ago, 24 = now.
+                              const labels = {
+                                0: '24h ago',
+                                6: '18h ago',
+                                12: '12h ago',
+                                18: '6h ago',
+                                24: 'Now',
+                              };
+                              final h = value.toInt();
+                              if (!labels.containsKey(h))
+                                return const SizedBox.shrink();
+                              return SideTitleWidget(
+                                meta: meta,
+                                child: Text(
+                                  labels[h]!,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: labelColor,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 36,
+                            interval: 5,
+                            getTitlesWidget: (value, meta) {
+                              const allowed = [20, 25, 30, 35, 40, 45];
+                              if (!allowed.contains(value.toInt()) ||
+                                  value != value.roundToDouble())
+                                return const SizedBox.shrink();
+                              return SideTitleWidget(
+                                meta: meta,
+                                child: Text(
+                                  '${value.toInt()}°',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: labelColor,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      lineTouchData: LineTouchData(
+                        touchTooltipData: LineTouchTooltipData(
+                          getTooltipColor: (_) =>
+                              isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                          getTooltipItems: (touchedSpots) {
+                            return touchedSpots.map((spot) {
+                              final hoursAgo = (24 - spot.x).round();
+                              final label = hoursAgo <= 0
+                                  ? 'Now'
+                                  : '${hoursAgo}h ago';
+                              return LineTooltipItem(
+                                '$label\n${spot.y.toStringAsFixed(1)}°C',
+                                TextStyle(
+                                  color: lineColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              );
+                            }).toList();
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ],
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: 5,
-                getDrawingHorizontalLine: (_) => FlLine(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.08)
-                        : Colors.black.withValues(alpha: 0.06),
-                    strokeWidth: 1),
-              ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border(
-                  bottom: BorderSide(
-                      color: axisColor, width: 1.5),
-                  left: BorderSide(
-                      color: axisColor, width: 1.5),
-                ),
-              ),
-              titlesData: FlTitlesData(
-                topTitles: const AxisTitles(
-                    sideTitles:
-                    SideTitles(showTitles: false)),
-                rightTitles: const AxisTitles(
-                    sideTitles:
-                    SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 22,
-                    interval: 1,
-                    getTitlesWidget: (value, meta) {
-                      // x is "hours-ago", 0 = 24h ago, 24 = now.
-                      const labels = {
-                        0: '24h ago',
-                        6: '18h ago',
-                        12: '12h ago',
-                        18: '6h ago',
-                        24: 'Now',
-                      };
-                      final h = value.toInt();
-                      if (!labels.containsKey(h))
-                        return const SizedBox.shrink();
-                      return SideTitleWidget(
-                        meta: meta,
-                        child: Text(labels[h]!,
-                            style: TextStyle(
-                                fontSize: 9,
-                                color: labelColor)),
-                      );
-                    },
-                  ),
-                ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 36,
-                    interval: 5,
-                    getTitlesWidget: (value, meta) {
-                      const allowed = [
-                        20, 25, 30, 35, 40, 45
-                      ];
-                      if (!allowed
-                          .contains(value.toInt()) ||
-                          value != value.roundToDouble())
-                        return const SizedBox.shrink();
-                      return SideTitleWidget(
-                        meta: meta,
-                        child: Text('${value.toInt()}°',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: labelColor)),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              lineTouchData: LineTouchData(
-                touchTooltipData: LineTouchTooltipData(
-                  getTooltipColor: (_) => isDark
-                      ? const Color(0xFF2A2A2A)
-                      : Colors.white,
-                  getTooltipItems: (touchedSpots) {
-                    return touchedSpots.map((spot) {
-                      final hoursAgo = (24 - spot.x).round();
-                      final label = hoursAgo <= 0 ? 'Now' : '${hoursAgo}h ago';
-                      return LineTooltipItem(
-                        '$label\n${spot.y.toStringAsFixed(1)}°C',
-                        TextStyle(
-                            color: lineColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600),
-                      );
-                    }).toList();
-                  },
-                ),
-              ),
-            )),
           ),
         ],
       ),
@@ -1679,59 +1762,74 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration:
-      _bentoDecoration(isDark, accentColor: const Color(0xFF1E88E5)),
+      decoration: _bentoDecoration(
+        isDark,
+        accentColor: const Color(0xFF1E88E5),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                  color:
-                  const Color(0xFF1E88E5).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Symbols.water_medium,
-                  size: 15, color: Color(0xFF1E88E5)),
-            ),
-            const SizedBox(width: 8),
-            Text("Water Level",
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Symbols.water_medium,
+                  size: 15,
+                  color: Color(0xFF1E88E5),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "Water Level",
                 style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: isDark ? Colors.white : Colors.black)),
-          ]),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          Text("Level: ${_waterPct.toStringAsFixed(0)}%",
-              style: TextStyle(
-                  color: isDark
-                      ? Colors.white60
-                      : const Color(0xFF707070),
-                  fontSize: 12)),
+          Text(
+            "Level: ${_waterPct.toStringAsFixed(0)}%",
+            style: TextStyle(
+              color: isDark ? Colors.white60 : const Color(0xFF707070),
+              fontSize: 12,
+            ),
+          ),
           const SizedBox(height: 4),
-          Row(children: [
-            Text("Status: ",
+          Row(
+            children: [
+              Text(
+                "Status: ",
                 style: TextStyle(
-                    color: isDark
-                        ? Colors.white60
-                        : const Color(0xFF707070),
-                    fontSize: 12)),
-            Text(_waterStatus,
+                  color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                _waterStatus,
                 style: TextStyle(
-                    color: statusColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
-          ]),
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: (_waterPct / 100).clamp(0.0, 1.0),
               minHeight: 6,
-              backgroundColor:
-              isDark ? Colors.white12 : Colors.grey.shade200,
-              valueColor:
-              AlwaysStoppedAnimation<Color>(statusColor),
+              backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
             ),
           ),
         ],
@@ -1751,94 +1849,123 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                  color: conditionColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Icon(Icons.lightbulb_outline,
-                  size: 15, color: conditionColor),
-            ),
-            const SizedBox(width: 8),
-            Text("Smart Recommendation",
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: isDark ? Colors.white : Colors.black)),
-            const Spacer(),
-            if (!_mlLoading)
+          Row(
+            children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: conditionColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: conditionColor, width: 1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(_mlCondition,
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: conditionColor)),
+                child: Icon(
+                  Icons.lightbulb_outline,
+                  size: 15,
+                  color: conditionColor,
+                ),
               ),
-          ]),
+              const SizedBox(width: 8),
+              Text(
+                "Smart Recommendation",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+              const Spacer(),
+              if (!_mlLoading)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 10),
           if (_mlLoading)
-            Row(children: [
-              const SizedBox(
+            Row(
+              children: [
+                const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-              const SizedBox(width: 10),
-              Text("Analyzing farm conditions...",
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  "Analyzing farm conditions...",
                   style: TextStyle(
-                      fontSize: 12,
-                      color: isDark
-                          ? Colors.white60
-                          : const Color(0xFF707070))),
-            ])
-          else if (_mlRecommendations.isEmpty)
-            Text("No recommendations at this time.",
-                style: TextStyle(
                     fontSize: 12,
-                    color: isDark
-                        ? Colors.white60
-                        : const Color(0xFF707070)))
-          else
-            ..._mlRecommendations.map((r) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.arrow_right,
-                      size: 16, color: conditionColor),
-                  const SizedBox(width: 4),
-                  Expanded(
-                      child: Text(r,
-                          style: TextStyle(
-                              color: isDark
-                                  ? Colors.white60
-                                  : const Color(0xFF707070),
-                              fontSize: 12))),
-                ],
+                    color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  ),
+                ),
+              ],
+            )
+          else if (_mlRecommendations.isEmpty)
+            Text(
+              "No recommendations at this time.",
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.white60 : const Color(0xFF707070),
               ),
-            )),
+            )
+          else
+            ..._mlRecommendations.map(
+              (r) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        r,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white60
+                              : const Color(0xFF707070),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (!_mlLoading && _mlCondition != "Unavailable")
             Padding(
               padding: const EdgeInsets.only(top: 10),
-              child: Row(children: [
-                Icon(Icons.memory,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.memory,
                     size: 11,
-                    color: isDark ? Colors.white30 : Colors.black26),
-                const SizedBox(width: 4),
-                Text("Powered by PRISM trained ML · live sensor data",
+                    color: isDark ? Colors.white30 : Colors.black26,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "Powered by PRISM trained ML · live sensor data",
                     style: TextStyle(
-                        fontSize: 10,
-                        color: isDark
-                            ? Colors.white30
-                            : Colors.black38)),
-              ]),
+                      fontSize: 10,
+                      color: isDark ? Colors.white30 : Colors.black38,
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
       ),
