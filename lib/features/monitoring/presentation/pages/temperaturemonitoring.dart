@@ -8,7 +8,7 @@ import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-const String kEsp32BaseUrl = "http://192.168.1.100";
+const String kEsp32BaseUrl = "http://192.168.1.29";
 
 const List<String> kTimeRanges = [
   'This Month',
@@ -73,14 +73,10 @@ DateTimeRange? _resolveTimeRange(
 
 class TemperatureMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToHumidity;
-  final bool isActivated;
-  final ValueChanged<bool> onSprinklerChanged;
   final ValueChanged<double>? onMaxTempChanged;
   const TemperatureMonitoring({
     super.key,
     this.onSwitchToHumidity,
-    required this.isActivated,
-    required this.onSprinklerChanged,
     this.onMaxTempChanged,
   });
 
@@ -295,32 +291,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     Map<String, dynamic>? data;
     bool isRemote = false;
 
-    // 1. Try local ESP32 first (same-WiFi / LAN).
     try {
       final response = await http
-          .get(Uri.parse('http://192.168.1.100/sensor'))
+          .get(Uri.parse('$kEsp32BaseUrl/sensor'))
           .timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         data = jsonDecode(response.body) as Map<String, dynamic>;
       }
     } catch (_) {}
 
-    // 2. Fallback: Firestore live_sensor document (works on mobile data /
-    //    any WiFi — ESP32 firmware must push to live_sensor/latest).
-    if (data == null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('live_sensor')
-            .doc('latest')
-            .get();
-        if (doc.exists && doc.data() != null) {
-          data = Map<String, dynamic>.from(doc.data()!);
-          isRemote = true;
-        }
-      } catch (_) {}
-    }
-
-    // 3. Both sources failed.
     if (data == null) {
       _consecutiveFailures++;
       // Suppress the first failure — it's often a transient hiccup caused
@@ -352,14 +331,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       if (tempLive == null || tempMax == null || tempAvg == null || tempMin == null) return;
       if (tempMax < 0 || tempMin < 0 || tempAvg < 0) return;
 
-      // Timestamp: String from local HTTP, Firestore Timestamp when remote.
+      // Timestamp always arrives as a String over HTTP — no remote/Firestore path anymore.
       final tsField = data['timestamp'];
-      DateTime? ts;
-      if (tsField is Timestamp) {
-        ts = tsField.toDate();
-      } else if (tsField is String) {
-        ts = DateTime.tryParse(tsField);
-      }
+      final ts = tsField is String ? DateTime.tryParse(tsField) : null;
 
       // Compute staleness before setState so the failure counter can be
       // updated before deciding whether to flip the sensor status.
@@ -368,7 +342,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       final diffSeconds = tsUtc != null
           ? nowUtc.difference(tsUtc).inSeconds
           : -1;
-      final stalenessLimit = isRemote ? 60 : 15;
+      final stalenessLimit = 15;
       final isStale = ts == null || diffSeconds > stalenessLimit;
 
       if (isStale) {
@@ -749,7 +723,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
-      widget.onSprinklerChanged(turnOn);
       sprinklerNotifier.value = turnOn; // instantly notify dashboard
       final now = DateTime.now();
 
@@ -881,19 +854,21 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
+
+  bool _isSprinklerDialogOpen = false;
+
   Future<void> _confirmSprinkler() async {
-    if (_isSprinklerLoading) return;
+    if (_isSprinklerLoading || _isSprinklerDialogOpen) return;
+    _isSprinklerDialogOpen = true;
 
     final isOn = sprinklerNotifier.value;
 
     // Block activation when sensor is offline (deactivation always allowed)
     if (_sensorStatus != "Sensor Online" && !isOn) {
-      showDialog(
+      await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
               Icon(Icons.sensors_off, color: Colors.red, size: 20),
@@ -909,15 +884,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
+      _isSprinklerDialogOpen = false; // ← reset before returning
       return;
     }
 
@@ -941,15 +915,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: isOn ? const Color(0xFFD32F2F) : Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+
+    _isSprinklerDialogOpen = false;
+    if (!mounted) return;
     if (confirmed == true) await _toggleSprinkler(!isOn);
   }
 
