@@ -1,14 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-
-const String kEsp32BaseUrl = "http://192.168.1.29";
 
 const List<String> kTimeRanges = [
   'This Month',
@@ -28,7 +23,7 @@ String _formatDateTime(DateTime dt) {
 
 String _formatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/'
-    '${d.month.toString().padLeft(2, '0')}/${d.year}';
+        '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
 String _formatTime(TimeOfDay t) {
   final h = t.hour == 0
@@ -42,10 +37,10 @@ String _formatTime(TimeOfDay t) {
 }
 
 DateTimeRange? _resolveTimeRange(
-  int index,
-  DateTime? customStart,
-  DateTime? customEnd,
-) {
+    int index,
+    DateTime? customStart,
+    DateTime? customEnd,
+    ) {
   final now = DateTime.now();
   switch (index) {
     case 0:
@@ -91,14 +86,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   bool _isLoading = !SensorMemory.tempChartLoaded ||
       SensorMemory.lastTempChartDate != SensorMemory.todayKey();
 
-  String _connectionStatus = SensorMemory.lastConnectionStatus;
-  String _sensorStatus = "Sensor Offline";
-  int _consecutiveFailures = 0;
+  // Now mirrors LiveSensorService directly instead of maintaining its own
+  // HTTP polling / failure-counting logic.
+  String _connectionStatus = LiveSensorService.connectionStatus.value;
+  String _sensorStatus = LiveSensorService.sensorStatus.value;
 
   Timer? _durationTimer;
   DateTime? _sprinklerActivatedAt;
 
   double? _currentTemp;
+  DateTime? _lastAppliedTimestamp;
 
   static bool _tempCacheIsToday() =>
       SensorMemory.lastTempChartDate == SensorMemory.todayKey();
@@ -107,38 +104,20 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   double? _displayAvg = _tempCacheIsToday() ? SensorMemory.lastTempDisplayAvg : null;
   double? _displayMin = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMin : null;
 
-  double? _sessionMax = _tempCacheIsToday() ? SensorMemory.lastTempSessionMax : null;
-  double? _sessionMin = _tempCacheIsToday() ? SensorMemory.lastTempSessionMin : null;
-
-  double _sessionSeedSum = 0;
-  int _sessionSeedCount = 0;
-
   // Per-session cache for This Week (index 1) and This Month (index 0).
-  // Keyed by todayKey() so they auto-invalidate when the day rolls over.
+  // Keyed by todayKey() so they auto-invalidate when the day rolls over,
+  // AND by hour key so they auto-refresh once a new hourly doc lands.
   static List<Map<String, double>> _cachedWeekData = [];
   static double? _cachedWeekMax;
   static double? _cachedWeekMin;
   static double? _cachedWeekAvg;
-  static String _cachedWeekDate = '';
+  static String _cachedWeekHourKey = '';
 
   static List<Map<String, double>> _cachedMonthData = [];
   static double? _cachedMonthMax;
   static double? _cachedMonthMin;
   static double? _cachedMonthAvg;
-  static String _cachedMonthDate = '';
-
-  // Tracks the hour-bucket (e.g. 2025-01-01T14) that live readings are
-  // currently being averaged into, so the "Today" average treats each
-  // hour as one weighted entry — matching the granularity of the seeded
-  // hourly-aggregate documents instead of letting whichever hour the app
-  // happens to be open dominate the average.
-  String? _liveHourKey;
-  double _liveHourSum = 0;
-  int _liveHourCount = 0;
-  double _liveHourMax = 0;
-  int? _liveHourChartIndex;
-
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  static String _cachedMonthHourKey = '';
 
   String get _tempStatus {
     if (_currentTemp == null) return "";
@@ -150,18 +129,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   final List<Map<String, double>> _chartData =
-      _tempCacheIsToday() ? List.of(SensorMemory.lastTempChartData) : [];
-  Timer? _timer;
+  _tempCacheIsToday() ? List.of(SensorMemory.lastTempChartData) : [];
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   DateTime? _customStart;
   DateTime? _customEnd;
-  DateTime? _lastSeededTimestamp;
+  Timer? _hourlyRefreshTimer;
 
-  // Midnight of "today" — used as the X-axis zero point for live chart
-  // points, so live points line up on the same real-time scale as the
-  // seeded historical points (which use range.start as their zero point).
+  // Midnight of "today" — used as the X-axis zero point for chart points.
   DateTime get _todayStart {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -170,21 +146,81 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   @override
   void initState() {
     super.initState();
-    _initConnectivityListener();
     _initData();
     _loadSprinklerState();
     tempMaxTodayNotifier.addListener(_onTempMaxNotifierChanged);
+
+    // Listen to the single shared poller instead of running our own
+    // Timer + http.get() against the ESP32. This now only feeds the
+    // live numeric readout on the status card — the chart itself is
+    // sourced entirely from temperature_hourly (see _loadChartFromFirestore).
+    LiveSensorService.latestData.addListener(_onLiveDataChanged);
+    LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
+    LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
+
+    // ESP32 writes one new temperature_hourly doc per hour, so there's no
+    // point re-querying more often. This timer just triggers a check —
+    // _loadChartFromFirestore() itself is a no-op (zero reads) if the
+    // current hour key hasn't advanced since the last successful load.
+    _hourlyRefreshTimer = Timer.periodic(
+        const Duration(hours: 1), (_) => _loadChartFromFirestore());
+  }
+
+  void _onSharedStatusChanged() {
+    if (!mounted) return;
+    setState(() {
+      _connectionStatus = LiveSensorService.connectionStatus.value;
+      _sensorStatus = LiveSensorService.sensorStatus.value;
+      if (_sensorStatus == "Sensor Offline") _currentTemp = null;
+    });
+  }
+
+  /// Updates only the live numeric readout shown on the status card.
+  /// The chart, averages, and min/max stats all come from
+  /// temperature_hourly via _loadChartFromFirestore — this no longer
+  /// feeds the chart at all, since hourly docs are the single source
+  /// of truth for "Today" as well as Week/Month/Custom ranges now.
+  void _onLiveDataChanged() {
+    if (!mounted) return;
+    final data = LiveSensorService.latestData.value;
+    if (data == null) return;
+
+    final tempLive = (data['temperature'] as num?)?.toDouble() ??
+        (data['tempAvg'] as num?)?.toDouble();
+    if (tempLive == null || tempLive < 0) return;
+
+    if (_lastAppliedTimestamp != null) {
+      final tsField = data['timestamp'];
+      DateTime? ts;
+      if (tsField is String) {
+        ts = DateTime.tryParse(tsField);
+      } else if (tsField is Timestamp) {
+        ts = tsField.toDate();
+      }
+      if (ts != null && !ts.isAfter(_lastAppliedTimestamp!)) return;
+      _lastAppliedTimestamp = ts;
+    } else {
+      final tsField = data['timestamp'];
+      if (tsField is String) {
+        _lastAppliedTimestamp = DateTime.tryParse(tsField);
+      } else if (tsField is Timestamp) {
+        _lastAppliedTimestamp = tsField.toDate();
+      }
+    }
+
+    setState(() {
+      _currentTemp = tempLive;
+      _isLoading = false;
+    });
   }
 
   void _onTempMaxNotifierChanged() {
     if (!mounted) return;
     final v = tempMaxTodayNotifier.value;
-    if (v > 0 && (_sessionMax == null || v > _sessionMax!)) {
-      _sessionMax = v;
-      if (_selectedTimeRange == 2) {
-        setState(() => _displayMax = v);
-        widget.onMaxTempChanged?.call(v);
-      }
+    if (v > 0 && _selectedTimeRange == 2 &&
+        (_displayMax == null || v > _displayMax!)) {
+      setState(() => _displayMax = v);
+      widget.onMaxTempChanged?.call(v);
     }
   }
 
@@ -221,264 +257,36 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     _sprinklerActivatedAt = null;
   }
 
-  void _initConnectivityListener() {
-    // On launch: set status immediately based on current network state.
-    Connectivity().checkConnectivity().then((results) {
-      if (!mounted) return;
-      final hasNet = results.any((r) => r != ConnectivityResult.none);
-      if (hasNet) {
-        setState(() {
-          _connectionStatus = "Live";
-          SensorMemory.lastConnectionStatus = "Live";
-        });
-      } else {
-        setState(() {
-          _connectionStatus = "Connecting...";
-          _currentTemp = null;
-          _sensorStatus = "Sensor Offline";
-          SensorMemory.lastConnectionStatus = "Connecting...";
-          SensorMemory.lastSensorStatus = "Sensor Offline";
-        });
-      }
-    });
-
-    // Internet LOST → "Connecting..." (fetch will confirm "No connection" shortly after).
-    // Internet BACK → "Live" immediately.
-    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
-      if (!mounted) return;
-      final hasNet = results.any((r) => r != ConnectivityResult.none);
-      if (hasNet) {
-        setState(() {
-          _connectionStatus = "Live";
-          SensorMemory.lastConnectionStatus = "Live";
-        });
-      } else {
-        setState(() {
-          _connectionStatus = "Connecting...";
-          _currentTemp = null;
-          _sensorStatus = "Sensor Offline";
-          SensorMemory.lastConnectionStatus = "Connecting...";
-          SensorMemory.lastSensorStatus = "Sensor Offline";
-        });
-        // Immediately attempt a fetch so it fails fast → "No connection" within ~1s.
-        _fetchData();
-      }
-    });
-  }
-
   Future<void> _initData() async {
     await _loadChartFromFirestore();
     if (!mounted) return;
     // Show cached data immediately — no spinner while waiting for network
     setState(() => _isLoading = false);
-    await _fetchData();
-    if (!mounted) return;
-    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchData());
+    // Apply whatever the shared service already has, in case it fetched
+    // before this screen's listener was attached.
+    if (LiveSensorService.latestData.value != null) {
+      _onLiveDataChanged();
+    }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
     _durationTimer?.cancel();
-    _connectivitySub?.cancel(); // add this
+    _hourlyRefreshTimer?.cancel();
     tempMaxTodayNotifier.removeListener(_onTempMaxNotifierChanged);
+    LiveSensorService.latestData.removeListener(_onLiveDataChanged);
+    LiveSensorService.connectionStatus.removeListener(_onSharedStatusChanged);
+    LiveSensorService.sensorStatus.removeListener(_onSharedStatusChanged);
     super.dispose();
   }
 
- // ── ESP32 fetch ─────────────────────────────────────────────────────────────
-
-  Future<void> _fetchData() async {
-    Map<String, dynamic>? data;
-    bool isRemote = false;
-
-    try {
-      final response = await http
-          .get(Uri.parse('$kEsp32BaseUrl/sensor'))
-          .timeout(const Duration(seconds: 3));
-      if (response.statusCode == 200) {
-        data = jsonDecode(response.body) as Map<String, dynamic>;
-      }
-    } catch (_) {}
-
-    if (data == null) {
-      _consecutiveFailures++;
-      // Suppress the first failure — it's often a transient hiccup caused
-      // by Firestore being busy loading chart data when the user switches
-      // range tabs. Only flip to "Sensor Offline" after 2 consecutive misses.
-      if (_consecutiveFailures < 2) return;
-      if (!mounted) return;
-      final results = await Connectivity().checkConnectivity();
-      final hasNet = results.any((r) => r != ConnectivityResult.none);
-      final connLabel = hasNet ? "Live" : "No connection";
-      setState(() {
-        _connectionStatus = connLabel;
-        _sensorStatus = "Sensor Offline";
-        SensorMemory.lastConnectionStatus = connLabel;
-        SensorMemory.lastSensorStatus = "Sensor Offline";
-        _isLoading = false;
-        _currentTemp = null;
-      });
-      return;
-    }
-
-    try {
-      final tempLive = (data['temperature'] as num?)?.toDouble()
-          ?? (data['tempAvg'] as num?)?.toDouble();
-      final tempMax = (data['tempMax'] as num?)?.toDouble();
-      final tempAvg = (data['tempAvg'] as num?)?.toDouble();
-      final tempMin = (data['tempMin'] as num?)?.toDouble();
-
-      if (tempLive == null || tempMax == null || tempAvg == null || tempMin == null) return;
-      if (tempMax < 0 || tempMin < 0 || tempAvg < 0) return;
-
-      // Timestamp always arrives as a String over HTTP — no remote/Firestore path anymore.
-      final tsField = data['timestamp'];
-      final ts = tsField is String ? DateTime.tryParse(tsField) : null;
-
-      // Compute staleness before setState so the failure counter can be
-      // updated before deciding whether to flip the sensor status.
-      final nowUtc = DateTime.now().toUtc();
-      final tsUtc = ts?.toUtc();
-      final diffSeconds = tsUtc != null
-          ? nowUtc.difference(tsUtc).inSeconds
-          : -1;
-      final stalenessLimit = 15;
-      final isStale = ts == null || diffSeconds > stalenessLimit;
-
-      if (isStale) {
-        _consecutiveFailures++;
-      } else {
-        _consecutiveFailures = 0;
-      }
-      final shouldShowOffline = _consecutiveFailures >= 2;
-
-      setState(() {
-        _isLoading = false;
-
-        if (!isStale) {
-          // Fresh reading — reset failure streak and update sensor status.
-          _connectionStatus = "Live";
-          SensorMemory.lastConnectionStatus = "Live";
-          _currentTemp = tempLive;
-          _sensorStatus = "Sensor Online";
-          SensorMemory.lastSensorStatus = "Sensor Online";
-
-          if (_selectedTimeRange == 2) {
-            final isNewReading = _lastSeededTimestamp == null ||
-                ts!.isAfter(_lastSeededTimestamp!);
-
-            if (isNewReading) {
-              _accumulateLiveHourly(tempLive, tempAvg, ts!);
-            }
-
-            if (_sessionMax == null || tempLive > _sessionMax!) {
-              _sessionMax = tempLive;
-            }
-            SensorMemory.resetIfNewDay();
-            if (_sessionMax != null &&
-                _sessionMax! > SensorMemory.lastTempMaxToday) {
-              SensorMemory.setTempMaxToday(_sessionMax!);
-              SensorMemory.save();
-            }
-            if (_sessionMin == null || tempMin < _sessionMin!) {
-              _sessionMin = tempMin;
-            }
-
-            _displayMax = _sessionMax;
-            widget.onMaxTempChanged?.call(_displayMax!);
-            _displayMin = _sessionMin;
-            _displayAvg = _computeWeightedAvg();
-          }
-        } else if (shouldShowOffline) {
-          // Only flip to offline after 2+ consecutive stale/failed polls.
-          _connectionStatus = "Sensor Offline";
-          SensorMemory.lastConnectionStatus = "Sensor Offline";
-          _currentTemp = null;
-          _sensorStatus = "Sensor Offline";
-          SensorMemory.lastSensorStatus = "Sensor Offline";
-        }
-        // First stale poll: keep previous status — don't flip offline yet.
-      });
-
-      // Keep Today cache in sync with live updates.
-      if (_selectedTimeRange == 2) {
-        SensorMemory.lastTempDisplayMax = _displayMax;
-        SensorMemory.lastTempDisplayMin = _displayMin;
-        SensorMemory.lastTempDisplayAvg = _displayAvg;
-        SensorMemory.lastTempSessionMax = _sessionMax;
-        SensorMemory.lastTempSessionMin = _sessionMin;
-      }
-
-    } catch (_) {
-      _consecutiveFailures++;
-      if (_consecutiveFailures < 2) return;
-      if (!mounted) return;
-      setState(() {
-        _sensorStatus = "Sensor Offline";
-        SensorMemory.lastSensorStatus = "Sensor Offline";
-        _isLoading = false;
-        _currentTemp = null;
-      });
-    }
-  }
-
-  /// Folds a new live reading into the current-hour bucket. Each hour
-  /// contributes exactly ONE averaged value to the session total — same
-  /// granularity as the seeded Firestore hourly-aggregate documents —
-  /// so the live hour doesn't get over-weighted just because it has many
-  /// more samples (one every ~5s) than the seeded hours (one per hour).
-  /// Also updates a single chart point for the in-progress hour instead
-  /// of appending a new point per reading, so the "Today" line has the
-  /// same one-point-per-hour density as the seeded historical portion.
-  // liveMax  → used for the chart point (tracks the hourly peak)
-  // liveAvg  → used for the "Average" display stat only
-  void _accumulateLiveHourly(double liveMax, double liveAvg, DateTime ts) {
-    final hourKey = '${ts.year}-${ts.month}-${ts.day}-${ts.hour}';
-
-    if (_liveHourKey != null && _liveHourKey != hourKey) {
-      // Hour crossed — close out previous hour for the avg seed.
-      if (_liveHourCount > 0) {
-        _sessionSeedSum += _liveHourSum / _liveHourCount;
-        _sessionSeedCount += 1;
-      }
-      _liveHourSum = 0;
-      _liveHourCount = 0;
-      _liveHourMax = 0;
-      _liveHourChartIndex = null;
-    }
-
-    _liveHourKey = hourKey;
-    _liveHourSum += liveAvg;   // average accumulator
-    _liveHourCount += 1;
-    if (liveMax > _liveHourMax) _liveHourMax = liveMax;  // peak for Highest stat only
-
-    final x = ts.difference(_todayStart).inMinutes / 60.0;
-
-    // Plot the current live reading (not the hourly peak) so the chart line
-    // visually updates every 5 s with the actual sensor value.
-    // _liveHourMax is still used for the "Highest" display stat.
-    if (_liveHourChartIndex != null &&
-        _liveHourChartIndex! < _chartData.length) {
-      _chartData[_liveHourChartIndex!] = {'x': x, 'temp': liveMax};
-    } else {
-      _liveHourChartIndex = _chartData.length;
-      _chartData.add({'x': x, 'temp': liveMax});
-    }
-  }
-
-  /// Average across completed hours (seed) plus the current in-progress
-  /// hour (live), each hour weighted equally regardless of sample count.
-  double? _computeWeightedAvg() {
-    final completedSum = _sessionSeedSum;
-    final completedCount = _sessionSeedCount;
-    final hasLiveHour = _liveHourCount > 0;
-
-    final totalSum =
-        completedSum + (hasLiveHour ? _liveHourSum / _liveHourCount : 0);
-    final totalCount = completedCount + (hasLiveHour ? 1 : 0);
-
-    return totalCount > 0 ? totalSum / totalCount : null;
-  }
+  // ── Chart data — sourced entirely from temperature_hourly ──────────────
+  //
+  // The ESP32 writes exactly one new document to temperature_hourly per
+  // hour, for every time range (Today/Week/Month/Custom). There is no
+  // reason to ever query more often than once per hour, so every cache
+  // below is keyed by the current hour key (currentHourKey()) in addition
+  // to the day key — a cache hit means zero Firestore reads.
 
   Future<void> _loadChartFromFirestore() async {
     final rangeIndexAtLoad = _selectedTimeRange;
@@ -486,54 +294,57 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     final range = _resolveTimeRange(rangeIndexAtLoad, _customStart, _customEnd);
     if (range == null) return;
 
-    // Serve cached result for This Week / This Month so tab switches are
-    // instant. Cache is date-keyed and auto-invalidates at midnight.
-    // Max/min are always re-merged with today's live data on cache hit.
     final today = SensorMemory.todayKey();
-    if (rangeIndexAtLoad == 1 && _cachedWeekDate == today && _cachedWeekData.isNotEmpty) {
+    final hourKey = currentHourKey();
+
+    // Today: cache hit if we've already loaded for this hour.
+    if (rangeIndexAtLoad == 2 &&
+        SensorMemory.lastTempChartHourKey == hourKey &&
+        SensorMemory.lastTempChartDate == today &&
+        SensorMemory.tempChartLoaded) {
+      return; // already up to date, zero reads
+    }
+    // Week/Month: cache hit if loaded within this same hour.
+    if (rangeIndexAtLoad == 1 &&
+        _cachedWeekHourKey == hourKey &&
+        _cachedWeekData.isNotEmpty) {
       setState(() {
         _chartData..clear()..addAll(_cachedWeekData);
-        var cMax = _cachedWeekMax ?? 0.0;
-        var cMin = _cachedWeekMin ?? double.infinity;
-        SensorMemory.resetIfNewDay();
-        if (SensorMemory.lastTempMaxToday > cMax) cMax = SensorMemory.lastTempMaxToday;
-        if (SensorMemory.lastTempDisplayMin != null &&
-            SensorMemory.lastTempDisplayMin! < cMin) cMin = SensorMemory.lastTempDisplayMin!;
-        _displayMax = cMax;
-        _displayMin = cMin == double.infinity ? _cachedWeekMin : cMin;
+        _displayMax = _cachedWeekMax;
+        _displayMin = _cachedWeekMin;
         _displayAvg = _cachedWeekAvg;
       });
       return;
     }
-    if (rangeIndexAtLoad == 0 && _cachedMonthDate == today && _cachedMonthData.isNotEmpty) {
+    if (rangeIndexAtLoad == 0 &&
+        _cachedMonthHourKey == hourKey &&
+        _cachedMonthData.isNotEmpty) {
       setState(() {
         _chartData..clear()..addAll(_cachedMonthData);
-        var cMax = _cachedMonthMax ?? 0.0;
-        var cMin = _cachedMonthMin ?? double.infinity;
-        SensorMemory.resetIfNewDay();
-        if (SensorMemory.lastTempMaxToday > cMax) cMax = SensorMemory.lastTempMaxToday;
-        if (SensorMemory.lastTempDisplayMin != null &&
-            SensorMemory.lastTempDisplayMin! < cMin) cMin = SensorMemory.lastTempDisplayMin!;
-        _displayMax = cMax;
-        _displayMin = cMin == double.infinity ? _cachedMonthMin : cMin;
+        _displayMax = _cachedMonthMax;
+        _displayMin = _cachedMonthMin;
         _displayAvg = _cachedMonthAvg;
       });
       return;
     }
 
     try {
+      // Single source of truth for ALL ranges: temperature_hourly. The
+      // ESP32 writes one doc/hour here, so even a Month-wide query only
+      // returns on the order of ~720-750 docs — a fraction of what the
+      // old per-reading collection would have returned for the same range.
       final snapshot = await _db
-          .collection('temperature_readings')
+          .collection('temperature_hourly')
           .orderBy('timestamp', descending: false)
           .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
-          )
+        'timestamp',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
+      )
           .where(
-            'timestamp',
-            isLessThanOrEqualTo: Timestamp.fromDate(range.end),
-          )
-          .limit(2000)
+        'timestamp',
+        isLessThanOrEqualTo: Timestamp.fromDate(range.end),
+      )
+          .limit(800) // generous ceiling for a ~31-day month of hourly docs
           .get();
 
       if (!mounted || _selectedTimeRange != rangeIndexAtLoad) return;
@@ -541,28 +352,20 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       final docs = snapshot.docs;
       if (docs.isEmpty) {
         setState(() {
-         _chartData.clear();
-            if (rangeIndexAtLoad == 2) {
-            // Fresh day — reset session so live readings start clean
-            _sessionSeedSum = 0;
-            _sessionSeedCount = 0;
-            _liveHourKey = null;
-            _liveHourSum = 0;
-            _liveHourCount = 0;
-            _liveHourMax = 0;
-            _liveHourChartIndex = null;
-            _sessionMax = null;
-            _sessionMin = null;
-            _lastSeededTimestamp = null;
-            _displayMax = null;
-            _displayAvg = null;
-            _displayMin = null;
-          } else {
-            _displayMax = null;
-            _displayAvg = null;
-            _displayMin = null;
-          }
+          _chartData.clear();
+          _displayMax = null;
+          _displayAvg = null;
+          _displayMin = null;
         });
+        if (rangeIndexAtLoad == 2) {
+          SensorMemory.lastTempChartData = [];
+          SensorMemory.tempChartLoaded = true;
+          SensorMemory.lastTempChartDate = today;
+          SensorMemory.lastTempChartHourKey = hourKey;
+          SensorMemory.lastTempDisplayMax = null;
+          SensorMemory.lastTempDisplayMin = null;
+          SensorMemory.lastTempDisplayAvg = null;
+        }
         return;
       }
 
@@ -570,7 +373,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       final allMaxValues = <double>[];
       final allMinValues = <double>[];
       final allAvgValues = <double>[];
-      DateTime? lastDocTimestamp;
 
       for (final doc in docs) {
         final d = doc.data();
@@ -583,7 +385,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
         final docTs = (d['timestamp'] as Timestamp?)?.toDate();
         if (docTs != null) {
-          lastDocTimestamp = docTs;
           // X-axis = actual elapsed hours since the range's start, so gaps
           // in coverage (e.g. sensor downtime) show as gaps in the line
           // instead of being silently compressed away by a sequential index.
@@ -598,11 +399,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       if (allMaxValues.isEmpty) {
         setState(() {
           _chartData.clear();
-          if (rangeIndexAtLoad != 2) {
-            _displayMax = null;
-            _displayAvg = null;
-            _displayMin = null;
-          }
+          _displayMax = null;
+          _displayAvg = null;
+          _displayMin = null;
         });
         return;
       }
@@ -616,95 +415,43 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         _chartData
           ..clear()
           ..addAll(allData);
+        _displayMax = historicalMax;
+        _displayMin = historicalMin;
+        _displayAvg = historicalAvg;
 
         if (rangeIndexAtLoad == 2) {
-          _liveHourKey = null;
-          _liveHourSum = 0;
-          _liveHourCount = 0;
-          _liveHourMax = 0;
-          _liveHourChartIndex = null;
-          // Use the last seeded document's own Firestore timestamp as the
-          // cutoff — comparing against the SAME clock that live readings'
-          // `ts` come from, instead of the local device clock.
-          _lastSeededTimestamp = lastDocTimestamp;
-
-          // Each Firestore hourly-aggregate doc already represents one
-          // hour's average — sum them as-is, one entry per hour.
-          _sessionSeedSum = allAvgValues.reduce((a, b) => a + b);
-          _sessionSeedCount = allAvgValues.length;
-
-          _sessionMax = historicalMax;
-          _sessionMin = historicalMin;
-
-          // Seed from Firestore history, then take the larger of that and
-          // whatever SensorMemory already knows (e.g. a higher live reading
-          // recorded by another screen like the Dashboard, not yet pushed
-          // to Firestore's hourly aggregate). Only write back to
-          // SensorMemory when our value is the larger one — this lets both
-          // screens converge upward without either one overwriting a
-          // higher value the other already recorded.
-          // Always overwrite lastTempMaxToday with the Firestore-derived
-          // historicalMax — this corrects any stale/inflated value that was
-          // saved by a previous code version using the ESP32's all-day
-          // tempMax field. Live readings in _fetchData will push it higher
-          // if the temperature genuinely exceeds this baseline.
           SensorMemory.resetIfNewDay();
-          SensorMemory.setTempMaxToday(_sessionMax!);
-          SensorMemory.save();
-          _displayMax = _sessionMax;
-          if (_displayMax != null) widget.onMaxTempChanged?.call(_displayMax!);
-          _displayMin = _sessionMin;
-          _displayAvg = _computeWeightedAvg();
-        } else {
-          double mergedMax = historicalMax;
-          double mergedMin = historicalMin;
-          // If this range's end includes "now" (This Week / This Month
-          // both do, since their end is DateTime.now()), the live high/low
-          // recorded in SensorMemory may be newer than anything that's
-          // synced to Firestore's hourly aggregates yet. Without this,
-          // a broader range can show a LOWER max than "Today" — which
-          // is impossible since today is a subset of this week/month.
-          final rangeIncludesToday = !range.end.isBefore(_todayStart);
-          if (rangeIncludesToday) {
-            SensorMemory.resetIfNewDay();
-            if (SensorMemory.lastTempMaxToday > mergedMax) {
-              mergedMax = SensorMemory.lastTempMaxToday;
-            }
-            if (SensorMemory.lastTempDisplayMin != null &&
-                SensorMemory.lastTempDisplayMin! < mergedMin) {
-              mergedMin = SensorMemory.lastTempDisplayMin!;
-            }
+          if (historicalMax > SensorMemory.lastTempMaxToday) {
+            SensorMemory.setTempMaxToday(historicalMax);
           }
-          _displayMax = mergedMax;
-          _displayMin = mergedMin;
-          _displayAvg = historicalAvg;
+          widget.onMaxTempChanged?.call(historicalMax);
         }
       });
 
-      // Cache Today tab data so navigating back shows values instantly.
+      // Cache Today so navigating back / hourly re-checks are instant.
       if (rangeIndexAtLoad == 2) {
         SensorMemory.lastTempChartData = List.of(_chartData);
         SensorMemory.tempChartLoaded = true;
-        SensorMemory.lastTempChartDate = SensorMemory.todayKey();
+        SensorMemory.lastTempChartDate = today;
+        SensorMemory.lastTempChartHourKey = hourKey;
         SensorMemory.lastTempDisplayMax = _displayMax;
         SensorMemory.lastTempDisplayMin = _displayMin;
         SensorMemory.lastTempDisplayAvg = _displayAvg;
-        SensorMemory.lastTempSessionMax = _sessionMax;
-        SensorMemory.lastTempSessionMin = _sessionMin;
+        SensorMemory.save();
       }
-      // Cache This Week / This Month so repeat tab switches are instant.
+      // Cache Week/Month, keyed by hour so they refresh once an hour.
       if (rangeIndexAtLoad == 1) {
         _cachedWeekData = List.of(_chartData);
         _cachedWeekMax = historicalMax;
         _cachedWeekMin = historicalMin;
         _cachedWeekAvg = historicalAvg;
-        _cachedWeekDate = today;
+        _cachedWeekHourKey = hourKey;
       } else if (rangeIndexAtLoad == 0) {
         _cachedMonthData = List.of(_chartData);
         _cachedMonthMax = historicalMax;
         _cachedMonthMin = historicalMin;
         _cachedMonthAvg = historicalAvg;
-        _cachedMonthDate = today;
+        _cachedMonthHourKey = hourKey;
       }
     } catch (e) {
       debugPrint('Firestore load error: $e');
@@ -797,7 +544,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     borderRadius: BorderRadius.circular(20),
     border: Border.all(
       color:
-          accentColor?.withValues(alpha: 0.2) ??
+      accentColor?.withValues(alpha: 0.2) ??
           (isDark
               ? Colors.white.withValues(alpha: 0.07)
               : Colors.grey.shade200),
@@ -806,7 +553,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     boxShadow: [
       BoxShadow(
         color:
-            accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
+        accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
             Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
         blurRadius: 16,
         offset: const Offset(0, 6),
@@ -1085,15 +832,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               _isLoading
                   ? const CircularProgressIndicator()
                   : Text(
-                      currentLabel,
-                      style: TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                        color: (_currentTemp ?? 0) >= 40.5
-                            ? Colors.red
-                            : _textPrimary(isDark),
-                      ),
-                    ),
+                currentLabel,
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: (_currentTemp ?? 0) >= 40.5
+                      ? Colors.red
+                      : _textPrimary(isDark),
+                ),
+              ),
             ],
           ),
           Column(
@@ -1124,32 +871,32 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                     ),
                     child: _isSprinklerLoading
                         ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                         : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                isActive ? Icons.check_circle : Icons.shower,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                isActive ? 'Active' : 'Activate',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isActive ? Icons.check_circle : Icons.shower,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isActive ? 'Active' : 'Activate',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
                           ),
+                        ),
+                      ],
+                    ),
                   ), // closes AnimatedContainer
                 ), // closes GestureDetector
               ), // closes ValueListenableBuilder
@@ -1193,12 +940,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: isSelected
                     ? [
-                        BoxShadow(
-                          color: const Color(0xFFE8622A).withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ]
+                  BoxShadow(
+                    color: const Color(0xFFE8622A).withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
                     : [],
               ),
               alignment: Alignment.center,
@@ -1293,23 +1040,23 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             ? const Center(child: CircularProgressIndicator())
             : _chartData.isEmpty
             ? Center(
-                child: Text(
-                  "No data for selected range",
-                  style: TextStyle(color: _textSecondary(isDark)),
-                ),
-              )
+          child: Text(
+            "No data for selected range",
+            style: TextStyle(color: _textSecondary(isDark)),
+          ),
+        )
             : ClipRect(
-                child: CustomPaint(
-                  painter: _TemperatureChartPainter(
-                    data: List.from(_chartData),
-                    isDark: isDark,
-                    rangeIndex: _selectedTimeRange,
-                    rangeStart: range?.start ?? now,
-                    rangeEnd: range?.end ?? now,
-                  ),
-                  child: const SizedBox(height: 210, width: double.infinity),
-                ),
-              ),
+          child: CustomPaint(
+            painter: _TemperatureChartPainter(
+              data: List.from(_chartData),
+              isDark: isDark,
+              rangeIndex: _selectedTimeRange,
+              rangeStart: range?.start ?? now,
+              rangeEnd: range?.end ?? now,
+            ),
+            child: const SizedBox(height: 210, width: double.infinity),
+          ),
+        ),
       ),
     );
   }
@@ -1384,11 +1131,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Widget _buildReviewStat(
-    String label,
-    String value,
-    Color valueColor,
-    bool isDark,
-  ) {
+      String label,
+      String value,
+      Color valueColor,
+      bool isDark,
+      ) {
     return Expanded(
       child: Column(
         children: [
@@ -1676,9 +1423,9 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
             child: ElevatedButton(
               onPressed: _isValid
                   ? () {
-                      Navigator.pop(context);
-                      widget.onApply(_fullStart, _fullEnd);
-                    }
+                Navigator.pop(context);
+                widget.onApply(_fullStart, _fullEnd);
+              }
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE8622A),
@@ -1781,10 +1528,10 @@ class _TemperatureChartPainter extends CustomPainter {
   });
 
   List<Map<String, double>> _sampleData(
-    List<Map<String, double>> src,
-    int maxPts,
-    String key,
-  ) {
+      List<Map<String, double>> src,
+      int maxPts,
+      String key,
+      ) {
     if (src.length <= maxPts) return src;
     final result = <Map<String, double>>[];
     final step = src.length / maxPts;
@@ -1887,8 +1634,8 @@ class _TemperatureChartPainter extends CustomPainter {
     for (final step in [20, 25, 30, 35, 40, 45]) {
       final y =
           topPadding +
-          chartHeight -
-          ((step - yMin) / (yMax - yMin)) * chartHeight;
+              chartHeight -
+              ((step - yMin) / (yMax - yMin)) * chartHeight;
       canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
       final tp = TextPainter(
         text: TextSpan(
@@ -1925,8 +1672,8 @@ class _TemperatureChartPainter extends CustomPainter {
         leftPadding + ((v - xMin) / (xMax - xMin)) * chartWidth;
     double getY(double t) =>
         topPadding +
-        chartHeight -
-        ((t.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
+            chartHeight -
+            ((t.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
 
     // X-axis time labels.
     for (final (xHours, label) in _getXLabels()) {
