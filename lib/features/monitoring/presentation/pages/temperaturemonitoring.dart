@@ -7,8 +7,9 @@ import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../../../../core/services/ml_service.dart';
 
-const String kEsp32BaseUrl = "http://192.168.1.29";
+const String kEsp32BaseUrl = "192.168.1.249";
 
 const List<String> kTimeRanges = [
   'This Month',
@@ -85,10 +86,17 @@ class TemperatureMonitoring extends StatefulWidget {
 }
 
 class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
+  //added for ML insights
+  String? _mlInsight;
+  String? _mlRecommendation;
+  String? _mlCondition;
+  bool _mlLoading = false;
+
   int _selectedTab = 0;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
-  bool _isLoading = !SensorMemory.tempChartLoaded ||
+  bool _isLoading =
+      !SensorMemory.tempChartLoaded ||
       SensorMemory.lastTempChartDate != SensorMemory.todayKey();
 
   String _connectionStatus = SensorMemory.lastConnectionStatus;
@@ -103,12 +111,22 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   static bool _tempCacheIsToday() =>
       SensorMemory.lastTempChartDate == SensorMemory.todayKey();
 
-  double? _displayMax = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMax : null;
-  double? _displayAvg = _tempCacheIsToday() ? SensorMemory.lastTempDisplayAvg : null;
-  double? _displayMin = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMin : null;
+  double? _displayMax = _tempCacheIsToday()
+      ? SensorMemory.lastTempDisplayMax
+      : null;
+  double? _displayAvg = _tempCacheIsToday()
+      ? SensorMemory.lastTempDisplayAvg
+      : null;
+  double? _displayMin = _tempCacheIsToday()
+      ? SensorMemory.lastTempDisplayMin
+      : null;
 
-  double? _sessionMax = _tempCacheIsToday() ? SensorMemory.lastTempSessionMax : null;
-  double? _sessionMin = _tempCacheIsToday() ? SensorMemory.lastTempSessionMin : null;
+  double? _sessionMax = _tempCacheIsToday()
+      ? SensorMemory.lastTempSessionMax
+      : null;
+  double? _sessionMin = _tempCacheIsToday()
+      ? SensorMemory.lastTempSessionMin
+      : null;
 
   double _sessionSeedSum = 0;
   int _sessionSeedCount = 0;
@@ -149,8 +167,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     return "Normal";
   }
 
-  final List<Map<String, double>> _chartData =
-      _tempCacheIsToday() ? List.of(SensorMemory.lastTempChartData) : [];
+  final List<Map<String, double>> _chartData = _tempCacheIsToday()
+      ? List.of(SensorMemory.lastTempChartData)
+      : [];
   Timer? _timer;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -285,7 +304,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     super.dispose();
   }
 
- // ── ESP32 fetch ─────────────────────────────────────────────────────────────
+  // ── ESP32 fetch ─────────────────────────────────────────────────────────────
 
   Future<void> _fetchData() async {
     Map<String, dynamic>? data;
@@ -322,13 +341,19 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     }
 
     try {
-      final tempLive = (data['temperature'] as num?)?.toDouble()
-          ?? (data['tempAvg'] as num?)?.toDouble();
+      final tempLive =
+          (data['temperature'] as num?)?.toDouble() ??
+          (data['tempAvg'] as num?)?.toDouble();
       final tempMax = (data['tempMax'] as num?)?.toDouble();
       final tempAvg = (data['tempAvg'] as num?)?.toDouble();
       final tempMin = (data['tempMin'] as num?)?.toDouble();
+      final humidityLive = (data['humidity'] as num?)?.toDouble();
 
-      if (tempLive == null || tempMax == null || tempAvg == null || tempMin == null) return;
+      if (tempLive == null ||
+          tempMax == null ||
+          tempAvg == null ||
+          tempMin == null)
+        return;
       if (tempMax < 0 || tempMin < 0 || tempAvg < 0) return;
 
       // Timestamp always arrives as a String over HTTP — no remote/Firestore path anymore.
@@ -360,11 +385,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
           _connectionStatus = "Live";
           SensorMemory.lastConnectionStatus = "Live";
           _currentTemp = tempLive;
+          if (tempLive > 0) {
+            _fetchTemperatureMLInsight(tempLive);
+          }
           _sensorStatus = "Sensor Online";
           SensorMemory.lastSensorStatus = "Sensor Online";
 
           if (_selectedTimeRange == 2) {
-            final isNewReading = _lastSeededTimestamp == null ||
+            final isNewReading =
+                _lastSeededTimestamp == null ||
                 ts!.isAfter(_lastSeededTimestamp!);
 
             if (isNewReading) {
@@ -408,7 +437,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         SensorMemory.lastTempSessionMax = _sessionMax;
         SensorMemory.lastTempSessionMin = _sessionMin;
       }
-
     } catch (_) {
       _consecutiveFailures++;
       if (_consecutiveFailures < 2) return;
@@ -448,9 +476,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     }
 
     _liveHourKey = hourKey;
-    _liveHourSum += liveAvg;   // average accumulator
+    _liveHourSum += liveAvg; // average accumulator
     _liveHourCount += 1;
-    if (liveMax > _liveHourMax) _liveHourMax = liveMax;  // peak for Highest stat only
+    if (liveMax > _liveHourMax)
+      _liveHourMax = liveMax; // peak for Highest stat only
 
     final x = ts.difference(_todayStart).inMinutes / 60.0;
 
@@ -490,30 +519,42 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     // instant. Cache is date-keyed and auto-invalidates at midnight.
     // Max/min are always re-merged with today's live data on cache hit.
     final today = SensorMemory.todayKey();
-    if (rangeIndexAtLoad == 1 && _cachedWeekDate == today && _cachedWeekData.isNotEmpty) {
+    if (rangeIndexAtLoad == 1 &&
+        _cachedWeekDate == today &&
+        _cachedWeekData.isNotEmpty) {
       setState(() {
-        _chartData..clear()..addAll(_cachedWeekData);
+        _chartData
+          ..clear()
+          ..addAll(_cachedWeekData);
         var cMax = _cachedWeekMax ?? 0.0;
         var cMin = _cachedWeekMin ?? double.infinity;
         SensorMemory.resetIfNewDay();
-        if (SensorMemory.lastTempMaxToday > cMax) cMax = SensorMemory.lastTempMaxToday;
+        if (SensorMemory.lastTempMaxToday > cMax)
+          cMax = SensorMemory.lastTempMaxToday;
         if (SensorMemory.lastTempDisplayMin != null &&
-            SensorMemory.lastTempDisplayMin! < cMin) cMin = SensorMemory.lastTempDisplayMin!;
+            SensorMemory.lastTempDisplayMin! < cMin)
+          cMin = SensorMemory.lastTempDisplayMin!;
         _displayMax = cMax;
         _displayMin = cMin == double.infinity ? _cachedWeekMin : cMin;
         _displayAvg = _cachedWeekAvg;
       });
       return;
     }
-    if (rangeIndexAtLoad == 0 && _cachedMonthDate == today && _cachedMonthData.isNotEmpty) {
+    if (rangeIndexAtLoad == 0 &&
+        _cachedMonthDate == today &&
+        _cachedMonthData.isNotEmpty) {
       setState(() {
-        _chartData..clear()..addAll(_cachedMonthData);
+        _chartData
+          ..clear()
+          ..addAll(_cachedMonthData);
         var cMax = _cachedMonthMax ?? 0.0;
         var cMin = _cachedMonthMin ?? double.infinity;
         SensorMemory.resetIfNewDay();
-        if (SensorMemory.lastTempMaxToday > cMax) cMax = SensorMemory.lastTempMaxToday;
+        if (SensorMemory.lastTempMaxToday > cMax)
+          cMax = SensorMemory.lastTempMaxToday;
         if (SensorMemory.lastTempDisplayMin != null &&
-            SensorMemory.lastTempDisplayMin! < cMin) cMin = SensorMemory.lastTempDisplayMin!;
+            SensorMemory.lastTempDisplayMin! < cMin)
+          cMin = SensorMemory.lastTempDisplayMin!;
         _displayMax = cMax;
         _displayMin = cMin == double.infinity ? _cachedMonthMin : cMin;
         _displayAvg = _cachedMonthAvg;
@@ -541,8 +582,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       final docs = snapshot.docs;
       if (docs.isEmpty) {
         setState(() {
-         _chartData.clear();
-            if (rangeIndexAtLoad == 2) {
+          _chartData.clear();
+          if (rangeIndexAtLoad == 2) {
             // Fresh day — reset session so live readings start clean
             _sessionSeedSum = 0;
             _sessionSeedCount = 0;
@@ -854,7 +895,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
-
   bool _isSprinklerDialogOpen = false;
 
   Future<void> _confirmSprinkler() async {
@@ -868,7 +908,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.sensors_off, color: Colors.red, size: 20),
@@ -884,7 +926,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
@@ -915,7 +959,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: isOn ? const Color(0xFFD32F2F) : Colors.green,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
@@ -1281,7 +1327,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Widget _buildChart(bool isDark) {
-    final range = _resolveTimeRange(_selectedTimeRange, _customStart, _customEnd);
+    final range = _resolveTimeRange(
+      _selectedTimeRange,
+      _customStart,
+      _customEnd,
+    );
     final now = DateTime.now();
     return Container(
       decoration: _bentoCard(isDark, accentColor: Colors.green),
@@ -1415,8 +1465,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Widget _buildInsights(bool isDark) {
-    final accentAlpha = isDark ? 0.25 : 0.15;
-    final shadowAlpha = isDark ? 0.12 : 0.06;
+    Color conditionColor = const Color(0xFFE8A020); // amber default
+    if (_mlCondition == 'Good') conditionColor = Colors.green;
+    if (_mlCondition == 'High Risk') conditionColor = Colors.red;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1426,12 +1478,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             : const Color(0xFFFFF9C4),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFE8A020).withValues(alpha: accentAlpha),
+          color: const Color(
+            0xFFE8A020,
+          ).withValues(alpha: isDark ? 0.25 : 0.15),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE8A020).withValues(alpha: shadowAlpha),
+            color: const Color(
+              0xFFE8A020,
+            ).withValues(alpha: isDark ? 0.12 : 0.06),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -1440,6 +1496,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Container(
@@ -1456,19 +1513,122 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Insights:',
+                'Insights',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   color: _textPrimary(isDark),
                 ),
               ),
+              const Spacer(),
+              // Condition badge
+              if (_mlCondition != null && !_mlLoading)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
             ],
           ),
-          // TODO: ML output goes here
+          const SizedBox(height: 12),
+
+          // Body
+          if (_mlLoading)
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: const Color(0xFFE8A020),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Analyzing temperature data...',
+                  style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+                ),
+              ],
+            )
+          else if (_currentTemp == null)
+            Text(
+              'Connect sensor to receive temperature insights.',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else if (_mlInsight == null)
+            Text(
+              'Waiting for analysis...',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else ...[
+            Text(
+              _mlInsight!,
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            ),
+            if (_mlRecommendation != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _mlRecommendation!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textSecondary(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ],
       ),
     );
+  }
+
+  //ml part
+  Future<void> _fetchTemperatureMLInsight(double temperature) async {
+    if (temperature <= 0) return;
+    setState(() => _mlLoading = true);
+    try {
+      final result = await MlService.analyzeFarm(
+        temperatureC: temperature,
+        humidityPct: 75.0, // neutral humidity — not the focus here
+        weightChangeKg: 0.0,
+        feedIntakeKg: 0.0,
+      );
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = result['condition'] as String?;
+        _mlInsight = (result['insights'] as List?)?.join(' ');
+        _mlRecommendation =
+            (result['recommendations'] as List?)?.first as String?;
+        _mlLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Temperature ML error: $e');
+      if (!mounted) return;
+      setState(() => _mlLoading = false);
+    }
   }
 }
 
