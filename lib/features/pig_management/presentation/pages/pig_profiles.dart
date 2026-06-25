@@ -84,8 +84,8 @@ class PigProfilesScreen extends StatelessWidget {
                                 color: isDarkMode ? Colors.white : Colors.black87,
                               ),
                               items: const [
-                                DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
-                                DropdownMenuItem(value: 'Inactive', child: Text('Inactive Pigs')),
+                                DropdownMenuItem(value: 'Active', child: Text('Current Pigs')),
+                                DropdownMenuItem(value: 'Inactive', child: Text('Removed Pigs')),
                               ],
                               onChanged: (value) {
                                 if (value != null) {
