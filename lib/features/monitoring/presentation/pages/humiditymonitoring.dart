@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
-const String kEsp32BaseUrl = "http://192.168.1.100";
+const String kEsp32BaseUrl = "http://192.168.1.29";
 
 const List<String> kTimeRanges = [
   'This Month',
@@ -66,65 +69,16 @@ DateTimeRange? _resolveTimeRange(
   }
 }
 
-class _SprinklerMemory {
-  static String lastActivated = "--";
-  static String date = "--";
-  static String duration = "--";
-  static String status = "OFF";
-  static DateTime? activatedAt;
-  static Future<void> save() async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('sprinkler_state')
-          .doc('latest')
-          .set({
-            'lastActivated': lastActivated,
-            'date': date,
-            'duration': duration,
-            'status': status,
-            'activatedAt': activatedAt != null
-                ? Timestamp.fromDate(activatedAt!)
-                : null,
-          });
-    } catch (e) {
-      debugPrint('Error saving sprinkler state: $e');
-    }
-  }
-
-  static Future<void> load() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('sprinkler_state')
-          .doc('latest')
-          .get(const GetOptions(source: Source.server));
-      if (doc.exists) {
-        final data = doc.data()!;
-        lastActivated = data['lastActivated'] as String? ?? '--';
-        date = data['date'] as String? ?? '--';
-        duration = data['duration'] as String? ?? '--';
-        status = data['status'] as String? ?? 'OFF';
-        final at = data['activatedAt'];
-        activatedAt = at != null ? (at as Timestamp).toDate() : null;
-      }
-    } catch (e) {
-      debugPrint('Error loading sprinkler state: $e');
-    }
-  }
-}
 
 // ── Humidity Monitoring ───────────────────────────────────────────────────────
 
 class HumidityMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToTemperature;
-  final bool isActivated;
-  final ValueChanged<bool> onSprinklerChanged;
   final ValueChanged<double>? onMaxHumidityChanged;
 
   const HumidityMonitoring({
     super.key,
     this.onSwitchToTemperature,
-    required this.isActivated,
-    required this.onSprinklerChanged,
     this.onMaxHumidityChanged,
   });
 
@@ -136,10 +90,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   int _selectedTab = 1;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
-  bool _isLoading = true;
+  static bool _humidityCacheIsToday() =>
+      SensorMemory.lastHumidityChartDate == SensorMemory.todayKey();
 
-  String _connectionStatus = "No connection";
+  bool _isLoading = !SensorMemory.humidityChartLoaded ||
+      !_humidityCacheIsToday();
+
+  String _connectionStatus = SensorMemory.lastConnectionStatus;
   String _sensorStatus = "Sensor Offline";
+  int _consecutiveFailures = 0;
+
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   // ── THEME HELPERS ──────────────────────────────────────────────────
   Color _cardBg(bool isDark) => isDark ? const Color(0xFF1E1E1E) : Colors.white;
@@ -185,17 +146,48 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   double? _currentHumidity;
 
   // Display stats shown in the review card.
-  double? _displayMax;
-  double? _displayMin;
-  double? _displayAvg;
+  double? _displayMax = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMax : null;
+  double? _displayMin = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMin : null;
+  double? _displayAvg = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayAvg : null;
 
   // Live session accumulators (only used for "Today" view).
-  double? _sessionMax;
-  double? _sessionMin;
-  double _sessionSum = 0;
-  int _sessionCount = 0;
+  double? _sessionMax = _humidityCacheIsToday() ? SensorMemory.lastHumiditySessionMax : null;
+  double? _sessionMin = _humidityCacheIsToday() ? SensorMemory.lastHumiditySessionMin : null;
   double _sessionSeedSum = 0;
   int _sessionSeedCount = 0;
+
+  // Per-session cache for This Week (index 1) and This Month (index 0).
+  // Keyed by todayKey() so they auto-invalidate when the day rolls over.
+  static List<Map<String, double>> _cachedWeekData = [];
+  static double? _cachedWeekMax;
+  static double? _cachedWeekMin;
+  static double? _cachedWeekAvg;
+  static String _cachedWeekDate = '';
+
+  static List<Map<String, double>> _cachedMonthData = [];
+  static double? _cachedMonthMax;
+  static double? _cachedMonthMin;
+  static double? _cachedMonthAvg;
+  static String _cachedMonthDate = '';
+
+  // Tracks the hour-bucket that live readings are currently being
+  // averaged into, so the "Today" average treats each hour as one
+  // weighted entry — matching the granularity of the seeded hourly
+  // Firestore documents instead of letting whichever hour the app
+  // happens to be open dominate the average.
+  String? _liveHourKey;
+  double _liveHourSum = 0;
+  int _liveHourCount = 0;
+  double _liveHourMax = 0;
+  int? _liveHourChartIndex;
+
+  // Midnight of "today" — used as the X-axis zero point for live chart
+  // points, so live points line up on the same real-time scale as the
+  // seeded historical points (which use range.start as their zero point).
+  DateTime get _todayStart {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
 
   String get _humidityStatus {
     if (_currentHumidity == null) return "";
@@ -205,8 +197,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     return "Normal";
   }
 
-  final List<Map<String, double>> _chartData = [];
-  int _nextChartIndex = 0;
+  final List<Map<String, double>> _chartData =
+      _humidityCacheIsToday() ? List.of(SensorMemory.lastHumidityChartData) : [];
   Timer? _timer;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -218,15 +210,29 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   @override
   void initState() {
     super.initState();
+    _initConnectivityListener();
     _initData();
     _loadSprinklerState();
+    humidityMaxTodayNotifier.addListener(_onHumidityMaxNotifierChanged);
+  }
+
+  void _onHumidityMaxNotifierChanged() {
+    if (!mounted) return;
+    final v = humidityMaxTodayNotifier.value;
+    if (v > 0 && (_sessionMax == null || v > _sessionMax!)) {
+      _sessionMax = v;
+      if (_selectedTimeRange == 2) {
+        setState(() => _displayMax = v);
+        widget.onMaxHumidityChanged?.call(v);
+      }
+    }
   }
 
   Future<void> _loadSprinklerState() async {
-    await _SprinklerMemory.load();
+    await SprinklerMemory.load();
     if (!mounted) return;
-    if (_SprinklerMemory.activatedAt != null) {
-      _startDurationTimer(_SprinklerMemory.activatedAt!);
+    if (SprinklerMemory.activatedAt != null) {
+      _startDurationTimer(SprinklerMemory.activatedAt!);
     }
   }
 
@@ -238,7 +244,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
       final mins = elapsed.inMinutes;
       final secs = elapsed.inSeconds % 60;
-      _SprinklerMemory.duration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
+      SprinklerMemory.duration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
     });
   }
 
@@ -249,9 +255,54 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
       final mins = elapsed.inMinutes;
       final secs = elapsed.inSeconds % 60;
-      _SprinklerMemory.duration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
+      SprinklerMemory.duration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
     }
     _sprinklerActivatedAt = null;
+  }
+
+  void _initConnectivityListener() {
+    // On launch: set status immediately based on current network state.
+    Connectivity().checkConnectivity().then((results) {
+      if (!mounted) return;
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      if (hasNet) {
+        setState(() {
+          _connectionStatus = "Live";
+          SensorMemory.lastConnectionStatus = "Live";
+        });
+      } else {
+        setState(() {
+          _connectionStatus = "Connecting...";
+          _currentHumidity = null;
+          _sensorStatus = "Sensor Offline";
+          SensorMemory.lastConnectionStatus = "Connecting...";
+          SensorMemory.lastSensorStatus = "Sensor Offline";
+        });
+      }
+    });
+
+    // Internet LOST → "Connecting..." (fetch will confirm "No connection" shortly after).
+    // Internet BACK → "Live" immediately.
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      if (!mounted) return;
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      if (hasNet) {
+        setState(() {
+          _connectionStatus = "Live";
+          SensorMemory.lastConnectionStatus = "Live";
+        });
+      } else {
+        setState(() {
+          _connectionStatus = "Connecting...";
+          _currentHumidity = null;
+          _sensorStatus = "Sensor Offline";
+          SensorMemory.lastConnectionStatus = "Connecting...";
+          SensorMemory.lastSensorStatus = "Sensor Offline";
+        });
+        // Immediately attempt a fetch so it fails fast → "No connection" within ~1s.
+        _fetchData();
+      }
+    });
   }
 
   Future<void> _initData() async {
@@ -267,25 +318,67 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   void dispose() {
     _timer?.cancel();
     _durationTimer?.cancel();
+    _connectivitySub?.cancel();
+    humidityMaxTodayNotifier.removeListener(_onHumidityMaxNotifierChanged);
     super.dispose();
   }
 
-  // ── Firestore ───────────────────────────────────────────────────────────────
+/// Folds a new live reading into the current-hour bucket. Each hour
+  /// contributes exactly ONE averaged value to the session total — same
+  /// granularity as the seeded Firestore hourly-aggregate documents —
+  /// so the live hour doesn't get over-weighted just because it has many
+  /// more samples (one every ~5s) than the seeded hours (one per hour).
+  /// Also updates a single chart point for the in-progress hour instead
+  /// of appending a new point per reading, so the "Today" line has the
+  /// same one-point-per-hour density as the seeded historical portion.
+  void _accumulateLiveHourly(double humidity, DateTime ts) {
+    final hourKey = '${ts.year}-${ts.month}-${ts.day}-${ts.hour}';
 
-  Future<void> _saveToFirestore(double humidity) async {
-    try {
-      await _db.collection('humidity_readings').add({
-        'humidityMax': humidity,
-        'humidityMin': humidity,
-        'humidityAvg': humidity,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('Firestore save error: $e');
+    if (_liveHourKey != null && _liveHourKey != hourKey) {
+      if (_liveHourCount > 0) {
+        _sessionSeedSum += _liveHourSum / _liveHourCount;
+        _sessionSeedCount += 1;
+      }
+      _liveHourSum = 0;
+      _liveHourCount = 0;
+      _liveHourMax = 0;
+      _liveHourChartIndex = null;
+    }
+
+    _liveHourKey = hourKey;
+    _liveHourSum += humidity;
+    _liveHourCount += 1;
+    if (humidity > _liveHourMax) _liveHourMax = humidity;  // peak for Highest stat only
+
+    final x = ts.difference(_todayStart).inMinutes / 60.0;
+
+    // Plot the current live reading (not the hourly peak) so the chart line
+    // visually updates every 5 s with the actual sensor value.
+    // _liveHourMax is still used for the "Highest" display stat.
+    // _liveHourSum/_liveHourCount (average) is still used for the avg display stat.
+    if (_liveHourChartIndex != null &&
+        _liveHourChartIndex! < _chartData.length) {
+      _chartData[_liveHourChartIndex!] = {'x': x, 'humidity': humidity};
+    } else {
+      _liveHourChartIndex = _chartData.length;
+      _chartData.add({'x': x, 'humidity': humidity});
     }
   }
 
- /// Unlimited scan for accurate max/min/avg stats. Unlike the chart query
+  /// Average across completed hours (seed) plus the current in-progress
+  /// hour (live), each hour weighted equally regardless of sample count.
+  double? _computeWeightedAvg() {
+    final completedSum = _sessionSeedSum;
+    final completedCount = _sessionSeedCount;
+    final hasLiveHour = _liveHourCount > 0;
+
+    final totalSum =
+        completedSum + (hasLiveHour ? _liveHourSum / _liveHourCount : 0);
+    final totalCount = completedCount + (hasLiveHour ? 1 : 0);
+
+    return totalCount > 0 ? totalSum / totalCount : null;
+  }
+
   /// below (capped at 2000 docs for render performance), this has no limit
   /// — so on high-volume days it won't silently drop later readings and
   /// miss the true highest/lowest value, the way the capped chart query can.
@@ -333,7 +426,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       }
 
       if (count == 0) return null;
-      return {'max': maxV, 'min': minV, 'avg': sum / count, 'count': count.toDouble()};
+      return {
+        'max': maxV,
+        'min': minV,
+        'avg': sum / count,
+        'count': count.toDouble(),
+      };
     } catch (e) {
       debugPrint('Accurate stats query error: $e');
       return null;
@@ -345,6 +443,41 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 
     final range = _resolveTimeRange(rangeIndexAtLoad, _customStart, _customEnd);
     if (range == null) return;
+
+    // Serve cached result for This Week / This Month so tab switches are
+    // instant. Cache is date-keyed and auto-invalidates at midnight.
+    // Max/min are always re-merged with today's live data on cache hit.
+    final today = SensorMemory.todayKey();
+    if (rangeIndexAtLoad == 1 && _cachedWeekDate == today && _cachedWeekData.isNotEmpty) {
+      setState(() {
+        _chartData..clear()..addAll(_cachedWeekData);
+        var cMax = _cachedWeekMax ?? 0.0;
+        var cMin = _cachedWeekMin ?? double.infinity;
+        SensorMemory.resetIfNewDay();
+        if (SensorMemory.lastHumidityMaxToday > cMax) cMax = SensorMemory.lastHumidityMaxToday;
+        if (SensorMemory.lastHumidityDisplayMin != null &&
+            SensorMemory.lastHumidityDisplayMin! < cMin) cMin = SensorMemory.lastHumidityDisplayMin!;
+        _displayMax = cMax;
+        _displayMin = cMin == double.infinity ? _cachedWeekMin : cMin;
+        _displayAvg = _cachedWeekAvg;
+      });
+      return;
+    }
+    if (rangeIndexAtLoad == 0 && _cachedMonthDate == today && _cachedMonthData.isNotEmpty) {
+      setState(() {
+        _chartData..clear()..addAll(_cachedMonthData);
+        var cMax = _cachedMonthMax ?? 0.0;
+        var cMin = _cachedMonthMin ?? double.infinity;
+        SensorMemory.resetIfNewDay();
+        if (SensorMemory.lastHumidityMaxToday > cMax) cMax = SensorMemory.lastHumidityMaxToday;
+        if (SensorMemory.lastHumidityDisplayMin != null &&
+            SensorMemory.lastHumidityDisplayMin! < cMin) cMin = SensorMemory.lastHumidityDisplayMin!;
+        _displayMax = cMax;
+        _displayMin = cMin == double.infinity ? _cachedMonthMin : cMin;
+        _displayAvg = _cachedMonthAvg;
+      });
+      return;
+    }
 
     try {
       final snapshot = await _db
@@ -367,12 +500,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       if (docs.isEmpty) {
         setState(() {
           _chartData.clear();
-          _nextChartIndex = 0;
           if (rangeIndexAtLoad == 2) {
-            _sessionSum = 0;
-            _sessionCount = 0;
             _sessionSeedSum = 0;
             _sessionSeedCount = 0;
+            _liveHourKey = null;
+            _liveHourSum = 0;
+            _liveHourCount = 0;
+            _liveHourChartIndex = null;
             _sessionMax = null;
             _sessionMin = null;
             _lastSeededTimestamp = null;
@@ -403,19 +537,23 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         final max = (d['humidityMax'] as num?)?.toDouble() ?? avg;
         final min = (d['humidityMin'] as num?)?.toDouble() ?? avg;
 
-        allData.add({'index': allData.length.toDouble(), 'humidity': avg});
+        final docTs = (d['timestamp'] as Timestamp?)?.toDate();
+        if (docTs != null) {
+          lastDocTimestamp = docTs;
+          // X-axis = actual elapsed hours since the range's start, so gaps
+          // in coverage (e.g. sensor downtime) show as gaps in the line
+          // instead of being silently compressed away by a sequential index.
+          final x = docTs.difference(range.start).inMinutes / 60.0;
+          allData.add({'x': x, 'humidity': max});
+        }
         allMaxValues.add(max);
         allMinValues.add(min);
         allAvgValues.add(avg);
-
-        final docTs = (d['timestamp'] as Timestamp?)?.toDate();
-        if (docTs != null) lastDocTimestamp = docTs;
       }
 
       if (allMaxValues.isEmpty) {
         setState(() {
           _chartData.clear();
-          _nextChartIndex = 0;
           if (rangeIndexAtLoad != 2) {
             _displayMax = null;
             _displayAvg = null;
@@ -447,12 +585,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           ..clear()
           ..addAll(allData);
 
-        // Seed counter so live points continue after history without index collision
-        _nextChartIndex = allData.length;
-
-       if (rangeIndexAtLoad == 2) {
-          _sessionSum = 0;
-          _sessionCount = 0;
+        if (rangeIndexAtLoad == 2) {
+          _liveHourKey = null;
+          _liveHourSum = 0;
+          _liveHourCount = 0;
+          _liveHourChartIndex = null;
           // Use the last seeded document's own Firestore timestamp as the
           // cutoff — comparing against the SAME clock that live readings'
           // `ts` come from. Using DateTime.now() (local device clock) here
@@ -460,6 +597,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           // drifted from Firestore's server time.
           _lastSeededTimestamp = lastDocTimestamp;
 
+          // Each Firestore hourly-aggregate doc already represents one
+          // hour's average — sum them as-is, one entry per hour.
           _sessionSeedSum = allAvgValues.reduce((a, b) => a + b);
           _sessionSeedCount = allAvgValues.length;
 
@@ -470,25 +609,66 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           // the live-fetch path — so this screen reflects the true known
           // max even when offline (when _fetchData() never reaches its
           // own merge logic because the network call throws first).
+          // Always overwrite lastHumidityMaxToday with the Firestore-derived
+          // historicalMax to correct any stale inflated value.
           SensorMemory.resetIfNewDay();
-          if (SensorMemory.lastHumidityMaxToday > (_sessionMax ?? 0)) {
-            _sessionMax = SensorMemory.lastHumidityMaxToday;
-          } else if ((_sessionMax ?? 0) > SensorMemory.lastHumidityMaxToday) {
-            // Firestore scan found a higher value than SensorMemory knew
-            // about — push it back so Dashboard picks it up too.
-            SensorMemory.lastHumidityMaxToday = _sessionMax!;
-            SensorMemory.save();
-          }
+          SensorMemory.setHumidityMaxToday(_sessionMax!);
+          SensorMemory.save();
 
           _displayMax = _sessionMax;
           _displayMin = _sessionMin;
-          _displayAvg = _sessionSeedSum / _sessionSeedCount;
+          _displayAvg = _computeWeightedAvg();
         } else {
-          _displayMax = historicalMax;
-          _displayMin = historicalMin;
+          double mergedMax = historicalMax;
+          double mergedMin = historicalMin;
+          // If this range's end includes "now" (This Week / This Month
+          // both do, since their end is DateTime.now()), the live high/low
+          // recorded in SensorMemory may be newer than anything that's
+          // synced to Firestore's hourly aggregates yet. Without this,
+          // a broader range can show a LOWER max than "Today" — which
+          // is impossible since today is a subset of this week/month.
+          final rangeIncludesToday = !range.end.isBefore(_todayStart);
+          if (rangeIncludesToday) {
+            SensorMemory.resetIfNewDay();
+            if (SensorMemory.lastHumidityMaxToday > mergedMax) {
+              mergedMax = SensorMemory.lastHumidityMaxToday;
+            }
+            if (SensorMemory.lastHumidityDisplayMin != null &&
+                SensorMemory.lastHumidityDisplayMin! < mergedMin) {
+              mergedMin = SensorMemory.lastHumidityDisplayMin!;
+            }
+          }
+          _displayMax = mergedMax;
+          _displayMin = mergedMin;
           _displayAvg = historicalAvg;
         }
       });
+
+      // Cache Today tab data so navigating back shows values instantly.
+      if (rangeIndexAtLoad == 2) {
+        SensorMemory.lastHumidityChartData = List.of(_chartData);
+        SensorMemory.humidityChartLoaded = true;
+        SensorMemory.lastHumidityChartDate = SensorMemory.todayKey();
+        SensorMemory.lastHumidityDisplayMax = _displayMax;
+        SensorMemory.lastHumidityDisplayMin = _displayMin;
+        SensorMemory.lastHumidityDisplayAvg = _displayAvg;
+        SensorMemory.lastHumiditySessionMax = _sessionMax;
+        SensorMemory.lastHumiditySessionMin = _sessionMin;
+      }
+      // Cache This Week / This Month so repeat tab switches are instant.
+      if (rangeIndexAtLoad == 1) {
+        _cachedWeekData = List.of(_chartData);
+        _cachedWeekMax = historicalMax;
+        _cachedWeekMin = historicalMin;
+        _cachedWeekAvg = historicalAvg;
+        _cachedWeekDate = today;
+      } else if (rangeIndexAtLoad == 0) {
+        _cachedMonthData = List.of(_chartData);
+        _cachedMonthMax = historicalMax;
+        _cachedMonthMin = historicalMin;
+        _cachedMonthAvg = historicalAvg;
+        _cachedMonthDate = today;
+      }
     } catch (e) {
       debugPrint('Firestore load error: $e');
       // Don't wipe existing display values on network failure —
@@ -500,87 +680,121 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   // ── ESP32 fetch ─────────────────────────────────────────────────────────────
 
   Future<void> _fetchData() async {
-    try {
-      // No Source.server — forcing a server round-trip means every 5s
-      // poll hangs through a full DNS timeout while offline, repeatedly
-      // freezing the screen. Default source + short timeout fails fast.
-      final doc = await FirebaseFirestore.instance
-          .collection('sensor_live')
-          .doc('current')
-          .get()
-          .timeout(const Duration(seconds: 4));
+    Map<String, dynamic>? data;
+    bool isRemote = false;
 
-      if (!doc.exists) return;
-      final data = doc.data()!;
+    // App talks to the sensor over HTTP/LAN only — no Firestore fallback.
+    try {
+      final response = await http
+          .get(Uri.parse('$kEsp32BaseUrl/sensor'))
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        data = jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+
+    if (data == null) {
+      _consecutiveFailures++;
+
+      if (_consecutiveFailures < 2) return;
+      if (!mounted) return;
+      final results = await Connectivity().checkConnectivity();
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      final connLabel = hasNet ? "Live" : "No connection";
+      setState(() {
+        _connectionStatus = connLabel;
+        _sensorStatus = "Sensor Offline";
+        SensorMemory.lastConnectionStatus = connLabel;
+        SensorMemory.lastSensorStatus = "Sensor Offline";
+        _isLoading = false;
+        _currentHumidity = null;
+      });
+      return;
+    }
+
+    try {
       final hRaw = data['humidity'];
       if (hRaw == null) return;
       final h = (hRaw as num).toDouble();
 
-      final ts = (data['timestamp'] as Timestamp?)?.toDate();
+      // Timestamp always arrives as a String over HTTP — no remote/Firestore path anymore.
+      final tsField = data['timestamp'];
+      final ts = tsField is String ? DateTime.tryParse(tsField) : null;
+
       final nowUtc = DateTime.now().toUtc();
       final tsUtc = ts?.toUtc();
       final diffSeconds = tsUtc != null
           ? nowUtc.difference(tsUtc).inSeconds
           : -1;
-      final isStale = ts == null || diffSeconds > 15;
+      final stalenessLimit = 15;
+      final isStale = ts == null || diffSeconds > stalenessLimit;
+
+      if (isStale) {
+        _consecutiveFailures++;
+      } else {
+        _consecutiveFailures = 0;
+      }
+      final shouldShowOffline = _consecutiveFailures >= 2;
 
       setState(() {
         _isLoading = false;
 
-        if (isStale) {
-          _currentHumidity = null;
-          _connectionStatus = "No connection";
-          _sensorStatus = "Sensor Offline";
-          // _displayMax/_displayMin/_displayAvg left untouched
-        } else {
-          _currentHumidity = h;
+        if (!isStale) {
           _connectionStatus = "Live";
+          SensorMemory.lastConnectionStatus = "Live";
+          _currentHumidity = h;
           _sensorStatus = "Sensor Online";
+          SensorMemory.lastSensorStatus = "Sensor Online";
           if (_selectedTimeRange == 2) {
             final isNewReading =
                 _lastSeededTimestamp == null ||
-                ts.isAfter(_lastSeededTimestamp!);
+                ts!.isAfter(_lastSeededTimestamp!);
 
             if (isNewReading) {
-              _sessionSum += h;
-              _sessionCount += 1;
+              _accumulateLiveHourly(h, ts!);
             }
 
             if (_sessionMax == null || h > _sessionMax!) {
               _sessionMax = h;
             }
             SensorMemory.resetIfNewDay();
-            if (h > SensorMemory.lastHumidityMaxToday) {
-              SensorMemory.lastHumidityMaxToday = h;
+            if ((_sessionMax ?? 0) > SensorMemory.lastHumidityMaxToday) {
+              SensorMemory.setHumidityMaxToday(_sessionMax!);
               SensorMemory.save();
-            }
-            if (SensorMemory.lastHumidityMaxToday > (_sessionMax ?? 0)) {
-              _sessionMax = SensorMemory.lastHumidityMaxToday;
             }
             widget.onMaxHumidityChanged?.call(_sessionMax!);
             if (_sessionMin == null || h < _sessionMin!) _sessionMin = h;
 
             _displayMax = _sessionMax;
             _displayMin = _sessionMin;
-
-            final totalSum = _sessionSeedSum + _sessionSum;
-            final totalCount = _sessionSeedCount + _sessionCount;
-            _displayAvg = totalCount > 0 ? totalSum / totalCount : null;
-
-            _chartData.add({
-              'index': _nextChartIndex.toDouble(),
-              'humidity': h,
-            });
-            _nextChartIndex++;
+            _displayAvg = _computeWeightedAvg();
           }
+        } else if (shouldShowOffline) {
+          _connectionStatus = "Sensor Offline";
+          SensorMemory.lastConnectionStatus = "Sensor Offline";
+          _currentHumidity = null;
+          _sensorStatus = "Sensor Offline";
+          SensorMemory.lastSensorStatus = "Sensor Offline";
         }
+        // First stale poll: keep previous status — don't flip offline yet.
       });
 
-      if (!isStale) await _saveToFirestore(h);
+      // Keep Today cache in sync with live updates.
+      if (_selectedTimeRange == 2) {
+        SensorMemory.lastHumidityDisplayMax = _displayMax;
+        SensorMemory.lastHumidityDisplayMin = _displayMin;
+        SensorMemory.lastHumidityDisplayAvg = _displayAvg;
+        SensorMemory.lastHumiditySessionMax = _sessionMax;
+        SensorMemory.lastHumiditySessionMin = _sessionMin;
+      }
+
     } catch (_) {
+      _consecutiveFailures++;
+      if (_consecutiveFailures < 2) return;
+      if (!mounted) return;
       setState(() {
-        _connectionStatus = "No connection";
         _sensorStatus = "Sensor Offline";
+        SensorMemory.lastSensorStatus = "Sensor Offline";
         _isLoading = false;
         _currentHumidity = null;
       });
@@ -597,7 +811,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
-      widget.onSprinklerChanged(turnOn);
+
       sprinklerNotifier.value = turnOn; // instantly notify dashboard
       final now = DateTime.now();
 
@@ -623,12 +837,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         final dateStr =
             '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
 
-        _SprinklerMemory.lastActivated = timeStr;
-        _SprinklerMemory.date = dateStr;
-        _SprinklerMemory.duration = '0s';
-        _SprinklerMemory.status = "ON";
-        _SprinklerMemory.activatedAt = now;
-        await _SprinklerMemory.save();
+        SprinklerMemory.lastActivated = timeStr;
+        SprinklerMemory.date = dateStr;
+        SprinklerMemory.duration = '0s';
+        SprinklerMemory.status = "ON";
+        SprinklerMemory.activatedAt = now;
+        await SprinklerMemory.save();
 
         _startDurationTimer(now);
       } else {
@@ -639,10 +853,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           final secs = elapsed.inSeconds % 60;
           finalDuration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
         }
-        _SprinklerMemory.duration = finalDuration;
-        _SprinklerMemory.status = "OFF";
-        _SprinklerMemory.activatedAt = null;
-        await _SprinklerMemory.save();
+        SprinklerMemory.duration = finalDuration;
+        SprinklerMemory.status = "OFF";
+        SprinklerMemory.activatedAt = null;
+        await SprinklerMemory.save();
 
         _stopDurationTimer(keepDuration: true);
       }
@@ -665,6 +879,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     if (_connectionStatus == "Live") {
       badgeColor = Colors.green;
       bgColor = Colors.green.shade100;
+    } else if (_connectionStatus == "Connecting..." ||
+        _connectionStatus == "Reconnecting...") {
+      badgeColor = Colors.orange;
+      bgColor = Colors.orange.shade100;
     } else {
       badgeColor = Colors.red;
       bgColor = Colors.red.shade100;
@@ -689,18 +907,21 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     );
   }
 
+
+  bool _isSprinklerDialogOpen = false;
+
   Future<void> _confirmSprinkler() async {
-    if (_isSprinklerLoading) return;
+    if (_isSprinklerLoading || _isSprinklerDialogOpen) return;
+    _isSprinklerDialogOpen = true;
+
     final isOn = sprinklerNotifier.value;
 
     // Block activation when sensor is offline (deactivation always allowed)
     if (_sensorStatus != "Sensor Online" && !isOn) {
-      showDialog(
+      await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
               Icon(Icons.sensors_off, color: Colors.red, size: 20),
@@ -716,15 +937,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
+      _isSprinklerDialogOpen = false; // ← reset before returning
       return;
     }
 
@@ -748,15 +968,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: isOn ? const Color(0xFFD32F2F) : Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+
+    _isSprinklerDialogOpen = false;
+    if (!mounted) return;
     if (confirmed == true) await _toggleSprinkler(!isOn);
   }
 
@@ -1115,11 +1336,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildChart(bool isDark) {
+    final range = _resolveTimeRange(_selectedTimeRange, _customStart, _customEnd);
+    final now = DateTime.now();
     return Container(
       decoration: _bentoCard(isDark, accentColor: const Color(0xFFEF5350)),
       padding: const EdgeInsets.all(12),
       child: SizedBox(
-        height: 200,
+        height: 210,
         width: double.infinity,
         child: _isLoading
             ? Center(
@@ -1139,8 +1362,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                   painter: _HumidityChartPainter(
                     data: List.from(_chartData),
                     isDark: isDark,
+                    rangeIndex: _selectedTimeRange,
+                    rangeStart: range?.start ?? now,
+                    rangeEnd: range?.end ?? now,
                   ),
-                  child: const SizedBox(height: 200, width: double.infinity),
+                  child: const SizedBox(height: 210, width: double.infinity),
                 ),
               ),
       ),
@@ -1599,7 +1825,17 @@ class _DateTimeChip extends StatelessWidget {
 class _HumidityChartPainter extends CustomPainter {
   final List<Map<String, double>> data;
   final bool isDark;
-  _HumidityChartPainter({required this.data, this.isDark = false});
+  final int rangeIndex;
+  final DateTime rangeStart;
+  final DateTime rangeEnd;
+
+  _HumidityChartPainter({
+    required this.data,
+    this.isDark = false,
+    required this.rangeIndex,
+    required this.rangeStart,
+    required this.rangeEnd,
+  });
 
   List<Map<String, double>> _sampleData(
     List<Map<String, double>> src,
@@ -1614,11 +1850,66 @@ class _HumidityChartPainter extends CustomPainter {
       final end = ((i + 1) * step).floor().clamp(0, src.length);
       if (start >= src.length) break;
       final bucket = src.sublist(start, end);
-      final avg =
+      final avgVal =
           bucket.map((e) => e[key]!).reduce((a, b) => a + b) / bucket.length;
-      result.add({'index': i.toDouble(), key: avg});
+      final avgX =
+          bucket.map((e) => e['x']!).reduce((a, b) => a + b) / bucket.length;
+      result.add({'x': avgX, key: avgVal});
     }
     return result;
+  }
+
+  // Returns (xHours, label) pairs for X-axis tick marks.
+  List<(double, String)> _getXLabels() {
+    switch (rangeIndex) {
+      case 2: // Today — label every 6 hours
+        return const [
+          (0.0, '12AM'),
+          (6.0, '6AM'),
+          (12.0, '12PM'),
+          (18.0, '6PM'),
+        ];
+      case 1: // This Week — one label per day
+        return List.generate(7, (i) {
+          const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          final d = rangeStart.add(Duration(days: i));
+          return (i * 24.0, days[d.weekday - 1]);
+        });
+      case 0: // This Month — label every 7 days
+        final labels = <(double, String)>[];
+        for (var i = 0; ; i += 7) {
+          final d = rangeStart.add(Duration(days: i));
+          if (d.isAfter(rangeEnd)) break;
+          labels.add((i * 24.0, '${d.day}/${d.month}'));
+        }
+        return labels;
+      case 3: // Custom Range — auto based on duration
+        final totalH = rangeEnd.difference(rangeStart).inHours.toDouble();
+        if (totalH <= 0) return const [];
+        if (totalH <= 48) {
+          final step = (totalH / 4).roundToDouble().clamp(1.0, 12.0);
+          final labels = <(double, String)>[];
+          for (var h = 0.0; h <= totalH; h += step) {
+            final dt = rangeStart.add(Duration(hours: h.toInt()));
+            final hh = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+            final ampm = dt.hour < 12 ? 'AM' : 'PM';
+            labels.add((h, '$hh$ampm'));
+          }
+          return labels;
+        } else {
+          final totalDays = (totalH / 24).ceil();
+          final step = totalDays > 14 ? 7 : 1;
+          final labels = <(double, String)>[];
+          for (var d = 0; d < totalDays; d += step) {
+            final dt = rangeStart.add(Duration(days: d));
+            if (dt.isAfter(rangeEnd)) break;
+            labels.add((d * 24.0, '${dt.day}/${dt.month}'));
+          }
+          return labels;
+        }
+      default:
+        return const [];
+    }
   }
 
   @override
@@ -1643,6 +1934,10 @@ class _HumidityChartPainter extends CustomPainter {
           ? Colors.white.withValues(alpha: 0.12)
           : Colors.grey.shade300
       ..strokeWidth = 1;
+    final labelStyle = TextStyle(
+      color: isDark ? Colors.white38 : Colors.grey.shade500,
+      fontSize: 9,
+    );
 
     for (final step in [0, 25, 50, 75, 100]) {
       final y =
@@ -1677,20 +1972,34 @@ class _HumidityChartPainter extends CustomPainter {
     if (data.length < 2) return;
 
     final sampled = _sampleData(data, 80, 'humidity');
-    final xMin = sampled.first['index']!;
-    final xMax = sampled.last['index']!;
+    final xMin = sampled.first['x']!;
+    final xMax = sampled.last['x']!;
     if (xMax == xMin) return;
 
-    double getX(double i) =>
-        leftPadding + ((i - xMin) / (xMax - xMin)) * chartWidth;
+    double getX(double v) =>
+        leftPadding + ((v - xMin) / (xMax - xMin)) * chartWidth;
     double getY(double h) =>
         topPadding +
         chartHeight -
         ((h.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
 
+    // X-axis time labels.
+    for (final (xHours, label) in _getXLabels()) {
+      final xCanvas = getX(xHours);
+      if (xCanvas < leftPadding || xCanvas > size.width) continue;
+      final tp = TextPainter(
+        text: TextSpan(text: label, style: labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(xCanvas - tp.width / 2, topPadding + chartHeight + 6),
+      );
+    }
+
     final fillPath = Path();
     final linePath = Path();
-    final firstX = getX(sampled.first['index']!);
+    final firstX = getX(sampled.first['x']!);
     final firstY = getY(sampled.first['humidity']!);
 
     fillPath.moveTo(firstX, topPadding + chartHeight);
@@ -1698,9 +2007,9 @@ class _HumidityChartPainter extends CustomPainter {
     linePath.moveTo(firstX, firstY);
 
     for (int i = 0; i < sampled.length - 1; i++) {
-      final x0 = getX(sampled[i]['index']!);
+      final x0 = getX(sampled[i]['x']!);
       final y0 = getY(sampled[i]['humidity']!);
-      final x1 = getX(sampled[i + 1]['index']!);
+      final x1 = getX(sampled[i + 1]['x']!);
       final y1 = getY(sampled[i + 1]['humidity']!);
       if (x0.isNaN || y0.isNaN || x1.isNaN || y1.isNaN) continue;
       final cpX1 = x0 + (x1 - x0) * 0.5;
@@ -1709,7 +2018,7 @@ class _HumidityChartPainter extends CustomPainter {
       linePath.cubicTo(cpX1, y0, cpX2, y1, x1, y1);
     }
 
-    final lastX = getX(sampled.last['index']!);
+    final lastX = getX(sampled.last['x']!);
     fillPath.lineTo(lastX, topPadding + chartHeight);
     fillPath.close();
 
