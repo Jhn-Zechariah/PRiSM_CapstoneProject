@@ -14,15 +14,10 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 const String esp32Ip = "192.168.1.249";
 
-// Global notifiers — shared across Dashboard, Temperature, and Humidity screens.
-// Writing to these triggers listeners in every screen without any setState on AppNav.
 final sprinklerNotifier = ValueNotifier<bool>(false);
 final tempMaxTodayNotifier = ValueNotifier<double>(0);
 final humidityMaxTodayNotifier = ValueNotifier<double>(0);
 
-// ─────────────────────────────────────────────
-// SprinklerMemory — persists across navigation and app restarts via Firestore
-// ─────────────────────────────────────────────
 class SprinklerMemory {
   static String lastActivated = "--";
   static String date = "--";
@@ -36,13 +31,14 @@ class SprinklerMemory {
           .collection('sprinkler_state')
           .doc('latest')
           .set({
-        'lastActivated': lastActivated,
-        'date': date,
-        'duration': duration,
-        'status': status,
-        'activatedAt':
-        activatedAt != null ? Timestamp.fromDate(activatedAt!) : null,
-      });
+            'lastActivated': lastActivated,
+            'date': date,
+            'duration': duration,
+            'status': status,
+            'activatedAt': activatedAt != null
+                ? Timestamp.fromDate(activatedAt!)
+                : null,
+          });
     } catch (e) {
       debugPrint('Error saving sprinkler state: $e');
     }
@@ -51,7 +47,6 @@ class SprinklerMemory {
   static Future<void> load() async {
     try {
       DocumentSnapshot? doc;
-      // Try cache first — instant, works offline
       try {
         doc = await FirebaseFirestore.instance
             .collection('sprinkler_state')
@@ -60,7 +55,6 @@ class SprinklerMemory {
       } catch (_) {
         doc = null;
       }
-      // Fallback to server if cache empty
       if (doc == null || !doc.exists) {
         try {
           doc = await FirebaseFirestore.instance
@@ -87,9 +81,6 @@ class SprinklerMemory {
   }
 }
 
-// ─────────────────────────────────────────────
-// SensorMemory — in-memory cache shared across screens
-// ─────────────────────────────────────────────
 class SensorMemory {
   static double lastTemp = 0;
   static double lastHumidity = 0;
@@ -103,7 +94,6 @@ class SensorMemory {
   static List<FlSpot> lastGraphSpots = [];
   static bool graphLoaded = false;
 
-  // Temperature monitoring screen cache
   static List<Map<String, double>> lastTempChartData = [];
   static bool tempChartLoaded = false;
   static String lastTempChartDate = "";
@@ -113,7 +103,6 @@ class SensorMemory {
   static double? lastTempSessionMax;
   static double? lastTempSessionMin;
 
-  // Humidity monitoring screen cache
   static List<Map<String, double>> lastHumidityChartData = [];
   static bool humidityChartLoaded = false;
   static String lastHumidityChartDate = "";
@@ -123,7 +112,6 @@ class SensorMemory {
   static double? lastHumiditySessionMax;
   static double? lastHumiditySessionMin;
 
-  // Centralized setters so notifiers always stay in sync
   static void setTempMaxToday(double v) {
     lastTempMaxToday = v;
     tempMaxTodayNotifier.value = v;
@@ -177,14 +165,14 @@ class SensorMemory {
           .collection('sensor_memory')
           .doc('latest')
           .set({
-        'lastTemp': lastTemp,
-        'lastHumidity': lastHumidity,
-        'tempMaxToday': lastTempMaxToday,
-        'tempMaxDate': lastTempMaxDate,
-        'humidityMaxToday': lastHumidityMaxToday,
-        'humidityMaxDate': lastHumidityMaxDate,
-        'lastPigStatus': lastPigStatus,
-      });
+            'lastTemp': lastTemp,
+            'lastHumidity': lastHumidity,
+            'tempMaxToday': lastTempMaxToday,
+            'tempMaxDate': lastTempMaxDate,
+            'humidityMaxToday': lastHumidityMaxToday,
+            'humidityMaxDate': lastHumidityMaxDate,
+            'lastPigStatus': lastPigStatus,
+          });
     } catch (e) {
       debugPrint('Error saving sensor memory: $e');
     }
@@ -218,7 +206,8 @@ class SensorMemory {
         setTempMaxToday((data['tempMaxToday'] as num?)?.toDouble() ?? 0);
         lastTempMaxDate = data['tempMaxDate'] as String? ?? '--';
         setHumidityMaxToday(
-            (data['humidityMaxToday'] as num?)?.toDouble() ?? 0);
+          (data['humidityMaxToday'] as num?)?.toDouble() ?? 0,
+        );
         lastHumidityMaxDate = data['humidityMaxDate'] as String? ?? '--';
         lastPigStatus = data['lastPigStatus'] as String? ?? '--';
         resetIfNewDay();
@@ -229,11 +218,6 @@ class SensorMemory {
   }
 }
 
-// ─────────────────────────────────────────────
-// DashboardScreen
-// No constructor params — reads from global notifiers directly so
-// AppNav never needs to call setState when sprinkler/sensor values change.
-// ─────────────────────────────────────────────
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -250,16 +234,18 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _connectionStatus = "Connecting...";
   String _sensorStatus = "Connecting...";
 
+  // _tempMax and _humidityLive intentionally start at 0 and are NEVER
+  // restored from cache — they must come from a live ESP32 response.
   double _tempMax = 0;
   String _tempStatus = "Normal";
   double _waterPct = 0;
   String _waterStatus = "Unknown";
-  double _lastKnownTemp = SensorMemory.lastTemp;
-  double _lastKnownHumidity = SensorMemory.lastHumidity;
+  double _lastKnownTemp = 0;
+  double _lastKnownHumidity = 0;
   bool _isSprinklerLoading = false;
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
-  double _humidityLive = SensorMemory.lastHumidity;
+  double _humidityLive = 0;
 
   String _sprinklerStatus = "OFF";
   String _lastActivated = "--";
@@ -269,10 +255,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   bool _graphShowLast24hrs = false;
 
-  // ML
-  String _mlCondition = "Analyzing...";
+  // ML — start with empty state; card is hidden until sensor is live
+  String _mlCondition = "";
   List<String> _mlRecommendations = [];
-  bool _mlLoading = true;
+  bool _mlLoading = false;
+
   List<FlSpot> _graphSpots = List.of(SensorMemory.lastGraphSpots);
   bool _graphLoading = !SensorMemory.graphLoaded;
 
@@ -280,9 +267,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _durationTimer;
   bool _sprinklerMemoryLoaded = false;
   bool _sprinklerJustToggled = false;
+  double _lastMlTemp = 0;
+  double _lastMlHumidity = 0;
+  DateTime? _lastMlRun;
   late bool _localIsActivated;
 
-  // Crossfade animation
   bool _showingTemperature = true;
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
@@ -291,7 +280,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-    // Read initial values from global notifiers — no props needed
     _localIsActivated = sprinklerNotifier.value;
     _tempMaxToday = tempMaxTodayNotifier.value;
     _humidityMaxToday = humidityMaxTodayNotifier.value;
@@ -301,8 +289,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       duration: const Duration(milliseconds: 300),
       value: 1.0,
     );
-    _fadeAnimation =
-        CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    );
 
     context.read<ProfileCubit>().loadUserData();
 
@@ -335,10 +325,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _initializeData();
   }
 
-  // didUpdateWidget intentionally removed — DashboardScreen has no props
-  // to sync, so any call to didUpdateWidget was a sign of a parent setState
-  // leaking into this widget's lifecycle.
-
   @override
   void dispose() {
     _timer?.cancel();
@@ -351,8 +337,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     humidityMaxTodayNotifier.removeListener(_onHumidityMaxNotifierChanged);
     super.dispose();
   }
-
-  // ── Notifier listeners ──────────────────────
 
   void _onSprinklerNotifierChanged() {
     if (!mounted) return;
@@ -383,8 +367,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (v != _humidityMaxToday) setState(() => _humidityMaxToday = v);
   }
 
-  // ── Sprinkler duration timer ─────────────────
-
   void _startDurationTimer(DateTime activatedAt) {
     _durationTimer?.cancel();
     _sprinklerActivatedAt = activatedAt;
@@ -411,8 +393,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     _sprinklerActivatedAt = null;
   }
 
-  // ── Initialisation ───────────────────────────
-
   Future<void> _initializeData() async {
     await Future.wait([SensorMemory.load(), SprinklerMemory.load()]);
     SensorMemory.resetIfNewDay();
@@ -420,13 +400,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
 
     setState(() {
+      // Restore cached values for display-only fields (last known, pig status,
+      // today's max). Do NOT restore _tempMax or _humidityLive — those must
+      // come from a live ESP32 response so ML never runs on stale cache.
       if (SensorMemory.lastTemp > 0) {
         _lastKnownTemp = SensorMemory.lastTemp;
-        _tempMax = SensorMemory.lastTemp;
       }
       if (SensorMemory.lastHumidity > 0) {
         _lastKnownHumidity = SensorMemory.lastHumidity;
-        _humidityLive = SensorMemory.lastHumidity;
       }
       _isLoading = false;
       if (SensorMemory.lastTempMaxToday > 0)
@@ -449,7 +430,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
     });
 
-    // Resume duration timer if sprinkler was ON when app closed
     if (SprinklerMemory.activatedAt != null && _durationTimer == null) {
       _sprinklerActivatedAt = SprinklerMemory.activatedAt;
       _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -464,17 +444,15 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     _fetchData();
-    _fetchMLInsights();
     _loadGraphData();
     _syncTodayMaxFromFirestore();
 
-    _timer =
-        Timer.periodic(const Duration(seconds: 3), (_) => _fetchData());
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _fetchData());
     _toggleTimer = Timer.periodic(
-        const Duration(seconds: 3), (_) => _crossfadeToggle());
+      const Duration(seconds: 3),
+      (_) => _crossfadeToggle(),
+    );
   }
-
-  // ── Crossfade temp/humidity display ─────────
 
   Future<void> _crossfadeToggle() async {
     if (!mounted) return;
@@ -483,8 +461,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     setState(() => _showingTemperature = !_showingTemperature);
     await _fadeController.forward();
   }
-
-  // ── Sensor fetch (direct ESP32 only, no Firestore fallback) ─────────
 
   Future<void> _fetchData() async {
     Map<String, dynamic>? data;
@@ -502,8 +478,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     if (data == null) {
-      // Require 4 consecutive failures (~20s) before marking offline.
-      // This absorbs the 1-3s blocking from ESP32's Firestore HTTPS poll.
       if (_consecutiveFailures < 4) return;
       if (!mounted) return;
       final results = await Connectivity().checkConnectivity();
@@ -515,6 +489,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         SensorMemory.lastSensorStatus = "Sensor Offline";
         _isLoading = false;
       });
+      // Do NOT call _fetchMLInsights() here — sensor is offline,
+      // no fresh data to analyze.
       return;
     }
 
@@ -528,9 +504,9 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       final nowUtc = DateTime.now().toUtc();
       final tsUtc = ts?.toUtc();
-      final diffSeconds =
-      tsUtc != null ? nowUtc.difference(tsUtc).inSeconds : -1;
-      // abs() handles any remaining timezone offset edge cases
+      final diffSeconds = tsUtc != null
+          ? nowUtc.difference(tsUtc).inSeconds
+          : -1;
       final isStale = ts == null || diffSeconds.abs() > 20;
 
       if (isStale) {
@@ -539,6 +515,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         _consecutiveFailures = 0;
       }
       final shouldShowOffline = _consecutiveFailures >= 4;
+
+      bool gotFreshTemp = false;
+      bool gotFreshHumidity = false;
 
       setState(() {
         final newTempLive = (data!['tempAvg'] as num?)?.toDouble();
@@ -552,6 +531,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             SensorMemory.save();
           }
           _tempMaxToday = SensorMemory.lastTempMaxToday;
+          gotFreshTemp = true;
         }
 
         final newHumidity = (data['humidity'] as num?)?.toDouble();
@@ -565,6 +545,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             SensorMemory.save();
           }
           _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
+          gotFreshHumidity = true;
         }
 
         _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
@@ -575,8 +556,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
 
         if (!_sprinklerMemoryLoaded && _lastActivated == "--")
-          _lastActivated =
-              data['lastActivated'] as String? ?? _lastActivated;
+          _lastActivated = data['lastActivated'] as String? ?? _lastActivated;
         if (!_sprinklerMemoryLoaded && _date == "--")
           _date = data['date'] as String? ?? _date;
         if (_duration == "--" && _lastActivated == "--")
@@ -588,8 +568,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           SensorMemory.lastPigStatus = newPigStatus;
         }
 
-        if ((newTempLive != null && newTempLive > 0) ||
-            (newHumidity != null && newHumidity > 0) ||
+        if (gotFreshTemp ||
+            gotFreshHumidity ||
             (newPigStatus != null && newPigStatus != "--")) {
           SensorMemory.save();
         }
@@ -598,7 +578,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         _waterStatus = data['waterStatus'] as String? ?? _waterStatus;
         _isLoading = false;
 
-        // Only flip status label when truly settled — avoids flicker
         if (!isStale && _consecutiveFailures == 0) {
           _connectionStatus = "Live";
           SensorMemory.lastConnectionStatus = "Live";
@@ -610,10 +589,28 @@ class _DashboardScreenState extends State<DashboardScreen>
           _sensorStatus = "Sensor Offline";
           SensorMemory.lastSensorStatus = "Sensor Offline";
         }
-        // Between 1-3 failures: keep previous label — no flicker
       });
 
-      if (!_sprinklerJustToggled && !sprinklerNotifier.value &&
+      // Only run ML when we have fresh live values from the ESP32
+      if (_tempMax > 0 && _humidityLive > 0) {
+        //change in temp or humidity must be significant enough to trigger ML, and at least 60 seconds must have passed since last ML run
+        final tempChanged = (_tempMax - _lastMlTemp).abs() >= 4;
+        //change in humidity must be significant enough to trigger ML, and at least 60 seconds must have passed since last ML run
+        final humidityChanged = (_humidityLive - _lastMlHumidity).abs() >= 11.0;
+        final cooldownExpired =
+            _lastMlRun == null ||
+            DateTime.now().difference(_lastMlRun!).inSeconds >= 60;
+
+        if ((tempChanged || humidityChanged) && cooldownExpired) {
+          _lastMlTemp = _tempMax;
+          _lastMlHumidity = _humidityLive;
+          _lastMlRun = DateTime.now();
+          _fetchMLInsights();
+        }
+      }
+
+      if (!_sprinklerJustToggled &&
+          !sprinklerNotifier.value &&
           _sprinklerActivatedAt != null) {
         final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
         if (elapsed.inSeconds > 3) _stopDurationTimer(keepDuration: true);
@@ -628,8 +625,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  // ── Firestore: sync today's historical max on startup ───────────────
-
   Future<void> _syncTodayMaxFromFirestore() async {
     try {
       final now = DateTime.now();
@@ -639,8 +634,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       try {
         tempSnapshot = await FirebaseFirestore.instance
             .collection('temperature_readings')
-            .where('timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+            )
             .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
             .orderBy('timestamp')
             .get(const GetOptions(source: Source.cache));
@@ -651,10 +648,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         try {
           tempSnapshot = await FirebaseFirestore.instance
               .collection('temperature_readings')
-              .where('timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-              .where('timestamp',
-              isLessThanOrEqualTo: Timestamp.fromDate(now))
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+              )
+              .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
               .orderBy('timestamp')
               .get(const GetOptions(source: Source.server))
               .timeout(const Duration(seconds: 4));
@@ -676,8 +674,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       try {
         humiditySnapshot = await FirebaseFirestore.instance
             .collection('humidity_readings')
-            .where('timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+            )
             .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
             .orderBy('timestamp')
             .get(const GetOptions(source: Source.cache));
@@ -688,10 +688,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         try {
           humiditySnapshot = await FirebaseFirestore.instance
               .collection('humidity_readings')
-              .where('timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-              .where('timestamp',
-              isLessThanOrEqualTo: Timestamp.fromDate(now))
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
+              )
+              .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
               .orderBy('timestamp')
               .get(const GetOptions(source: Source.server))
               .timeout(const Duration(seconds: 4));
@@ -733,8 +734,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  // ── Graph ────────────────────────────────────
-
   Future<void> _loadGraphData() async {
     if (!SensorMemory.graphLoaded) setState(() => _graphLoading = true);
     try {
@@ -746,8 +745,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       final snapshot = await FirebaseFirestore.instance
           .collection('temperature_hourly')
           .orderBy('timestamp', descending: false)
-          .where('timestamp',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
+          )
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
           .limit(500)
           .get();
@@ -756,7 +757,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final ts = (data['timestamp'] as Timestamp?)?.toDate();
-        final temp = (data['tempAvg'] as num?)?.toDouble() ??
+        final temp =
+            (data['tempAvg'] as num?)?.toDouble() ??
             (data['temperature'] as num?)?.toDouble() ??
             (data['tempMax'] as num?)?.toDouble();
         if (ts == null || temp == null) continue;
@@ -790,15 +792,27 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  // ── ML insights ──────────────────────────────
-
   Future<void> _fetchMLInsights() async {
+    // Guard: only run when we have real live values from the ESP32
+    if (_tempMax <= 0 || _humidityLive <= 0) {
+      if (_mlCondition.isEmpty) {
+        setState(() {
+          _mlCondition = "Unavailable";
+          _mlRecommendations = [
+            "Sensor is offline. Connect to receive smart recommendations.",
+          ];
+          _mlLoading = false;
+        });
+      }
+      return;
+    }
+
+    setState(() => _mlLoading = true);
+
     try {
       final result = await MlService.analyzeFarm(
-        temperatureC: _tempMax > 0 ? _tempMax : 28.0,
-        humidityPct: _humidityMaxToday > 0 ? _humidityMaxToday : 75.0,
-        weightChangeKg: 0.0,
-        feedIntakeKg: 0.0,
+        temperatureC: _tempMax,
+        humidityPct: _humidityLive,
       ).timeout(const Duration(seconds: 6));
 
       if (!mounted) return;
@@ -810,6 +824,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           _mlRecommendations = recs;
           _mlLoading = false;
         });
+      } else {
+        setState(() => _mlLoading = false);
       }
     } catch (e) {
       if (!mounted) return;
@@ -821,24 +837,23 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  // ── Sprinkler toggle ─────────────────────────
   bool _isSprinklerDialogOpen = false;
 
   Future<void> _confirmSprinkler() async {
     if (_isSprinklerLoading || _isSprinklerDialogOpen) return;
     _isSprinklerDialogOpen = true;
-    // Sensor offline does NOT block the button — command goes via Firestore
 
     final action = _localIsActivated ? 'Deactivate' : 'Activate';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape:
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text('$action Sprinkler?'),
-        content: Text(_localIsActivated
-            ? 'Are you sure you want to turn the sprinkler off?'
-            : 'Are you sure you want to turn the sprinkler on?'),
+        content: Text(
+          _localIsActivated
+              ? 'Are you sure you want to turn the sprinkler off?'
+              : 'Are you sure you want to turn the sprinkler on?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -847,13 +862,14 @@ class _DashboardScreenState extends State<DashboardScreen>
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor:
-              _localIsActivated ? const Color(0xFFD32F2F) : Colors.green,
+              backgroundColor: _localIsActivated
+                  ? const Color(0xFFD32F2F)
+                  : Colors.green,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
-            child:
-            Text(action, style: const TextStyle(color: Colors.white)),
+            child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -875,7 +891,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       final now = DateTime.now();
       setState(() => _localIsActivated = turnOn);
-      sprinklerNotifier.value = turnOn; // broadcast to all screens
+      sprinklerNotifier.value = turnOn;
 
       if (turnOn) {
         final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
@@ -883,8 +899,18 @@ class _DashboardScreenState extends State<DashboardScreen>
         final period = now.hour < 12 ? 'AM' : 'PM';
         final timeStr = '$hour:$minute $period';
         const months = [
-          'Jan','Feb','Mar','Apr','May','Jun',
-          'Jul','Aug','Sep','Oct','Nov','Dec'
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
         ];
         final dateStr =
             '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
@@ -927,7 +953,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         });
       }
 
-      // Wait longer than ESP32 poll interval (5s) before confirming
       await Future.delayed(const Duration(milliseconds: 6000));
       if (mounted) {
         await _fetchData();
@@ -943,14 +968,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  // ── Decoration helper ────────────────────────
-
   BoxDecoration _bentoDecoration(bool isDark, {Color? accentColor}) {
     return BoxDecoration(
       color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       borderRadius: BorderRadius.circular(20),
       border: Border.all(
-        color: accentColor?.withValues(alpha: 0.25) ??
+        color:
+            accentColor?.withValues(alpha: 0.25) ??
             (isDark
                 ? Colors.white.withValues(alpha: 0.07)
                 : Colors.black.withValues(alpha: 0.06)),
@@ -958,7 +982,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
       boxShadow: [
         BoxShadow(
-          color: accentColor?.withValues(alpha: 0.10) ??
+          color:
+              accentColor?.withValues(alpha: 0.10) ??
               (isDark
                   ? Colors.black.withValues(alpha: 0.4)
                   : Colors.black.withValues(alpha: 0.08)),
@@ -976,11 +1001,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  // ── Build ────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // Show ML card only when we have a result (loading or done with real data)
+    final showMlCard = _mlLoading || _mlCondition.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
       child: SingleChildScrollView(
@@ -1020,8 +1046,11 @@ class _DashboardScreenState extends State<DashboardScreen>
             CircleAvatar(
               radius: 24,
               backgroundColor: Colors.transparent,
-              child: Icon(Symbols.account_circle,
-                  size: 50, color: isDark ? Colors.white : Colors.black),
+              child: Icon(
+                Symbols.account_circle,
+                size: 50,
+                color: isDark ? Colors.white : Colors.black,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1029,14 +1058,18 @@ class _DashboardScreenState extends State<DashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const CustomText(
-                      type: TextType.username,
-                      prefix: 'Hello, ',
-                      suffix: '👋',
-                      fontSize: 20),
-                  Text("Here's what's happening in your farm.",
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: isDark ? Colors.white60 : Colors.grey)),
+                    type: TextType.username,
+                    prefix: 'Hello, ',
+                    suffix: '👋',
+                    fontSize: 20,
+                  ),
+                  Text(
+                    "Here's what's happening in your farm.",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? Colors.white60 : Colors.grey,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1075,9 +1108,14 @@ class _DashboardScreenState extends State<DashboardScreen>
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -1085,10 +1123,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildWeatherCard(bool isDark) {
     final showTemp = _showingTemperature;
-    final displayTemp = _tempMax > 0 ? _tempMax : _lastKnownTemp;
-    final displayHumidity =
-    _humidityLive > 0 ? _humidityLive : _lastKnownHumidity;
-    final isOffline = _sensorStatus == "Sensor Offline" ||
+    // Use live values only — 0 means sensor is offline, shows "--"
+    final displayTemp = _tempMax;
+    final displayHumidity = _humidityLive;
+    final isOffline =
+        _sensorStatus == "Sensor Offline" ||
         _connectionStatus == "No connection";
 
     final value = _isLoading
@@ -1096,15 +1135,14 @@ class _DashboardScreenState extends State<DashboardScreen>
         : isOffline
         ? "--"
         : showTemp
-        ? (displayTemp > 0
-        ? "${displayTemp.toStringAsFixed(1)}°"
-        : "--")
+        ? (displayTemp > 0 ? "${displayTemp.toStringAsFixed(1)}°" : "--")
         : (displayHumidity > 0
-        ? "${displayHumidity.toStringAsFixed(1)}%"
-        : "--");
+              ? "${displayHumidity.toStringAsFixed(1)}%"
+              : "--");
 
-    final icon =
-    showTemp ? Icons.thermostat_outlined : Icons.water_drop_outlined;
+    final icon = showTemp
+        ? Icons.thermostat_outlined
+        : Icons.water_drop_outlined;
     final iconColor = showTemp ? Colors.orange : Colors.blue;
 
     return Container(
@@ -1119,49 +1157,61 @@ class _DashboardScreenState extends State<DashboardScreen>
               children: [
                 FadeTransition(
                   opacity: _fadeAnimation,
-                  child: Row(children: [
-                    Icon(icon, size: 14, color: iconColor),
-                    const SizedBox(width: 4),
-                    Text(showTemp ? "Temperature" : "Humidity",
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 14, color: iconColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        showTemp ? "Temperature" : "Humidity",
                         style: TextStyle(
-                            color: isDark ? Colors.white60 : Colors.grey,
-                            fontSize: 12)),
-                  ]),
+                          color: isDark ? Colors.white60 : Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 4),
                 _isLoading
                     ? const SizedBox(
-                    height: 40,
-                    width: 40,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                        height: 40,
+                        width: 40,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    transitionBuilder: (child, animation) =>
-                        SlideTransition(
-                          position: Tween<Offset>(
-                              begin: const Offset(0, 0.2),
-                              end: Offset.zero)
-                              .animate(animation),
-                          child: FadeTransition(
-                              opacity: animation, child: child),
+                        opacity: _fadeAnimation,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (child, animation) =>
+                              SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.2),
+                                  end: Offset.zero,
+                                ).animate(animation),
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                              ),
+                          child: Text(
+                            value,
+                            key: ValueKey(value),
+                            style: TextStyle(
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
                         ),
-                    child: Text(value,
-                        key: ValueKey(value),
-                        style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                            color:
-                            isDark ? Colors.white : Colors.black)),
-                  ),
-                ),
+                      ),
                 const SizedBox(height: 6),
-                Row(children: [
-                  _buildDot(isActive: showTemp, color: Colors.orange),
-                  const SizedBox(width: 4),
-                  _buildDot(isActive: !showTemp, color: Colors.blue),
-                ]),
+                Row(
+                  children: [
+                    _buildDot(isActive: showTemp, color: Colors.orange),
+                    const SizedBox(width: 4),
+                    _buildDot(isActive: !showTemp, color: Colors.blue),
+                  ],
+                ),
               ],
             ),
           ),
@@ -1169,8 +1219,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             onTap: _isSprinklerLoading ? null : _confirmSprinkler,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding:
-              const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
                 color: _isSprinklerLoading
                     ? Colors.grey.shade400
@@ -1181,28 +1230,32 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               child: _isSprinklerLoading
                   ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                      _localIsActivated
-                          ? Icons.check_circle
-                          : Icons.shower,
-                      color: Colors.white,
-                      size: 18),
-                  const SizedBox(width: 6),
-                  Text(
-                      _localIsActivated ? 'Active' : 'Activate',
-                      style: const TextStyle(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _localIsActivated ? Icons.check_circle : Icons.shower,
                           color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14)),
-                ],
-              ),
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _localIsActivated ? 'Active' : 'Activate',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ],
@@ -1235,9 +1288,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               [
                 "Max Temp Today: ${() {
                   SensorMemory.resetIfNewDay();
-                  final v = SensorMemory.lastTempMaxToday > 0
-                      ? SensorMemory.lastTempMaxToday
-                      : _tempMaxToday;
+                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : _tempMaxToday;
                   return v == 0 ? '…' : '${v.toStringAsFixed(1)}°C';
                 }()}",
                 "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
@@ -1248,59 +1299,67 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           const SizedBox(width: 5),
           Expanded(
-            child: _buildInfoCard(
-              isDark,
-              Symbols.shower,
-              "Sprinkler Info",
-              [
-                "Status: $_sprinklerStatus",
-                "Time: $_lastActivated",
-                "Date: $_date",
-                "Duration: $_duration",
-              ],
-              const Color(0xFF1E88E5),
-            ),
+            child: _buildInfoCard(isDark, Symbols.shower, "Sprinkler Info", [
+              "Status: $_sprinklerStatus",
+              "Time: $_lastActivated",
+              "Date: $_date",
+              "Duration: $_duration",
+            ], const Color(0xFF1E88E5)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoCard(bool isDark, IconData icon, String title,
-      List<String> items, Color iconColor) {
+  Widget _buildInfoCard(
+    bool isDark,
+    IconData icon,
+    String title,
+    List<String> items,
+    Color iconColor,
+  ) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: _bentoDecoration(isDark, accentColor: iconColor),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
                   color: iconColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Icon(icon, size: 15, color: iconColor),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(title,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 15, color: iconColor),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  title,
                   style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: isDark ? Colors.white : Colors.black)),
-            ),
-          ]),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          ...items.map((e) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(e,
+          ...items.map(
+            (e) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(
+                e,
                 style: TextStyle(
-                    color: isDark
-                        ? Colors.white60
-                        : const Color(0xFF707070),
-                    fontSize: 12)),
-          )),
+                  color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1320,59 +1379,70 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Symbols.monitoring,
-                  color: Colors.green, size: 16),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Symbols.monitoring,
+                  color: Colors.green,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
                   _graphShowLast24hrs
                       ? "Temperature (Last 24 hrs)"
                       : "Temperature (Today)",
                   style: TextStyle(
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-            ),
-            GestureDetector(
-              onTap: () {
-                setState(
-                        () => _graphShowLast24hrs = !_graphShowLast24hrs);
-                _loadGraphData();
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.green, width: 1),
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
                 ),
-                child: Text(
+              ),
+              GestureDetector(
+                onTap: () {
+                  setState(() => _graphShowLast24hrs = !_graphShowLast24hrs);
+                  _loadGraphData();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.green, width: 1),
+                  ),
+                  child: Text(
                     _graphShowLast24hrs ? "24 hrs" : "Today",
                     style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.green)),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green,
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("°C",
-                  style: TextStyle(fontSize: 10, color: labelColor)),
+              Text("°C", style: TextStyle(fontSize: 10, color: labelColor)),
               Text(
-                  _graphShowLast24hrs ? "Hour (0 = 24hrs ago)" : "Hour",
-                  style: TextStyle(fontSize: 10, color: labelColor)),
+                _graphShowLast24hrs ? "Hour (0 = 24hrs ago)" : "Hour",
+                style: TextStyle(fontSize: 10, color: labelColor),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1380,158 +1450,164 @@ class _DashboardScreenState extends State<DashboardScreen>
             height: 220,
             child: _graphLoading
                 ? Center(
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.green))
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.green,
+                    ),
+                  )
                 : !hasData
                 ? Center(
-                child: Text("No temperature data available",
-                    style: TextStyle(
-                        color: labelColor, fontSize: 12)))
-                : LineChart(LineChartData(
-              minX: 0,
-              maxX: xMax,
-              minY: 18,
-              maxY: 47,
-              lineBarsData: [
-                LineChartBarData(
-                  spots: spots,
-                  isCurved: true,
-                  curveSmoothness: 0.6,
-                  color: lineColor,
-                  barWidth: 2.5,
-                  dotData: FlDotData(
-                    show: true,
-                    getDotPainter: (s, p, b, i) =>
-                        FlDotCirclePainter(
-                            radius: 2,
-                            color: Colors.green,
-                            strokeWidth: 0,
-                            strokeColor: Colors.transparent),
-                  ),
-                  belowBarData: BarAreaData(
-                    show: true,
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.green.withValues(alpha: 0.35),
-                        Colors.green.withValues(alpha: 0.10),
+                    child: Text(
+                      "No temperature data available",
+                      style: TextStyle(color: labelColor, fontSize: 12),
+                    ),
+                  )
+                : LineChart(
+                    LineChartData(
+                      minX: 0,
+                      maxX: xMax,
+                      minY: 18,
+                      maxY: 47,
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: spots,
+                          isCurved: true,
+                          curveSmoothness: 0.6,
+                          color: lineColor,
+                          barWidth: 2.5,
+                          dotData: FlDotData(
+                            show: true,
+                            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
+                              radius: 2,
+                              color: Colors.green,
+                              strokeWidth: 0,
+                              strokeColor: Colors.transparent,
+                            ),
+                          ),
+                          belowBarData: BarAreaData(
+                            show: true,
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.green.withValues(alpha: 0.35),
+                                Colors.green.withValues(alpha: 0.10),
+                              ],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                          ),
+                        ),
                       ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: 5,
+                        getDrawingHorizontalLine: (_) => FlLine(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.08)
+                              : Colors.black.withValues(alpha: 0.06),
+                          strokeWidth: 1,
+                        ),
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border(
+                          bottom: BorderSide(color: axisColor, width: 1.5),
+                          left: BorderSide(color: axisColor, width: 1.5),
+                        ),
+                      ),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 22,
+                            interval: 1,
+                            getTitlesWidget: (value, meta) {
+                              const labels = {
+                                0: '12AM',
+                                4: '4AM',
+                                8: '8AM',
+                                12: '12PM',
+                                16: '4PM',
+                                20: '8PM',
+                                23: '11PM',
+                              };
+                              final h = value.toInt();
+                              if (!labels.containsKey(h))
+                                return const SizedBox.shrink();
+                              return SideTitleWidget(
+                                meta: meta,
+                                child: Text(
+                                  labels[h]!,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: labelColor,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 36,
+                            interval: 5,
+                            getTitlesWidget: (value, meta) {
+                              const allowed = [20, 25, 30, 35, 40, 45];
+                              if (!allowed.contains(value.toInt()) ||
+                                  value != value.roundToDouble())
+                                return const SizedBox.shrink();
+                              return SideTitleWidget(
+                                meta: meta,
+                                child: Text(
+                                  '${value.toInt()}°',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: labelColor,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      lineTouchData: LineTouchData(
+                        touchTooltipData: LineTouchTooltipData(
+                          getTooltipColor: (_) =>
+                              isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                          getTooltipItems: (touchedSpots) {
+                            return touchedSpots.map((spot) {
+                              String label;
+                              if (_graphShowLast24hrs) {
+                                final hoursAgo = (24 - spot.x).toInt();
+                                label = hoursAgo == 0
+                                    ? 'Now'
+                                    : '${hoursAgo}h ago';
+                              } else {
+                                final h = spot.x.toInt();
+                                final hour12 = h % 12 == 0 ? 12 : h % 12;
+                                label = '$hour12:00 ${h >= 12 ? 'PM' : 'AM'}';
+                              }
+                              return LineTooltipItem(
+                                '$label\n${spot.y.toStringAsFixed(1)}°C',
+                                TextStyle(
+                                  color: lineColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              );
+                            }).toList();
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ],
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: 5,
-                getDrawingHorizontalLine: (_) => FlLine(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.08)
-                        : Colors.black.withValues(alpha: 0.06),
-                    strokeWidth: 1),
-              ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border(
-                  bottom: BorderSide(
-                      color: axisColor, width: 1.5),
-                  left: BorderSide(
-                      color: axisColor, width: 1.5),
-                ),
-              ),
-              titlesData: FlTitlesData(
-                topTitles: const AxisTitles(
-                    sideTitles:
-                    SideTitles(showTitles: false)),
-                rightTitles: const AxisTitles(
-                    sideTitles:
-                    SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 22,
-                    interval: 1,
-                    getTitlesWidget: (value, meta) {
-                      const labels = {
-                        0: '12AM',
-                        4: '4AM',
-                        8: '8AM',
-                        12: '12PM',
-                        16: '4PM',
-                        20: '8PM',
-                        23: '11PM',
-                      };
-                      final h = value.toInt();
-                      if (!labels.containsKey(h))
-                        return const SizedBox.shrink();
-                      return SideTitleWidget(
-                        meta: meta,
-                        child: Text(labels[h]!,
-                            style: TextStyle(
-                                fontSize: 9,
-                                color: labelColor)),
-                      );
-                    },
-                  ),
-                ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 36,
-                    interval: 5,
-                    getTitlesWidget: (value, meta) {
-                      const allowed = [
-                        20, 25, 30, 35, 40, 45
-                      ];
-                      if (!allowed
-                          .contains(value.toInt()) ||
-                          value != value.roundToDouble())
-                        return const SizedBox.shrink();
-                      return SideTitleWidget(
-                        meta: meta,
-                        child: Text('${value.toInt()}°',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: labelColor)),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              lineTouchData: LineTouchData(
-                touchTooltipData: LineTouchTooltipData(
-                  getTooltipColor: (_) => isDark
-                      ? const Color(0xFF2A2A2A)
-                      : Colors.white,
-                  getTooltipItems: (touchedSpots) {
-                    return touchedSpots.map((spot) {
-                      String label;
-                      if (_graphShowLast24hrs) {
-                        final hoursAgo =
-                        (24 - spot.x).toInt();
-                        label = hoursAgo == 0
-                            ? 'Now'
-                            : '${hoursAgo}h ago';
-                      } else {
-                        final h = spot.x.toInt();
-                        final hour12 =
-                        h % 12 == 0 ? 12 : h % 12;
-                        label =
-                        '$hour12:00 ${h >= 12 ? 'PM' : 'AM'}';
-                      }
-                      return LineTooltipItem(
-                        '$label\n${spot.y.toStringAsFixed(1)}°C',
-                        TextStyle(
-                            color: lineColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600),
-                      );
-                    }).toList();
-                  },
-                ),
-              ),
-            )),
           ),
         ],
       ),
@@ -1567,59 +1643,74 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration:
-      _bentoDecoration(isDark, accentColor: const Color(0xFF1E88E5)),
+      decoration: _bentoDecoration(
+        isDark,
+        accentColor: const Color(0xFF1E88E5),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                  color:
-                  const Color(0xFF1E88E5).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Symbols.water_medium,
-                  size: 15, color: Color(0xFF1E88E5)),
-            ),
-            const SizedBox(width: 8),
-            Text("Water Level",
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Symbols.water_medium,
+                  size: 15,
+                  color: Color(0xFF1E88E5),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "Water Level",
                 style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: isDark ? Colors.white : Colors.black)),
-          ]),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
-          Text("Level: ${_waterPct.toStringAsFixed(0)}%",
-              style: TextStyle(
-                  color: isDark
-                      ? Colors.white60
-                      : const Color(0xFF707070),
-                  fontSize: 12)),
+          Text(
+            "Level: ${_waterPct.toStringAsFixed(0)}%",
+            style: TextStyle(
+              color: isDark ? Colors.white60 : const Color(0xFF707070),
+              fontSize: 12,
+            ),
+          ),
           const SizedBox(height: 4),
-          Row(children: [
-            Text("Status: ",
+          Row(
+            children: [
+              Text(
+                "Status: ",
                 style: TextStyle(
-                    color: isDark
-                        ? Colors.white60
-                        : const Color(0xFF707070),
-                    fontSize: 12)),
-            Text(_waterStatus,
+                  color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                _waterStatus,
                 style: TextStyle(
-                    color: statusColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold)),
-          ]),
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: (_waterPct / 100).clamp(0.0, 1.0),
               minHeight: 6,
-              backgroundColor:
-              isDark ? Colors.white12 : Colors.grey.shade200,
-              valueColor:
-              AlwaysStoppedAnimation<Color>(statusColor),
+              backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
             ),
           ),
         ],
@@ -1639,94 +1730,125 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                  color: conditionColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Icon(Icons.lightbulb_outline,
-                  size: 15, color: conditionColor),
-            ),
-            const SizedBox(width: 8),
-            Text("Smart Recommendation",
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: isDark ? Colors.white : Colors.black)),
-            const Spacer(),
-            if (!_mlLoading)
+          Row(
+            children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
                   color: conditionColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: conditionColor, width: 1),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(_mlCondition,
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: conditionColor)),
+                child: Icon(
+                  Icons.lightbulb_outline,
+                  size: 15,
+                  color: conditionColor,
+                ),
               ),
-          ]),
+              const SizedBox(width: 8),
+              Text(
+                "Smart Recommendation",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
+              const Spacer(),
+              if (!_mlLoading && _mlCondition.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 10),
           if (_mlLoading)
-            Row(children: [
-              const SizedBox(
+            Row(
+              children: [
+                const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-              const SizedBox(width: 10),
-              Text("Analyzing farm conditions...",
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  "Analyzing farm conditions...",
                   style: TextStyle(
-                      fontSize: 12,
-                      color: isDark
-                          ? Colors.white60
-                          : const Color(0xFF707070))),
-            ])
-          else if (_mlRecommendations.isEmpty)
-            Text("No recommendations at this time.",
-                style: TextStyle(
                     fontSize: 12,
-                    color: isDark
-                        ? Colors.white60
-                        : const Color(0xFF707070)))
-          else
-            ..._mlRecommendations.map((r) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.arrow_right,
-                      size: 16, color: conditionColor),
-                  const SizedBox(width: 4),
-                  Expanded(
-                      child: Text(r,
-                          style: TextStyle(
-                              color: isDark
-                                  ? Colors.white60
-                                  : const Color(0xFF707070),
-                              fontSize: 12))),
-                ],
+                    color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  ),
+                ),
+              ],
+            )
+          else if (_mlRecommendations.isEmpty)
+            Text(
+              "No recommendations at this time. Check your sensor connection.",
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.white60 : const Color(0xFF707070),
               ),
-            )),
-          if (!_mlLoading && _mlCondition != "Unavailable")
+            )
+          else
+            ..._mlRecommendations.map(
+              (r) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        r,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white60
+                              : const Color(0xFF707070),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (!_mlLoading &&
+              _mlCondition.isNotEmpty &&
+              _mlCondition != "Unavailable")
             Padding(
               padding: const EdgeInsets.only(top: 10),
-              child: Row(children: [
-                Icon(Icons.memory,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.memory,
                     size: 11,
-                    color: isDark ? Colors.white30 : Colors.black26),
-                const SizedBox(width: 4),
-                Text("Powered by PRISM trained ML · live sensor data",
+                    color: isDark ? Colors.white30 : Colors.black26,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "Powered by PRISM trained ML · live sensor data",
                     style: TextStyle(
-                        fontSize: 10,
-                        color: isDark
-                            ? Colors.white30
-                            : Colors.black38)),
-              ]),
+                      fontSize: 10,
+                      color: isDark ? Colors.white30 : Colors.black38,
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
       ),

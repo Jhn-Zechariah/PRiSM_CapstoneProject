@@ -7,8 +7,9 @@ import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../../../../core/services/ml_service.dart';
 
-const String kEsp32BaseUrl = "http://192.168.1.29";
+const String kEsp32BaseUrl = "192.168.1.249";
 
 const List<String> kTimeRanges = [
   'This Month',
@@ -69,7 +70,6 @@ DateTimeRange? _resolveTimeRange(
   }
 }
 
-
 // ── Humidity Monitoring ───────────────────────────────────────────────────────
 
 class HumidityMonitoring extends StatefulWidget {
@@ -87,14 +87,20 @@ class HumidityMonitoring extends StatefulWidget {
 }
 
 class _HumidityMonitoringState extends State<HumidityMonitoring> {
+  //ml part
+  String? _mlInsight;
+  String? _mlRecommendation;
+  String? _mlCondition;
+  bool _mlInsightLoading = false;
+
   int _selectedTab = 1;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
   static bool _humidityCacheIsToday() =>
       SensorMemory.lastHumidityChartDate == SensorMemory.todayKey();
 
-  bool _isLoading = !SensorMemory.humidityChartLoaded ||
-      !_humidityCacheIsToday();
+  bool _isLoading =
+      !SensorMemory.humidityChartLoaded || !_humidityCacheIsToday();
 
   String _connectionStatus = SensorMemory.lastConnectionStatus;
   String _sensorStatus = "Sensor Offline";
@@ -146,13 +152,23 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   double? _currentHumidity;
 
   // Display stats shown in the review card.
-  double? _displayMax = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMax : null;
-  double? _displayMin = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayMin : null;
-  double? _displayAvg = _humidityCacheIsToday() ? SensorMemory.lastHumidityDisplayAvg : null;
+  double? _displayMax = _humidityCacheIsToday()
+      ? SensorMemory.lastHumidityDisplayMax
+      : null;
+  double? _displayMin = _humidityCacheIsToday()
+      ? SensorMemory.lastHumidityDisplayMin
+      : null;
+  double? _displayAvg = _humidityCacheIsToday()
+      ? SensorMemory.lastHumidityDisplayAvg
+      : null;
 
   // Live session accumulators (only used for "Today" view).
-  double? _sessionMax = _humidityCacheIsToday() ? SensorMemory.lastHumiditySessionMax : null;
-  double? _sessionMin = _humidityCacheIsToday() ? SensorMemory.lastHumiditySessionMin : null;
+  double? _sessionMax = _humidityCacheIsToday()
+      ? SensorMemory.lastHumiditySessionMax
+      : null;
+  double? _sessionMin = _humidityCacheIsToday()
+      ? SensorMemory.lastHumiditySessionMin
+      : null;
   double _sessionSeedSum = 0;
   int _sessionSeedCount = 0;
 
@@ -197,8 +213,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     return "Normal";
   }
 
-  final List<Map<String, double>> _chartData =
-      _humidityCacheIsToday() ? List.of(SensorMemory.lastHumidityChartData) : [];
+  final List<Map<String, double>> _chartData = _humidityCacheIsToday()
+      ? List.of(SensorMemory.lastHumidityChartData)
+      : [];
   Timer? _timer;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -323,7 +340,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     super.dispose();
   }
 
-/// Folds a new live reading into the current-hour bucket. Each hour
+  /// Folds a new live reading into the current-hour bucket. Each hour
   /// contributes exactly ONE averaged value to the session total — same
   /// granularity as the seeded Firestore hourly-aggregate documents —
   /// so the live hour doesn't get over-weighted just because it has many
@@ -348,7 +365,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     _liveHourKey = hourKey;
     _liveHourSum += humidity;
     _liveHourCount += 1;
-    if (humidity > _liveHourMax) _liveHourMax = humidity;  // peak for Highest stat only
+    if (humidity > _liveHourMax)
+      _liveHourMax = humidity; // peak for Highest stat only
 
     final x = ts.difference(_todayStart).inMinutes / 60.0;
 
@@ -448,30 +466,42 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     // instant. Cache is date-keyed and auto-invalidates at midnight.
     // Max/min are always re-merged with today's live data on cache hit.
     final today = SensorMemory.todayKey();
-    if (rangeIndexAtLoad == 1 && _cachedWeekDate == today && _cachedWeekData.isNotEmpty) {
+    if (rangeIndexAtLoad == 1 &&
+        _cachedWeekDate == today &&
+        _cachedWeekData.isNotEmpty) {
       setState(() {
-        _chartData..clear()..addAll(_cachedWeekData);
+        _chartData
+          ..clear()
+          ..addAll(_cachedWeekData);
         var cMax = _cachedWeekMax ?? 0.0;
         var cMin = _cachedWeekMin ?? double.infinity;
         SensorMemory.resetIfNewDay();
-        if (SensorMemory.lastHumidityMaxToday > cMax) cMax = SensorMemory.lastHumidityMaxToday;
+        if (SensorMemory.lastHumidityMaxToday > cMax)
+          cMax = SensorMemory.lastHumidityMaxToday;
         if (SensorMemory.lastHumidityDisplayMin != null &&
-            SensorMemory.lastHumidityDisplayMin! < cMin) cMin = SensorMemory.lastHumidityDisplayMin!;
+            SensorMemory.lastHumidityDisplayMin! < cMin)
+          cMin = SensorMemory.lastHumidityDisplayMin!;
         _displayMax = cMax;
         _displayMin = cMin == double.infinity ? _cachedWeekMin : cMin;
         _displayAvg = _cachedWeekAvg;
       });
       return;
     }
-    if (rangeIndexAtLoad == 0 && _cachedMonthDate == today && _cachedMonthData.isNotEmpty) {
+    if (rangeIndexAtLoad == 0 &&
+        _cachedMonthDate == today &&
+        _cachedMonthData.isNotEmpty) {
       setState(() {
-        _chartData..clear()..addAll(_cachedMonthData);
+        _chartData
+          ..clear()
+          ..addAll(_cachedMonthData);
         var cMax = _cachedMonthMax ?? 0.0;
         var cMin = _cachedMonthMin ?? double.infinity;
         SensorMemory.resetIfNewDay();
-        if (SensorMemory.lastHumidityMaxToday > cMax) cMax = SensorMemory.lastHumidityMaxToday;
+        if (SensorMemory.lastHumidityMaxToday > cMax)
+          cMax = SensorMemory.lastHumidityMaxToday;
         if (SensorMemory.lastHumidityDisplayMin != null &&
-            SensorMemory.lastHumidityDisplayMin! < cMin) cMin = SensorMemory.lastHumidityDisplayMin!;
+            SensorMemory.lastHumidityDisplayMin! < cMin)
+          cMin = SensorMemory.lastHumidityDisplayMin!;
         _displayMax = cMax;
         _displayMin = cMin == double.infinity ? _cachedMonthMin : cMin;
         _displayAvg = _cachedMonthAvg;
@@ -743,6 +773,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           _connectionStatus = "Live";
           SensorMemory.lastConnectionStatus = "Live";
           _currentHumidity = h;
+          if (h > 0) {
+            _fetchHumidityMLInsight(h);
+          }
           _sensorStatus = "Sensor Online";
           SensorMemory.lastSensorStatus = "Sensor Online";
           if (_selectedTimeRange == 2) {
@@ -787,7 +820,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         SensorMemory.lastHumiditySessionMax = _sessionMax;
         SensorMemory.lastHumiditySessionMin = _sessionMin;
       }
-
     } catch (_) {
       _consecutiveFailures++;
       if (_consecutiveFailures < 2) return;
@@ -810,7 +842,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           .collection('sprinkler_command')
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
-
 
       sprinklerNotifier.value = turnOn; // instantly notify dashboard
       final now = DateTime.now();
@@ -907,7 +938,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     );
   }
 
-
   bool _isSprinklerDialogOpen = false;
 
   Future<void> _confirmSprinkler() async {
@@ -921,7 +951,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.sensors_off, color: Colors.red, size: 20),
@@ -937,7 +969,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
@@ -968,7 +1002,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: isOn ? const Color(0xFFD32F2F) : Colors.green,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
@@ -1336,7 +1372,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildChart(bool isDark) {
-    final range = _resolveTimeRange(_selectedTimeRange, _customStart, _customEnd);
+    final range = _resolveTimeRange(
+      _selectedTimeRange,
+      _customStart,
+      _customEnd,
+    );
     final now = DateTime.now();
     return Container(
       decoration: _bentoCard(isDark, accentColor: const Color(0xFFEF5350)),
@@ -1474,6 +1514,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildInsights(bool isDark) {
+    Color conditionColor = const Color(0xFFE8A020); // amber default
+    if (_mlCondition == 'Good') conditionColor = Colors.green;
+    if (_mlCondition == 'High Risk') conditionColor = Colors.red;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1483,20 +1527,25 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             : const Color(0xFFFFF9C4),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFE8A020).withValues(alpha: 0.3),
-          width: 1,
+          color: const Color(
+            0xFFE8A020,
+          ).withValues(alpha: isDark ? 0.25 : 0.15),
+          width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE8A020).withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: const Color(
+              0xFFE8A020,
+            ).withValues(alpha: isDark ? 0.12 : 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Container(
@@ -1513,19 +1562,122 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Insights:',
+                'Insights',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   color: _textPrimary(isDark),
                 ),
               ),
+              const Spacer(),
+              // Condition badge
+              if (_mlCondition != null && !_mlInsightLoading)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
             ],
           ),
-          // TODO: ML output goes here
+          const SizedBox(height: 12),
+
+          // Body
+          if (_mlInsightLoading)
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: const Color(0xFFE8A020),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'AAnalyzing humidity data...',
+                  style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+                ),
+              ],
+            )
+          else if (_currentHumidity == null)
+            Text(
+              'Connect sensor to receive humidity insights.',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else if (_mlInsight == null)
+            Text(
+              'Waiting for analysis...',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else ...[
+            Text(
+              _mlInsight!,
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            ),
+            if (_mlRecommendation != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _mlRecommendation!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textSecondary(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ],
       ),
     );
+  }
+
+  //ml part
+  Future<void> _fetchHumidityMLInsight(double humidity) async {
+    if (humidity <= 0) return;
+    setState(() => _mlInsightLoading = true);
+    try {
+      final result = await MlService.analyzeFarm(
+        temperatureC: 25.0, // neutral temperature — not the focus here
+        humidityPct: humidity,
+        weightChangeKg: 0.0,
+        feedIntakeKg: 0.0,
+      );
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = result['condition'] as String?;
+        _mlInsight = (result['insights'] as List?)?.join(' ');
+        _mlRecommendation =
+            (result['recommendations'] as List?)?.first as String?;
+        _mlInsightLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Humidity ML error: $e');
+      if (!mounted) return;
+      setState(() => _mlInsightLoading = false);
+    }
   }
 }
 
