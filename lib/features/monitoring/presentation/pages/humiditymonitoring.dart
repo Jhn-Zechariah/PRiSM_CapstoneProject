@@ -193,9 +193,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   void _onHumidityMaxNotifierChanged() {
     if (!mounted) return;
     final v = humidityMaxTodayNotifier.value;
-    if (v > 0 && _selectedTimeRange == 2 &&
-        (_displayMax == null || v > _displayMax!)) {
-      setState(() => _displayMax = v);
+    if (v > 0 && _selectedTimeRange == 2) {
       widget.onMaxHumidityChanged?.call(v);
     }
   }

@@ -101,6 +101,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   double? _displayMax = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMax : null;
   double? _displayAvg = _tempCacheIsToday() ? SensorMemory.lastTempDisplayAvg : null;
   double? _displayMin = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMin : null;
+
  
   // Per-session cache for This Week (index 1) and This Month (index 0).
   static List<Map<String, double>> _cachedWeekData = [];
@@ -197,9 +198,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   void _onTempMaxNotifierChanged() {
     if (!mounted) return;
     final v = tempMaxTodayNotifier.value;
-    if (v > 0 && _selectedTimeRange == 2 &&
-        (_displayMax == null || v > _displayMax!)) {
-      setState(() => _displayMax = v);
+    if (v > 0 && _selectedTimeRange == 2) {
+      // Still propagate to Dashboard / SensorMemory ratchet — that stays live.
       widget.onMaxTempChanged?.call(v);
     }
   }

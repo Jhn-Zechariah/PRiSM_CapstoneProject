@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
@@ -206,6 +207,12 @@ class LiveSensorService {
     _connectivitySub = null;
     _started = false;
   }
+}
+
+class VaxScheduleMemory {
+  static String medName = "--";
+  static String dateLabel = "--";
+  static bool loaded = false;
 }
 
 // ─────────────────────────────────────────────
@@ -437,6 +444,10 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   bool _isLoading = true;
+
+  String _vaxMedName = VaxScheduleMemory.medName;
+  String _vaxDateLabel = VaxScheduleMemory.dateLabel;
+
 
   double _tempMax = 0;
   String _tempStatus = "Normal";
@@ -751,6 +762,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _fetchMLInsights();
     _loadGraphData();
     _syncTodayMaxFromFirestore();
+    _loadNextVaccineSchedule();
 
     _toggleTimer = Timer.periodic(
       const Duration(seconds: 3),
@@ -880,15 +892,51 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  Future<void> _loadNextVaccineSchedule() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collectionGroup('medicine_intakes')
+          .where('category', isEqualTo: 'Vaccine')
+          .get();
+
+      DateTime? bestDate;
+      String? bestName;
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final ts = data['nextSchedule'];
+        DateTime? scheduleDate;
+        if (ts is Timestamp) {
+          scheduleDate = ts.toDate();
+        } else if (ts is String) {
+          scheduleDate = DateTime.tryParse(ts);
+        }
+        if (scheduleDate == null) continue;
+
+        if (bestDate == null || scheduleDate.isBefore(bestDate)) {
+          bestDate = scheduleDate;
+          bestName = data['medName'] as String? ?? 'Unknown';
+        }
+      }
+
+      if (!mounted) return;
+      if (bestDate != null && bestName != null) {
+        final label = DateFormat('MMM dd').format(bestDate);
+        VaxScheduleMemory.medName = bestName;
+        VaxScheduleMemory.dateLabel = label;
+        VaxScheduleMemory.loaded = true;
+        setState(() {
+          _vaxMedName = bestName!;
+          _vaxDateLabel = label;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading vax schedule: $e');
+    }
+  }
+
   // ── Graph ────────────────────────────────────
-  //
-  // Always shows a rolling "past 24 hours" window, sourced entirely from
-  // temperature_hourly (the ESP32 writes exactly one new doc/hour there).
-  // Since there's at most one new doc per hour, there's no reason to
-  // re-query Firestore more than once per hour — _loadGraphData() checks
-  // the current hour key against the one it last successfully loaded for,
-  // and skips the network call entirely if nothing has changed. This is
-  // called both on screen open and from the hourly Timer in _initializeData.
+
 
   Future<void> _loadGraphData() async {
     final hourKey = currentHourKey();
@@ -1741,7 +1789,10 @@ class _DashboardScreenState extends State<DashboardScreen>
             isDark,
             Symbols.calendar_month,
             "Vax Schedule",
-            ["Vax name: ", "Date: "],
+            [
+              "Vax name: $_vaxMedName",
+              "Date: $_vaxDateLabel",
+            ],
             const Color(0xFFFB8C00),
           ),
         ),

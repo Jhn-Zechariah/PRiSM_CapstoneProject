@@ -1,4 +1,5 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
@@ -273,3 +274,110 @@ exports.dailyIntakeScheduleCheck = onSchedule({
         logger.error("💥 Intake check error:", error);
     }
 });
+
+/**
+ * Real-time trigger on live_sensor/latest. Fires whenever the ESP32 pushes
+ * a new live reading. Compares tempAvg/humidity against each admin's saved
+ * IoT thresholds (admins/{uid}.iotThresholds) and sends a push if a metric
+ * is at or above its configured max.
+ *
+ * Debounce: each admin doc tracks `iotAlertState.{tempAvg|humidity}` as a
+ * boolean "currently over threshold" flag. A notification is only sent on
+ * the transition from false -> true, so the user gets one alert when the
+ * limit is first breached instead of one every time live_sensor updates
+ * (which can be as often as every few seconds). The flag resets to false
+ * once the reading drops back under the threshold, re-arming the alert
+ * for the next breach.
+ */
+exports.onLiveSensorUpdate = onDocumentWritten(
+    "live_sensor/latest",
+    async (event) => {
+        const after = event.data?.after?.data();
+        if (!after) return; // doc deleted, nothing to check
+
+        const tempAvg = parseFloat(after.tempAvg);
+        const humidity = parseFloat(after.humidity);
+
+        const hasTemp = !Number.isNaN(tempAvg);
+        const hasHumidity = !Number.isNaN(humidity);
+        if (!hasTemp && !hasHumidity) return;
+
+        const firestore = admin.firestore();
+        const adminsSnapshot = await firestore.collection("admins").get();
+
+        for (const adminDoc of adminsSnapshot.docs) {
+            const userId = adminDoc.id;
+            const userData = adminDoc.data();
+            const thresholds = userData.iotThresholds;
+            if (!thresholds || thresholds.isIotEnabled === false) continue;
+
+            const prefs = userData.notificationPreferences || {};
+            if (prefs.isNotifEnabled === false) continue;
+            if (!userData.fcmToken) continue;
+
+            const alertState = userData.iotAlertState || {};
+            const updates = {};
+            const breaches = [];
+
+            // --- Temperature check ---
+            if (
+                hasTemp &&
+                typeof thresholds.maxTemp === "number" &&
+                prefs.isHighTempAlert !== false
+            ) {
+                const isOver = tempAvg >= thresholds.maxTemp;
+                const wasOver = alertState.tempAvg === true;
+
+                if (isOver && !wasOver) {
+                    breaches.push(
+                        `Body temperature is ${tempAvg.toFixed(1)}°C, at or above the ${thresholds.maxTemp}°C limit.`
+                    );
+                }
+                if (isOver !== wasOver) {
+                    updates["iotAlertState.tempAvg"] = isOver;
+                }
+            }
+
+            // --- Humidity check ---
+            if (
+                hasHumidity &&
+                typeof thresholds.maxHumidity === "number" &&
+                prefs.isHighHumidityAlert !== false
+            ) {
+                const isOver = humidity >= thresholds.maxHumidity;
+                const wasOver = alertState.humidity === true;
+
+                if (isOver && !wasOver) {
+                    breaches.push(
+                        `Humidity is ${humidity.toFixed(1)}%, at or above the ${thresholds.maxHumidity}% limit.`
+                    );
+                }
+                if (isOver !== wasOver) {
+                    updates["iotAlertState.humidity"] = isOver;
+                }
+            }
+
+            // Persist the new debounce state regardless of whether we send,
+            // so "over" / "under" transitions stay accurate going forward.
+            if (Object.keys(updates).length > 0) {
+                await adminDoc.ref.update(updates);
+            }
+
+            if (breaches.length === 0) continue;
+
+            const body = breaches.length === 1
+                ? breaches[0]
+                : breaches.join(" ");
+
+            await safeSend(userId, {
+                notification: { title: "🌡️ IoT Threshold Alert", body },
+                token: userData.fcmToken,
+                data: { type: "iot_threshold_alert" },
+            });
+
+            logger.info(
+                `📩 Sent IoT threshold alert to user ${userId}: ${body}`
+            );
+        }
+    }
+);
