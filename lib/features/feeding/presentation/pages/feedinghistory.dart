@@ -109,9 +109,9 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
             ),
             dropdownColor: dropBg,
             items: const [
-              DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
+              DropdownMenuItem(value: 'Active', child: Text('Current Pigs')),
               DropdownMenuItem(
-                  value: 'Inactive', child: Text('Inactive Pigs')),
+                  value: 'Inactive', child: Text('Removed Pigs')),
             ],
             onChanged: (value) {
               if (value != null && value != _currentFilter) {
