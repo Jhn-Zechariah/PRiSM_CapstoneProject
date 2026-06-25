@@ -35,6 +35,7 @@ dependencies:
   flutter_facebook_auth: ^7.1.6
   flutter_svg: ^2.2.4
   intl: ^0.20.2
+  connectivity_plus: ^7.1.1
 
 dev_dependencies:
   flutter_test:
