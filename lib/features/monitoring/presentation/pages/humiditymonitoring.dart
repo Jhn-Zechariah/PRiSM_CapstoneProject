@@ -8,7 +8,7 @@ import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-const String kEsp32BaseUrl = "http://192.168.1.100";
+const String kEsp32BaseUrl = "http://192.168.1.29";
 
 const List<String> kTimeRanges = [
   'This Month',
@@ -74,15 +74,11 @@ DateTimeRange? _resolveTimeRange(
 
 class HumidityMonitoring extends StatefulWidget {
   final VoidCallback? onSwitchToTemperature;
-  final bool isActivated;
-  final ValueChanged<bool> onSprinklerChanged;
   final ValueChanged<double>? onMaxHumidityChanged;
 
   const HumidityMonitoring({
     super.key,
     this.onSwitchToTemperature,
-    required this.isActivated,
-    required this.onSprinklerChanged,
     this.onMaxHumidityChanged,
   });
 
@@ -687,33 +683,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     Map<String, dynamic>? data;
     bool isRemote = false;
 
-    // 1. Try local ESP32 first.
+    // App talks to the sensor over HTTP/LAN only — no Firestore fallback.
     try {
       final response = await http
-          .get(Uri.parse('http://192.168.1.100/sensor'))
+          .get(Uri.parse('$kEsp32BaseUrl/sensor'))
           .timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         data = jsonDecode(response.body) as Map<String, dynamic>;
       }
     } catch (_) {}
 
-    // 2. Fallback: Firestore live_sensor document.
-    if (data == null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('live_sensor')
-            .doc('latest')
-            .get();
-        if (doc.exists && doc.data() != null) {
-          data = Map<String, dynamic>.from(doc.data()!);
-          isRemote = true;
-        }
-      } catch (_) {}
-    }
-
-    // 3. Both sources failed.
     if (data == null) {
       _consecutiveFailures++;
+
       if (_consecutiveFailures < 2) return;
       if (!mounted) return;
       final results = await Connectivity().checkConnectivity();
@@ -735,21 +717,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       if (hRaw == null) return;
       final h = (hRaw as num).toDouble();
 
-      // Timestamp: String from local HTTP, Firestore Timestamp when remote.
+      // Timestamp always arrives as a String over HTTP — no remote/Firestore path anymore.
       final tsField = data['timestamp'];
-      DateTime? ts;
-      if (tsField is Timestamp) {
-        ts = tsField.toDate();
-      } else if (tsField is String) {
-        ts = DateTime.tryParse(tsField);
-      }
+      final ts = tsField is String ? DateTime.tryParse(tsField) : null;
 
       final nowUtc = DateTime.now().toUtc();
       final tsUtc = ts?.toUtc();
       final diffSeconds = tsUtc != null
           ? nowUtc.difference(tsUtc).inSeconds
           : -1;
-      final stalenessLimit = isRemote ? 60 : 15;
+      final stalenessLimit = 15;
       final isStale = ts == null || diffSeconds > stalenessLimit;
 
       if (isStale) {
@@ -834,7 +811,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
-      widget.onSprinklerChanged(turnOn);
+
       sprinklerNotifier.value = turnOn; // instantly notify dashboard
       final now = DateTime.now();
 
@@ -930,18 +907,21 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     );
   }
 
+
+  bool _isSprinklerDialogOpen = false;
+
   Future<void> _confirmSprinkler() async {
-    if (_isSprinklerLoading) return;
+    if (_isSprinklerLoading || _isSprinklerDialogOpen) return;
+    _isSprinklerDialogOpen = true;
+
     final isOn = sprinklerNotifier.value;
 
     // Block activation when sensor is offline (deactivation always allowed)
     if (_sensorStatus != "Sensor Online" && !isOn) {
-      showDialog(
+      await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
               Icon(Icons.sensors_off, color: Colors.red, size: 20),
@@ -957,15 +937,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               onPressed: () => Navigator.pop(ctx),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('OK', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
+      _isSprinklerDialogOpen = false; // ← reset before returning
       return;
     }
 
@@ -989,15 +968,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: isOn ? const Color(0xFFD32F2F) : Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             child: Text(action, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+
+    _isSprinklerDialogOpen = false;
+    if (!mounted) return;
     if (confirmed == true) await _toggleSprinkler(!isOn);
   }
 

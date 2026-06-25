@@ -12,14 +12,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-const String esp32Ip = "192.168.1.100";
+const String esp32Ip = "192.168.1.249";
 
+// Global notifiers — shared across Dashboard, Temperature, and Humidity screens.
+// Writing to these triggers listeners in every screen without any setState on AppNav.
 final sprinklerNotifier = ValueNotifier<bool>(false);
 final tempMaxTodayNotifier = ValueNotifier<double>(0);
 final humidityMaxTodayNotifier = ValueNotifier<double>(0);
 
-// Persists sprinkler info across navigation
-// Persists sprinkler info across navigation and app restarts
+// ─────────────────────────────────────────────
+// SprinklerMemory — persists across navigation and app restarts via Firestore
+// ─────────────────────────────────────────────
 class SprinklerMemory {
   static String lastActivated = "--";
   static String date = "--";
@@ -33,14 +36,13 @@ class SprinklerMemory {
           .collection('sprinkler_state')
           .doc('latest')
           .set({
-            'lastActivated': lastActivated,
-            'date': date,
-            'duration': duration,
-            'status': status,
-            'activatedAt': activatedAt != null
-                ? Timestamp.fromDate(activatedAt!)
-                : null,
-          });
+        'lastActivated': lastActivated,
+        'date': date,
+        'duration': duration,
+        'status': status,
+        'activatedAt':
+        activatedAt != null ? Timestamp.fromDate(activatedAt!) : null,
+      });
     } catch (e) {
       debugPrint('Error saving sprinkler state: $e');
     }
@@ -48,8 +50,8 @@ class SprinklerMemory {
 
   static Future<void> load() async {
     try {
-      // Try cache FIRST — works instantly offline and on hot restart
       DocumentSnapshot? doc;
+      // Try cache first — instant, works offline
       try {
         doc = await FirebaseFirestore.instance
             .collection('sprinkler_state')
@@ -58,8 +60,7 @@ class SprinklerMemory {
       } catch (_) {
         doc = null;
       }
-
-      // If cache has nothing, try server (online only)
+      // Fallback to server if cache empty
       if (doc == null || !doc.exists) {
         try {
           doc = await FirebaseFirestore.instance
@@ -71,7 +72,6 @@ class SprinklerMemory {
           doc = null;
         }
       }
-
       if (doc != null && doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         lastActivated = data['lastActivated'] as String? ?? '--';
@@ -87,6 +87,9 @@ class SprinklerMemory {
   }
 }
 
+// ─────────────────────────────────────────────
+// SensorMemory — in-memory cache shared across screens
+// ─────────────────────────────────────────────
 class SensorMemory {
   static double lastTemp = 0;
   static double lastHumidity = 0;
@@ -100,7 +103,7 @@ class SensorMemory {
   static List<FlSpot> lastGraphSpots = [];
   static bool graphLoaded = false;
 
-  // Temperature monitoring screen cache (Today tab)
+  // Temperature monitoring screen cache
   static List<Map<String, double>> lastTempChartData = [];
   static bool tempChartLoaded = false;
   static String lastTempChartDate = "";
@@ -110,7 +113,7 @@ class SensorMemory {
   static double? lastTempSessionMax;
   static double? lastTempSessionMin;
 
-  // Humidity monitoring screen cache (Today tab)
+  // Humidity monitoring screen cache
   static List<Map<String, double>> lastHumidityChartData = [];
   static bool humidityChartLoaded = false;
   static String lastHumidityChartDate = "";
@@ -120,10 +123,7 @@ class SensorMemory {
   static double? lastHumiditySessionMax;
   static double? lastHumiditySessionMin;
 
-  // Centralized setters — every write to these two fields goes through
-  // here, so the notifiers (and therefore both the Dashboard and
-  // Temperature/Humidity screens) update in lockstep instead of relying
-  // on each call site to separately remember to broadcast the change.
+  // Centralized setters so notifiers always stay in sync
   static void setTempMaxToday(double v) {
     lastTempMaxToday = v;
     tempMaxTodayNotifier.value = v;
@@ -139,8 +139,6 @@ class SensorMemory {
     return "${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}";
   }
 
-  /// Call before reading/writing lastTempMaxToday — clears it if the
-  /// stored value belongs to a previous day.
   static void resetIfNewDay() {
     final today = todayKey();
     if (lastTempMaxDate != today) {
@@ -151,8 +149,6 @@ class SensorMemory {
       setHumidityMaxToday(0);
       lastHumidityMaxDate = today;
     }
-    // Clear chart/stats caches when the day rolls over so stale yesterday
-    // data is never shown as today's readings.
     if (lastTempChartDate != today && lastTempChartDate.isNotEmpty) {
       lastTempChartData = [];
       tempChartLoaded = false;
@@ -181,14 +177,14 @@ class SensorMemory {
           .collection('sensor_memory')
           .doc('latest')
           .set({
-            'lastTemp': lastTemp,
-            'lastHumidity': lastHumidity,
-            'tempMaxToday': lastTempMaxToday,
-            'tempMaxDate': lastTempMaxDate,
-            'humidityMaxToday': lastHumidityMaxToday,
-            'humidityMaxDate': lastHumidityMaxDate,
-            'lastPigStatus': lastPigStatus,
-          });
+        'lastTemp': lastTemp,
+        'lastHumidity': lastHumidity,
+        'tempMaxToday': lastTempMaxToday,
+        'tempMaxDate': lastTempMaxDate,
+        'humidityMaxToday': lastHumidityMaxToday,
+        'humidityMaxDate': lastHumidityMaxDate,
+        'lastPigStatus': lastPigStatus,
+      });
     } catch (e) {
       debugPrint('Error saving sensor memory: $e');
     }
@@ -196,7 +192,6 @@ class SensorMemory {
 
   static Future<void> load() async {
     try {
-      // Try cache FIRST — works instantly offline and on hot restart
       DocumentSnapshot? doc;
       try {
         doc = await FirebaseFirestore.instance
@@ -206,8 +201,6 @@ class SensorMemory {
       } catch (_) {
         doc = null;
       }
-
-      // If cache has nothing, try server (online only)
       if (doc == null || !doc.exists) {
         try {
           doc = await FirebaseFirestore.instance
@@ -218,7 +211,6 @@ class SensorMemory {
           doc = null;
         }
       }
-
       if (doc != null && doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         lastTemp = (data['lastTemp'] as num?)?.toDouble() ?? 0;
@@ -226,8 +218,7 @@ class SensorMemory {
         setTempMaxToday((data['tempMaxToday'] as num?)?.toDouble() ?? 0);
         lastTempMaxDate = data['tempMaxDate'] as String? ?? '--';
         setHumidityMaxToday(
-          (data['humidityMaxToday'] as num?)?.toDouble() ?? 0,
-        );
+            (data['humidityMaxToday'] as num?)?.toDouble() ?? 0);
         lastHumidityMaxDate = data['humidityMaxDate'] as String? ?? '--';
         lastPigStatus = data['lastPigStatus'] as String? ?? '--';
         resetIfNewDay();
@@ -238,18 +229,13 @@ class SensorMemory {
   }
 }
 
+// ─────────────────────────────────────────────
+// DashboardScreen
+// No constructor params — reads from global notifiers directly so
+// AppNav never needs to call setState when sprinkler/sensor values change.
+// ─────────────────────────────────────────────
 class DashboardScreen extends StatefulWidget {
-  final double tempMaxToday;
-  final double humidityMaxToday;
-  final bool isActivated;
-  final ValueChanged<bool> onSprinklerChanged;
-  const DashboardScreen({
-    super.key,
-    this.tempMaxToday = 0,
-    this.humidityMaxToday = 0,
-    required this.isActivated,
-    required this.onSprinklerChanged,
-  });
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -257,16 +243,12 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
-  int selectedIndex = 2;
-
   Timer? _timer;
   int _consecutiveFailures = 0;
   StreamSubscription? _connectivitySub;
   bool _isLoading = true;
-  String _connectionStatus =
-      "Connecting..."; // Internet / Firestore reachability
-  String _sensorStatus =
-      "Connecting..."; // ESP32 physical sensor online/offline
+  String _connectionStatus = "Connecting...";
+  String _sensorStatus = "Connecting...";
 
   double _tempMax = 0;
   String _tempStatus = "Normal";
@@ -275,15 +257,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   double _lastKnownTemp = SensorMemory.lastTemp;
   double _lastKnownHumidity = SensorMemory.lastHumidity;
   bool _isSprinklerLoading = false;
-  late double _tempMaxToday;
+  double _tempMaxToday = 0;
+  double _humidityMaxToday = 0;
+  double _humidityLive = SensorMemory.lastHumidity;
 
   String _sprinklerStatus = "OFF";
   String _lastActivated = "--";
   String _date = "--";
   String _duration = "--";
   String _pigStatus = "--";
-  double _humidityMaxToday = 0;
-  double _humidityLive = SensorMemory.lastHumidity;
 
   bool _graphShowLast24hrs = false;
 
@@ -309,25 +291,25 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
-    _localIsActivated = widget.isActivated;
-    _tempMaxToday = widget.tempMaxToday;
-    _humidityMaxToday = widget.humidityMaxToday;
+    // Read initial values from global notifiers — no props needed
+    _localIsActivated = sprinklerNotifier.value;
+    _tempMaxToday = tempMaxTodayNotifier.value;
+    _humidityMaxToday = humidityMaxTodayNotifier.value;
+
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
       value: 1.0,
     );
-    _fadeAnimation = CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeInOut,
-    );
-    // _toggleTimer is now started inside _initializeData()
+    _fadeAnimation =
+        CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut);
+
     context.read<ProfileCubit>().loadUserData();
+
     sprinklerNotifier.addListener(_onSprinklerNotifierChanged);
     tempMaxTodayNotifier.addListener(_onTempMaxNotifierChanged);
     humidityMaxTodayNotifier.addListener(_onHumidityMaxNotifierChanged);
 
-    // Set connection status immediately based on current network state.
     Connectivity().checkConnectivity().then((results) {
       if (!mounted) return;
       final hasNet = results.any((r) => r != ConnectivityResult.none);
@@ -337,7 +319,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       });
     });
 
-    // Internet LOST → "Connecting..." / Internet BACK → "Live" immediately.
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       if (!mounted) return;
       final hasNet = results.any((r) => r != ConnectivityResult.none);
@@ -351,95 +332,12 @@ class _DashboardScreenState extends State<DashboardScreen>
       });
     });
 
-    // Load memory first, THEN start fetching data
-    // This ensures cached values are ready before the first fetch fails offline
     _initializeData();
   }
 
-  @override
-  void didUpdateWidget(DashboardScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.tempMaxToday != oldWidget.tempMaxToday) {
-      setState(() => _tempMaxToday = widget.tempMaxToday);
-    }
-    if (widget.humidityMaxToday != oldWidget.humidityMaxToday) {
-      setState(() => _humidityMaxToday = widget.humidityMaxToday);
-    }
-    // Sync button when sprinkler toggled from another screen
-    if (widget.isActivated != oldWidget.isActivated && !_sprinklerJustToggled) {
-      setState(() => _localIsActivated = widget.isActivated);
-    }
-  }
-
-  Future<void> _loadGraphData() async {
-    // Show spinner only on first ever load; cached data stays visible on navigation.
-    if (!SensorMemory.graphLoaded) setState(() => _graphLoading = true);
-    try {
-      final now = DateTime.now();
-      final DateTime rangeStart = _graphShowLast24hrs
-          ? now.subtract(const Duration(hours: 24))
-          : DateTime(now.year, now.month, now.day);
-
-      // orderBy BEFORE where — same pattern as temperaturemonitoring.dart.
-      final snapshot = await FirebaseFirestore.instance
-          .collection('temperature_readings')
-          .orderBy('timestamp', descending: false)
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
-          )
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-          .limit(500)
-          .get();
-
-      // Group readings by hour and average them (original behaviour).
-      final Map<int, List<double>> hourlyTemps = {};
-
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final ts = (data['timestamp'] as Timestamp?)?.toDate();
-        // Try every field name the firmware might use.
-        final temp =
-            (data['tempAvg'] as num?)?.toDouble() ??
-            (data['temperature'] as num?)?.toDouble() ??
-            (data['tempMax'] as num?)?.toDouble();
-        if (ts == null || temp == null) continue;
-
-        int hourKey;
-        if (_graphShowLast24hrs) {
-          hourKey = now.difference(ts).inHours;
-        } else {
-          hourKey = ts.hour;
-        }
-        hourlyTemps.putIfAbsent(hourKey, () => []).add(temp);
-      }
-
-      // Convert averaged buckets to FlSpots.
-      final List<FlSpot> spots = [];
-      hourlyTemps.forEach((hourKey, temps) {
-        final avgTemp = temps.reduce((a, b) => a + b) / temps.length;
-        final double x = _graphShowLast24hrs
-            ? (24 - hourKey).toDouble()
-            : hourKey.toDouble();
-        spots.add(FlSpot(x.clamp(0, _graphShowLast24hrs ? 24 : 23), avgTemp));
-      });
-
-      // Sort by x so the line draws correctly.
-      spots.sort((a, b) => a.x.compareTo(b.x));
-
-      if (!mounted) return;
-      SensorMemory.lastGraphSpots = spots;
-      SensorMemory.graphLoaded = true;
-      setState(() {
-        _graphSpots = spots;
-        _graphLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Dashboard graph error: $e');
-      if (!mounted) return;
-      setState(() => _graphLoading = false);
-    }
-  }
+  // didUpdateWidget intentionally removed — DashboardScreen has no props
+  // to sync, so any call to didUpdateWidget was a sign of a parent setState
+  // leaking into this widget's lifecycle.
 
   @override
   void dispose() {
@@ -454,100 +352,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     super.dispose();
   }
 
-  void _startDurationTimer(DateTime activatedAt) {
-    _durationTimer?.cancel();
-    _sprinklerActivatedAt = activatedAt;
-    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
-      final mins = elapsed.inMinutes;
-      final secs = elapsed.inSeconds % 60;
-      final d = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
-      SprinklerMemory.duration = d;
-      if (mounted) setState(() => _duration = d);
-    });
-  }
-
-  void _stopDurationTimer({bool keepDuration = false}) {
-    _durationTimer?.cancel();
-    _durationTimer = null;
-    if (!keepDuration) {
-      _sprinklerActivatedAt = null;
-    } else {
-      // Save final duration but stop counting
-      if (_sprinklerActivatedAt != null) {
-        final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
-        final mins = elapsed.inMinutes;
-        final secs = elapsed.inSeconds % 60;
-        _duration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
-      }
-      _sprinklerActivatedAt = null;
-    }
-  }
-
-  Future<void> _initializeData() async {
-    // 1. Wait for BOTH memory stores to finish loading before anything else
-    await Future.wait([SensorMemory.load(), SprinklerMemory.load()]);
-    SensorMemory.resetIfNewDay();
-
-    if (!mounted) return;
-
-    // 2. Apply memory to state NOW — UI shows cached data before any network call
-    setState(() {
-      if (SensorMemory.lastTemp > 0) {
-        _lastKnownTemp = SensorMemory.lastTemp;
-        _tempMax = SensorMemory.lastTemp;
-      }
-      if (SensorMemory.lastHumidity > 0) {
-        _lastKnownHumidity = SensorMemory.lastHumidity;
-        _humidityLive = SensorMemory.lastHumidity;
-      }
-      _isLoading = false;
-      if (SensorMemory.lastTempMaxToday > 0)
-        _tempMaxToday = SensorMemory.lastTempMaxToday;
-      if (SensorMemory.lastHumidityMaxToday > 0)
-        _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
-      if (SensorMemory.lastPigStatus != "--")
-        _pigStatus = SensorMemory.lastPigStatus;
-
-      if (SprinklerMemory.lastActivated != "--")
-        _lastActivated = SprinklerMemory.lastActivated;
-      if (SprinklerMemory.date != "--") _date = SprinklerMemory.date;
-      if (SprinklerMemory.duration != "--")
-        _duration = SprinklerMemory.duration;
-      _sprinklerStatus = SprinklerMemory.status;
-      _sprinklerMemoryLoaded = true;
-
-      if (SprinklerMemory.activatedAt != null && !_sprinklerJustToggled) {
-        _localIsActivated = SprinklerMemory.status == "ON";
-      }
-    });
-
-    // 3. Restart duration timer if sprinkler was active when app closed
-    if (SprinklerMemory.activatedAt != null && _durationTimer == null) {
-      _sprinklerActivatedAt = SprinklerMemory.activatedAt;
-      _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        final e = DateTime.now().difference(SprinklerMemory.activatedAt!);
-        final m = e.inMinutes;
-        final s = e.inSeconds % 60;
-        final d = m > 0 ? '${m}m ${s}s' : '${s}s';
-        SprinklerMemory.duration = d;
-        setState(() => _duration = d);
-      });
-    }
-
-    // 4. Only NOW start network calls — cached data is already visible
-    _fetchData();
-    _fetchMLInsights();
-    _loadGraphData();
-    _syncTodayMaxFromFirestore();
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _fetchData());
-    _toggleTimer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => _crossfadeToggle(),
-    );
-  }
+  // ── Notifier listeners ──────────────────────
 
   void _onSprinklerNotifierChanged() {
     if (!mounted) return;
@@ -578,20 +383,422 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (v != _humidityMaxToday) setState(() => _humidityMaxToday = v);
   }
 
+  // ── Sprinkler duration timer ─────────────────
+
+  void _startDurationTimer(DateTime activatedAt) {
+    _durationTimer?.cancel();
+    _sprinklerActivatedAt = activatedAt;
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
+      final mins = elapsed.inMinutes;
+      final secs = elapsed.inSeconds % 60;
+      final d = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
+      SprinklerMemory.duration = d;
+      setState(() => _duration = d);
+    });
+  }
+
+  void _stopDurationTimer({bool keepDuration = false}) {
+    _durationTimer?.cancel();
+    _durationTimer = null;
+    if (keepDuration && _sprinklerActivatedAt != null) {
+      final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
+      final mins = elapsed.inMinutes;
+      final secs = elapsed.inSeconds % 60;
+      _duration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
+    }
+    _sprinklerActivatedAt = null;
+  }
+
+  // ── Initialisation ───────────────────────────
+
+  Future<void> _initializeData() async {
+    await Future.wait([SensorMemory.load(), SprinklerMemory.load()]);
+    SensorMemory.resetIfNewDay();
+
+    if (!mounted) return;
+
+    setState(() {
+      if (SensorMemory.lastTemp > 0) {
+        _lastKnownTemp = SensorMemory.lastTemp;
+        _tempMax = SensorMemory.lastTemp;
+      }
+      if (SensorMemory.lastHumidity > 0) {
+        _lastKnownHumidity = SensorMemory.lastHumidity;
+        _humidityLive = SensorMemory.lastHumidity;
+      }
+      _isLoading = false;
+      if (SensorMemory.lastTempMaxToday > 0)
+        _tempMaxToday = SensorMemory.lastTempMaxToday;
+      if (SensorMemory.lastHumidityMaxToday > 0)
+        _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
+      if (SensorMemory.lastPigStatus != "--")
+        _pigStatus = SensorMemory.lastPigStatus;
+
+      if (SprinklerMemory.lastActivated != "--")
+        _lastActivated = SprinklerMemory.lastActivated;
+      if (SprinklerMemory.date != "--") _date = SprinklerMemory.date;
+      if (SprinklerMemory.duration != "--")
+        _duration = SprinklerMemory.duration;
+      _sprinklerStatus = SprinklerMemory.status;
+      _sprinklerMemoryLoaded = true;
+
+      if (SprinklerMemory.activatedAt != null && !_sprinklerJustToggled) {
+        _localIsActivated = SprinklerMemory.status == "ON";
+      }
+    });
+
+    // Resume duration timer if sprinkler was ON when app closed
+    if (SprinklerMemory.activatedAt != null && _durationTimer == null) {
+      _sprinklerActivatedAt = SprinklerMemory.activatedAt;
+      _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        final e = DateTime.now().difference(SprinklerMemory.activatedAt!);
+        final m = e.inMinutes;
+        final s = e.inSeconds % 60;
+        final d = m > 0 ? '${m}m ${s}s' : '${s}s';
+        SprinklerMemory.duration = d;
+        setState(() => _duration = d);
+      });
+    }
+
+    _fetchData();
+    _fetchMLInsights();
+    _loadGraphData();
+    _syncTodayMaxFromFirestore();
+
+    _timer =
+        Timer.periodic(const Duration(seconds: 3), (_) => _fetchData());
+    _toggleTimer = Timer.periodic(
+        const Duration(seconds: 3), (_) => _crossfadeToggle());
+  }
+
+  // ── Crossfade temp/humidity display ─────────
+
+  Future<void> _crossfadeToggle() async {
+    if (!mounted) return;
+    await _fadeController.reverse();
+    if (!mounted) return;
+    setState(() => _showingTemperature = !_showingTemperature);
+    await _fadeController.forward();
+  }
+
+  // ── Sensor fetch (direct ESP32 only, no Firestore fallback) ─────────
+
+  Future<void> _fetchData() async {
+    Map<String, dynamic>? data;
+
+    try {
+      final response = await http
+          .get(Uri.parse('http://$esp32Ip/sensor'))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        data = jsonDecode(response.body) as Map<String, dynamic>;
+        _consecutiveFailures = 0;
+      }
+    } catch (_) {
+      _consecutiveFailures++;
+    }
+
+    if (data == null) {
+      // Require 4 consecutive failures (~20s) before marking offline.
+      // This absorbs the 1-3s blocking from ESP32's Firestore HTTPS poll.
+      if (_consecutiveFailures < 4) return;
+      if (!mounted) return;
+      final results = await Connectivity().checkConnectivity();
+      final hasNet = results.any((r) => r != ConnectivityResult.none);
+      setState(() {
+        _connectionStatus = hasNet ? "Sensor Offline" : "No connection";
+        _sensorStatus = "Sensor Offline";
+        SensorMemory.lastConnectionStatus = _connectionStatus;
+        SensorMemory.lastSensorStatus = "Sensor Offline";
+        _isLoading = false;
+      });
+      return;
+    }
+
+    _consecutiveFailures = 0;
+    if (!mounted) return;
+
+    try {
+      final tsField = data['timestamp'];
+      DateTime? ts;
+      if (tsField is String) ts = DateTime.tryParse(tsField);
+
+      final nowUtc = DateTime.now().toUtc();
+      final tsUtc = ts?.toUtc();
+      final diffSeconds =
+      tsUtc != null ? nowUtc.difference(tsUtc).inSeconds : -1;
+      // abs() handles any remaining timezone offset edge cases
+      final isStale = ts == null || diffSeconds.abs() > 20;
+
+      if (isStale) {
+        _consecutiveFailures++;
+      } else {
+        _consecutiveFailures = 0;
+      }
+      final shouldShowOffline = _consecutiveFailures >= 4;
+
+      setState(() {
+        final newTempLive = (data!['tempAvg'] as num?)?.toDouble();
+        if (newTempLive != null && newTempLive > 0) {
+          _tempMax = newTempLive;
+          _lastKnownTemp = _tempMax;
+          SensorMemory.lastTemp = _tempMax;
+          SensorMemory.resetIfNewDay();
+          if (newTempLive > SensorMemory.lastTempMaxToday) {
+            SensorMemory.setTempMaxToday(newTempLive);
+            SensorMemory.save();
+          }
+          _tempMaxToday = SensorMemory.lastTempMaxToday;
+        }
+
+        final newHumidity = (data['humidity'] as num?)?.toDouble();
+        if (newHumidity != null && newHumidity > 0) {
+          _humidityLive = newHumidity;
+          _lastKnownHumidity = newHumidity;
+          SensorMemory.lastHumidity = newHumidity;
+          SensorMemory.resetIfNewDay();
+          if (newHumidity > SensorMemory.lastHumidityMaxToday) {
+            SensorMemory.setHumidityMaxToday(newHumidity);
+            SensorMemory.save();
+          }
+          _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
+        }
+
+        _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
+
+        if (!_sprinklerJustToggled) {
+          _localIsActivated = sprinklerNotifier.value;
+          _sprinklerStatus = _localIsActivated ? "ON" : "OFF";
+        }
+
+        if (!_sprinklerMemoryLoaded && _lastActivated == "--")
+          _lastActivated =
+              data['lastActivated'] as String? ?? _lastActivated;
+        if (!_sprinklerMemoryLoaded && _date == "--")
+          _date = data['date'] as String? ?? _date;
+        if (_duration == "--" && _lastActivated == "--")
+          _duration = data['duration'] as String? ?? _duration;
+
+        final newPigStatus = data['pigStatus'] as String?;
+        if (newPigStatus != null && newPigStatus != "--") {
+          _pigStatus = newPigStatus;
+          SensorMemory.lastPigStatus = newPigStatus;
+        }
+
+        if ((newTempLive != null && newTempLive > 0) ||
+            (newHumidity != null && newHumidity > 0) ||
+            (newPigStatus != null && newPigStatus != "--")) {
+          SensorMemory.save();
+        }
+
+        _waterPct = (data['waterPct'] as num?)?.toDouble() ?? _waterPct;
+        _waterStatus = data['waterStatus'] as String? ?? _waterStatus;
+        _isLoading = false;
+
+        // Only flip status label when truly settled — avoids flicker
+        if (!isStale && _consecutiveFailures == 0) {
+          _connectionStatus = "Live";
+          SensorMemory.lastConnectionStatus = "Live";
+          _sensorStatus = "Sensor Online";
+          SensorMemory.lastSensorStatus = "Sensor Online";
+        } else if (shouldShowOffline) {
+          _connectionStatus = "Sensor Offline";
+          SensorMemory.lastConnectionStatus = "Sensor Offline";
+          _sensorStatus = "Sensor Offline";
+          SensorMemory.lastSensorStatus = "Sensor Offline";
+        }
+        // Between 1-3 failures: keep previous label — no flicker
+      });
+
+      if (!_sprinklerJustToggled && !sprinklerNotifier.value &&
+          _sprinklerActivatedAt != null) {
+        final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
+        if (elapsed.inSeconds > 3) _stopDurationTimer(keepDuration: true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _sensorStatus = "Sensor Offline";
+        SensorMemory.lastSensorStatus = "Sensor Offline";
+        _isLoading = false;
+      });
+    }
+  }
+
+  // ── Firestore: sync today's historical max on startup ───────────────
+
+  Future<void> _syncTodayMaxFromFirestore() async {
+    try {
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+
+      QuerySnapshot? tempSnapshot;
+      try {
+        tempSnapshot = await FirebaseFirestore.instance
+            .collection('temperature_readings')
+            .where('timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+            .orderBy('timestamp')
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        tempSnapshot = null;
+      }
+      if (tempSnapshot == null || tempSnapshot.docs.isEmpty) {
+        try {
+          tempSnapshot = await FirebaseFirestore.instance
+              .collection('temperature_readings')
+              .where('timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+              .where('timestamp',
+              isLessThanOrEqualTo: Timestamp.fromDate(now))
+              .orderBy('timestamp')
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          tempSnapshot = null;
+        }
+      }
+
+      double firestoreTempMax = 0;
+      if (tempSnapshot != null) {
+        for (final doc in tempSnapshot.docs) {
+          final d = doc.data() as Map<String, dynamic>;
+          final t = (d['tempMax'] as num?)?.toDouble() ?? 0;
+          if (t > firestoreTempMax) firestoreTempMax = t;
+        }
+      }
+
+      QuerySnapshot? humiditySnapshot;
+      try {
+        humiditySnapshot = await FirebaseFirestore.instance
+            .collection('humidity_readings')
+            .where('timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+            .orderBy('timestamp')
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        humiditySnapshot = null;
+      }
+      if (humiditySnapshot == null || humiditySnapshot.docs.isEmpty) {
+        try {
+          humiditySnapshot = await FirebaseFirestore.instance
+              .collection('humidity_readings')
+              .where('timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+              .where('timestamp',
+              isLessThanOrEqualTo: Timestamp.fromDate(now))
+              .orderBy('timestamp')
+              .get(const GetOptions(source: Source.server))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          humiditySnapshot = null;
+        }
+      }
+
+      double firestoreHumidityMax = 0;
+      if (humiditySnapshot != null) {
+        for (final doc in humiditySnapshot.docs) {
+          final d = doc.data() as Map<String, dynamic>;
+          final h = (d['humidityMax'] as num?)?.toDouble() ?? 0;
+          if (h > firestoreHumidityMax) firestoreHumidityMax = h;
+        }
+      }
+
+      if (!mounted) return;
+
+      if (firestoreTempMax > 0) {
+        SensorMemory.resetIfNewDay();
+        if (firestoreTempMax > SensorMemory.lastTempMaxToday) {
+          SensorMemory.setTempMaxToday(firestoreTempMax);
+          SensorMemory.save();
+        }
+        setState(() => _tempMaxToday = SensorMemory.lastTempMaxToday);
+      }
+
+      if (firestoreHumidityMax > 0) {
+        SensorMemory.resetIfNewDay();
+        if (firestoreHumidityMax > SensorMemory.lastHumidityMaxToday) {
+          SensorMemory.setHumidityMaxToday(firestoreHumidityMax);
+          SensorMemory.save();
+        }
+        setState(() => _humidityMaxToday = SensorMemory.lastHumidityMaxToday);
+      }
+    } catch (e) {
+      debugPrint('Error syncing today max from Firestore: $e');
+    }
+  }
+
+  // ── Graph ────────────────────────────────────
+
+  Future<void> _loadGraphData() async {
+    if (!SensorMemory.graphLoaded) setState(() => _graphLoading = true);
+    try {
+      final now = DateTime.now();
+      final DateTime rangeStart = _graphShowLast24hrs
+          ? now.subtract(const Duration(hours: 24))
+          : DateTime(now.year, now.month, now.day);
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('temperature_hourly')
+          .orderBy('timestamp', descending: false)
+          .where('timestamp',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+          .limit(500)
+          .get();
+
+      final Map<int, List<double>> hourlyTemps = {};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final ts = (data['timestamp'] as Timestamp?)?.toDate();
+        final temp = (data['tempAvg'] as num?)?.toDouble() ??
+            (data['temperature'] as num?)?.toDouble() ??
+            (data['tempMax'] as num?)?.toDouble();
+        if (ts == null || temp == null) continue;
+        final hourKey = _graphShowLast24hrs
+            ? now.difference(ts).inHours
+            : ts.hour;
+        hourlyTemps.putIfAbsent(hourKey, () => []).add(temp);
+      }
+
+      final List<FlSpot> spots = [];
+      hourlyTemps.forEach((hourKey, temps) {
+        final avgTemp = temps.reduce((a, b) => a + b) / temps.length;
+        final double x = _graphShowLast24hrs
+            ? (24 - hourKey).toDouble()
+            : hourKey.toDouble();
+        spots.add(FlSpot(x.clamp(0, _graphShowLast24hrs ? 24 : 23), avgTemp));
+      });
+      spots.sort((a, b) => a.x.compareTo(b.x));
+
+      if (!mounted) return;
+      SensorMemory.lastGraphSpots = spots;
+      SensorMemory.graphLoaded = true;
+      setState(() {
+        _graphSpots = spots;
+        _graphLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Dashboard graph error: $e');
+      if (!mounted) return;
+      setState(() => _graphLoading = false);
+    }
+  }
+
+  // ── ML insights ──────────────────────────────
+
   Future<void> _fetchMLInsights() async {
     try {
-      final mlInputs = {
-        'temperatureC': _tempMax > 0 ? _tempMax : 28.0,
-        'humidityPct': _humidityMaxToday > 0 ? _humidityMaxToday : 75.0,
-        'weightChangeKg': 0.0,
-        'feedIntakeKg': 0.0,
-      };
-
       final result = await MlService.analyzeFarm(
-        temperatureC: mlInputs['temperatureC']!,
-        humidityPct: mlInputs['humidityPct']!,
-        weightChangeKg: mlInputs['weightChangeKg']!,
-        feedIntakeKg: mlInputs['feedIntakeKg']!,
+        temperatureC: _tempMax > 0 ? _tempMax : 28.0,
+        humidityPct: _humidityMaxToday > 0 ? _humidityMaxToday : 75.0,
+        weightChangeKg: 0.0,
+        feedIntakeKg: 0.0,
       ).timeout(const Duration(seconds: 6));
 
       if (!mounted) return;
@@ -608,320 +815,52 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (!mounted) return;
       setState(() {
         _mlCondition = "Unavailable";
-        _mlRecommendations = [
-          e.toString(),
-        ];
+        _mlRecommendations = [e.toString()];
         _mlLoading = false;
       });
     }
   }
 
-  Future<void> _crossfadeToggle() async {
+  // ── Sprinkler toggle ─────────────────────────
+  bool _isSprinklerDialogOpen = false;
+
+  Future<void> _confirmSprinkler() async {
+    if (_isSprinklerLoading || _isSprinklerDialogOpen) return;
+    _isSprinklerDialogOpen = true;
+    // Sensor offline does NOT block the button — command goes via Firestore
+
+    final action = _localIsActivated ? 'Deactivate' : 'Activate';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('$action Sprinkler?'),
+        content: Text(_localIsActivated
+            ? 'Are you sure you want to turn the sprinkler off?'
+            : 'Are you sure you want to turn the sprinkler on?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+              _localIsActivated ? const Color(0xFFD32F2F) : Colors.green,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            child:
+            Text(action, style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    _isSprinklerDialogOpen = false;
     if (!mounted) return;
-    await _fadeController.reverse();
-    if (!mounted) return;
-    setState(() => _showingTemperature = !_showingTemperature);
-    await _fadeController.forward();
-  }
-
-  Future<void> _fetchData() async {
-    Map<String, dynamic>? data;
-    bool isRemote = false;
-
-    // 1. Try local ESP32 first (same-WiFi / LAN).
-    try {
-      final response = await http
-          .get(Uri.parse('http://$esp32Ip/sensor'))
-          .timeout(const Duration(seconds: 3));
-      if (response.statusCode == 200) {
-        data = jsonDecode(response.body) as Map<String, dynamic>;
-      }
-    } catch (_) {}
-
-    // 2. Fallback: Firestore live_sensor document (mobile data / any WiFi).
-    if (data == null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('live_sensor')
-            .doc('latest')
-            .get();
-        if (doc.exists && doc.data() != null) {
-          data = Map<String, dynamic>.from(doc.data()!);
-          isRemote = true;
-        }
-      } catch (_) {}
-    }
-
-    // 3. Both sources failed.
-    if (data == null) {
-      _consecutiveFailures++;
-      if (_consecutiveFailures < 2) return;
-      if (!mounted) return;
-      final results = await Connectivity().checkConnectivity();
-      final hasNet = results.any((r) => r != ConnectivityResult.none);
-      final connLabel = hasNet ? "Sensor Offline" : "No connection";
-      setState(() {
-        _connectionStatus = connLabel;
-        _sensorStatus = "Sensor Offline";
-        SensorMemory.lastConnectionStatus = connLabel;
-        SensorMemory.lastSensorStatus = "Sensor Offline";
-        _isLoading = false;
-      });
-      return;
-    }
-
-    if (!mounted) return;
-
-    try {
-      // Timestamp: String from local HTTP, Firestore Timestamp when remote.
-      final tsField = data['timestamp'];
-      DateTime? ts;
-      if (tsField is Timestamp) {
-        ts = tsField.toDate();
-      } else if (tsField is String) {
-        ts = DateTime.tryParse(tsField);
-      }
-      final nowUtc = DateTime.now().toUtc();
-      final tsUtc = ts?.toUtc();
-      final diffSeconds = tsUtc != null
-          ? nowUtc.difference(tsUtc).inSeconds
-          : -1;
-      final stalenessLimit = isRemote ? 60 : 15;
-      final isStale = ts == null || diffSeconds > stalenessLimit;
-
-      if (isStale) {
-        _consecutiveFailures++;
-      } else {
-        _consecutiveFailures = 0;
-      }
-      final shouldShowOffline = _consecutiveFailures >= 2;
-
-      setState(() {
-        // Use actual live temperature — not data['tempMax'] which is the
-        // ESP32's internally-tracked daily peak and stays inflated all day,
-        // causing Dashboard "Temp Max Today" to differ from the Temperature
-        // screen's "Highest" (which tracks the live temperature reading).
-        final newTempLive = (data!['temperature'] as num?)?.toDouble()
-            ?? (data['tempAvg'] as num?)?.toDouble();
-        if (newTempLive != null && newTempLive > 0) {
-          _tempMax = newTempLive;
-          _lastKnownTemp = _tempMax;
-          SensorMemory.lastTemp = _tempMax;
-          SensorMemory.resetIfNewDay();
-          if (newTempLive > SensorMemory.lastTempMaxToday) {
-            SensorMemory.setTempMaxToday(newTempLive);
-            SensorMemory.save();
-          }
-          _tempMaxToday = SensorMemory.lastTempMaxToday;
-        }
-
-        // Use actual live humidity — not humidityMax for the same reason.
-        final newHumidity = (data['humidity'] as num?)?.toDouble();
-        if (newHumidity != null && newHumidity > 0) {
-          _humidityLive = newHumidity;
-          _lastKnownHumidity = newHumidity;
-          SensorMemory.lastHumidity = newHumidity;
-          SensorMemory.resetIfNewDay();
-          if (newHumidity > SensorMemory.lastHumidityMaxToday) {
-            SensorMemory.setHumidityMaxToday(newHumidity);
-            SensorMemory.save();
-          }
-          _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
-        }
-
-        _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
-        if (!_sprinklerJustToggled) {
-          final trustedVal = sprinklerNotifier.value;
-          _localIsActivated = trustedVal;
-          _sprinklerStatus = trustedVal ? "ON" : "OFF";
-        }
-
-        if (!_sprinklerMemoryLoaded && _lastActivated == "--") {
-          _lastActivated = data['lastActivated'] as String? ?? _lastActivated;
-        }
-        if (!_sprinklerMemoryLoaded && _date == "--") {
-          _date = data['date'] as String? ?? _date;
-        }
-        if (_duration == "--" && _lastActivated == "--") {
-          _duration = data['duration'] as String? ?? _duration;
-        }
-        final newPigStatus = data['pigStatus'] as String?;
-        if (newPigStatus != null && newPigStatus != "--") {
-          _pigStatus = newPigStatus;
-          SensorMemory.lastPigStatus = newPigStatus;
-        }
-
-        if ((newTempLive != null && newTempLive > 0) ||
-            (newHumidity != null && newHumidity > 0) ||
-            (newPigStatus != null && newPigStatus != "--")) {
-          SensorMemory.save();
-        }
-        _waterPct = (data['waterPct'] as num?)?.toDouble() ?? _waterPct;
-        _waterStatus = data['waterStatus'] as String? ?? _waterStatus;
-        _isLoading = false;
-
-        if (!isStale) {
-          _connectionStatus = "Live";
-          SensorMemory.lastConnectionStatus = "Live";
-          _sensorStatus = "Sensor Online";
-          SensorMemory.lastSensorStatus = "Sensor Online";
-        } else if (shouldShowOffline) {
-          _connectionStatus = "Sensor Offline";
-          SensorMemory.lastConnectionStatus = "Sensor Offline";
-          _sensorStatus = "Sensor Offline";
-          SensorMemory.lastSensorStatus = "Sensor Offline";
-        }
-        // First stale poll: keep previous status
-      });
-
-      if (!_sprinklerJustToggled) {
-        final trustedVal = sprinklerNotifier.value;
-        widget.onSprinklerChanged(trustedVal);
-
-        if (!mounted) return;
-        if (!trustedVal && _sprinklerActivatedAt != null) {
-          final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
-          if (elapsed.inSeconds > 3) {
-            _stopDurationTimer(keepDuration: true);
-          }
-        }
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _sensorStatus = "Sensor Offline";
-        SensorMemory.lastSensorStatus = "Sensor Offline";
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _syncTodayMaxFromFirestore() async {
-    try {
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-
-      // ── Temperature max from temperature_readings ──
-      // Try cache FIRST (instant, works offline). Only fall back to the
-      // network if cache is empty, and bound that fallback with a
-      // timeout — Source.server with no timeout can hang far longer
-      // than the UI should ever wait, causing the same multi-second
-      // freeze that _fetchData() already guards against.
-      QuerySnapshot? tempSnapshot;
-      try {
-        tempSnapshot = await FirebaseFirestore.instance
-            .collection('temperature_readings')
-            .where(
-              'timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-            )
-            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-            .orderBy('timestamp')
-            .get(const GetOptions(source: Source.cache));
-      } catch (_) {
-        tempSnapshot = null;
-      }
-      if (tempSnapshot == null || tempSnapshot.docs.isEmpty) {
-        try {
-          tempSnapshot = await FirebaseFirestore.instance
-              .collection('temperature_readings')
-              .where(
-                'timestamp',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-              )
-              .where(
-                'timestamp',
-                isLessThanOrEqualTo: Timestamp.fromDate(now),
-              )
-              .orderBy('timestamp')
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          tempSnapshot = null;
-        }
-      }
-
-      double firestoreTempMax = 0;
-      if (tempSnapshot != null) {
-        for (final doc in tempSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final t = (data['tempMax'] as num?)?.toDouble() ?? 0;
-          if (t > firestoreTempMax) firestoreTempMax = t;
-        }
-      }
-
-      // ── Humidity max from humidity_readings ──
-      QuerySnapshot? humiditySnapshot;
-      try {
-        humiditySnapshot = await FirebaseFirestore.instance
-            .collection('humidity_readings')
-            .where(
-              'timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-            )
-            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-            .orderBy('timestamp')
-            .get(const GetOptions(source: Source.cache));
-      } catch (_) {
-        humiditySnapshot = null;
-      }
-      if (humiditySnapshot == null || humiditySnapshot.docs.isEmpty) {
-        try {
-          humiditySnapshot = await FirebaseFirestore.instance
-              .collection('humidity_readings')
-              .where(
-                'timestamp',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-              )
-              .where(
-                'timestamp',
-                isLessThanOrEqualTo: Timestamp.fromDate(now),
-              )
-              .orderBy('timestamp')
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          humiditySnapshot = null;
-        }
-      }
-
-      double firestoreHumidityMax = 0;
-      if (humiditySnapshot != null) {
-        for (final doc in humiditySnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final h = (data['humidityMax'] as num?)?.toDouble() ?? 0;
-          if (h > firestoreHumidityMax) firestoreHumidityMax = h;
-        }
-      }
-
-      if (!mounted) return;
-
-      // ── Apply temp max ──
-      if (firestoreTempMax > 0) {
-        SensorMemory.resetIfNewDay();
-        if (firestoreTempMax > SensorMemory.lastTempMaxToday) {
-          SensorMemory.setTempMaxToday(firestoreTempMax);
-          SensorMemory.save();
-        }
-        setState(() {
-          _tempMaxToday = SensorMemory.lastTempMaxToday;
-        });
-      }
-
-      // ── Apply humidity max ──
-      if (firestoreHumidityMax > 0) {
-        SensorMemory.resetIfNewDay();
-        if (firestoreHumidityMax > SensorMemory.lastHumidityMaxToday) {
-          SensorMemory.setHumidityMaxToday(firestoreHumidityMax);
-          SensorMemory.save();
-        }
-        setState(() {
-          _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error syncing today max from Firestore: $e');
-    }
+    if (confirmed == true) await _toggleSprinkler(!_localIsActivated);
   }
 
   Future<void> _toggleSprinkler(bool turnOn) async {
@@ -934,83 +873,65 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       if (!mounted) return;
 
-      {
-        final now = DateTime.now();
-        setState(() => _localIsActivated = turnOn);
-        sprinklerNotifier.value = turnOn; // sync to temp & humidity screens
-        widget.onSprinklerChanged(turnOn);
+      final now = DateTime.now();
+      setState(() => _localIsActivated = turnOn);
+      sprinklerNotifier.value = turnOn; // broadcast to all screens
 
-        if (turnOn) {
-          // Format time as "hh:mm AM/PM"
-          final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
-          final minute = now.minute.toString().padLeft(2, '0');
-          final period = now.hour < 12 ? 'AM' : 'PM';
-          final timeStr = '$hour:$minute $period';
+      if (turnOn) {
+        final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
+        final minute = now.minute.toString().padLeft(2, '0');
+        final period = now.hour < 12 ? 'AM' : 'PM';
+        final timeStr = '$hour:$minute $period';
+        const months = [
+          'Jan','Feb','Mar','Apr','May','Jun',
+          'Jul','Aug','Sep','Oct','Nov','Dec'
+        ];
+        final dateStr =
+            '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
 
-          // Format date as "MMM dd"
-          const months = [
-            'Jan',
-            'Feb',
-            'Mar',
-            'Apr',
-            'May',
-            'Jun',
-            'Jul',
-            'Aug',
-            'Sep',
-            'Oct',
-            'Nov',
-            'Dec',
-          ];
-          final dateStr =
-              '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
+        SprinklerMemory.lastActivated = timeStr;
+        SprinklerMemory.date = dateStr;
+        SprinklerMemory.duration = '0s';
+        SprinklerMemory.status = "ON";
+        SprinklerMemory.activatedAt = now;
+        SprinklerMemory.save();
+        _sprinklerJustToggled = true;
 
-          SprinklerMemory.lastActivated = timeStr;
-          SprinklerMemory.date = dateStr;
-          SprinklerMemory.duration = '0s';
-          SprinklerMemory.status = "ON";
-          SprinklerMemory.activatedAt = now;
-          SprinklerMemory.save();
-          _sprinklerJustToggled = true;
-          setState(() {
-            _sprinklerStatus = "ON";
-            _lastActivated = timeStr;
-            _date = dateStr;
-            _duration = '0s';
-            _isSprinklerLoading = false;
-          });
-          Future.delayed(const Duration(seconds: 5), () {
-            if (mounted) setState(() => _sprinklerJustToggled = false);
-          });
-
-          _startDurationTimer(now);
-        } else {
-          // Capture final duration BEFORE stopping timer
-          String finalDuration = '--';
-          if (_sprinklerActivatedAt != null) {
-            final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
-            final mins = elapsed.inMinutes;
-            final secs = elapsed.inSeconds % 60;
-            finalDuration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
-          }
-          SprinklerMemory.duration = finalDuration;
-          SprinklerMemory.status = "OFF";
-          SprinklerMemory.activatedAt = null;
-          SprinklerMemory.save();
-          _stopDurationTimer();
-          _sprinklerJustToggled = true;
-          setState(() {
-            _sprinklerStatus = "OFF";
-            _isSprinklerLoading = false;
-            _duration = finalDuration;
-          });
-          Future.delayed(const Duration(seconds: 5), () {
-            if (mounted) setState(() => _sprinklerJustToggled = false);
-          });
+        setState(() {
+          _sprinklerStatus = "ON";
+          _lastActivated = timeStr;
+          _date = dateStr;
+          _duration = '0s';
+          _isSprinklerLoading = false;
+        });
+        _startDurationTimer(now);
+      } else {
+        String finalDuration = '--';
+        if (_sprinklerActivatedAt != null) {
+          final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
+          final mins = elapsed.inMinutes;
+          final secs = elapsed.inSeconds % 60;
+          finalDuration = mins > 0 ? '${mins}m ${secs}s' : '${secs}s';
         }
+        SprinklerMemory.duration = finalDuration;
+        SprinklerMemory.status = "OFF";
+        SprinklerMemory.activatedAt = null;
+        SprinklerMemory.save();
+        _stopDurationTimer();
+        _sprinklerJustToggled = true;
 
-        await Future.delayed(const Duration(milliseconds: 2500));
-        if (mounted) await _fetchData();
+        setState(() {
+          _sprinklerStatus = "OFF";
+          _isSprinklerLoading = false;
+          _duration = finalDuration;
+        });
+      }
+
+      // Wait longer than ESP32 poll interval (5s) before confirming
+      await Future.delayed(const Duration(milliseconds: 6000));
+      if (mounted) {
+        await _fetchData();
+        setState(() => _sprinklerJustToggled = false);
       }
     } catch (e) {
       if (mounted) {
@@ -1022,86 +943,14 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  Future<void> _confirmSprinkler() async {
-    if (_isSprinklerLoading) return;
-
-    // Block activation when sensor is offline (deactivation always allowed)
-    if (_sensorStatus != "Sensor Online" && !_localIsActivated) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Row(
-            children: [
-              Icon(Icons.sensors_off, color: Colors.red, size: 20),
-              SizedBox(width: 8),
-              Text('Sensor Offline'),
-            ],
-          ),
-          content: const Text(
-            'Cannot activate the sprinkler while the sensor is offline. Please ensure the sensor is online and try again.',
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text('OK', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    final action = _localIsActivated ? 'Deactivate' : 'Activate';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('$action Sprinkler?'),
-        content: Text(
-          _localIsActivated
-              ? 'Are you sure you want to turn the sprinkler off?'
-              : 'Are you sure you want to turn the sprinkler on?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _localIsActivated
-                  ? const Color(0xFFD32F2F)
-                  : Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text(action, style: const TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-    if (!mounted) return;
-    if (confirmed == true) await _toggleSprinkler(!_localIsActivated);
-  }
+  // ── Decoration helper ────────────────────────
 
   BoxDecoration _bentoDecoration(bool isDark, {Color? accentColor}) {
     return BoxDecoration(
       color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
       borderRadius: BorderRadius.circular(20),
       border: Border.all(
-        color:
-            accentColor?.withValues(alpha: 0.25) ??
+        color: accentColor?.withValues(alpha: 0.25) ??
             (isDark
                 ? Colors.white.withValues(alpha: 0.07)
                 : Colors.black.withValues(alpha: 0.06)),
@@ -1109,13 +958,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
       boxShadow: [
         BoxShadow(
-          color:
-              accentColor?.withValues(alpha: 0.10) ??
+          color: accentColor?.withValues(alpha: 0.10) ??
               (isDark
                   ? Colors.black.withValues(alpha: 0.4)
                   : Colors.black.withValues(alpha: 0.08)),
           blurRadius: 16,
-          spreadRadius: 0,
           offset: const Offset(0, 6),
         ),
         BoxShadow(
@@ -1123,17 +970,17 @@ class _DashboardScreenState extends State<DashboardScreen>
               ? Colors.white.withValues(alpha: 0.03)
               : Colors.white.withValues(alpha: 0.9),
           blurRadius: 1,
-          spreadRadius: 0,
           offset: const Offset(0, -1),
         ),
       ],
     );
   }
 
+  // ── Build ────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
     return Padding(
       padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
       child: SingleChildScrollView(
@@ -1173,11 +1020,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             CircleAvatar(
               radius: 24,
               backgroundColor: Colors.transparent,
-              child: Icon(
-                Symbols.account_circle,
-                size: 50,
-                color: isDark ? Colors.white : Colors.black,
-              ),
+              child: Icon(Symbols.account_circle,
+                  size: 50, color: isDark ? Colors.white : Colors.black),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1185,18 +1029,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const CustomText(
-                    type: TextType.username,
-                    prefix: 'Hello, ',
-                    suffix: '👋',
-                    fontSize: 20,
-                  ),
-                  Text(
-                    "Here's what's happening in your farm.",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark ? Colors.white60 : Colors.grey,
-                    ),
-                  ),
+                      type: TextType.username,
+                      prefix: 'Hello, ',
+                      suffix: '👋',
+                      fontSize: 20),
+                  Text("Here's what's happening in your farm.",
+                      style: TextStyle(
+                          fontSize: 14,
+                          color: isDark ? Colors.white60 : Colors.grey)),
                 ],
               ),
             ),
@@ -1205,67 +1045,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         const SizedBox(height: 12),
         Row(
           children: [
-            // Live pill
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: isLive
-                    ? Colors.green.withValues(alpha: 0.15)
-                    : Colors.red.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isLive ? Colors.green : Colors.red,
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isLive ? Icons.wifi : Icons.wifi_off,
-                    size: 12,
-                    color: isLive ? Colors.green : Colors.red,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _connectionStatus,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: isLive ? Colors.green : Colors.red,
-                    ),
-                  ),
-                ],
-              ),
+            _statusPill(
+              isLive ? Icons.wifi : Icons.wifi_off,
+              _connectionStatus,
+              isLive ? Colors.green : Colors.red,
             ),
             const SizedBox(width: 8),
-            // Sensor pill
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: sensorColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: sensorColor, width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    sensorOnline ? Icons.sensors : Icons.sensors_off,
-                    size: 12,
-                    color: sensorColor,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    sensorOnline ? "Sensor Online" : "Sensor Offline",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: sensorColor,
-                    ),
-                  ),
-                ],
-              ),
+            _statusPill(
+              sensorOnline ? Icons.sensors : Icons.sensors_off,
+              sensorOnline ? "Sensor Online" : "Sensor Offline",
+              sensorColor,
             ),
           ],
         ),
@@ -1273,31 +1062,50 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _statusPill(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color, width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWeatherCard(bool isDark) {
-    final bool showTemp = _showingTemperature;
-    final String label = showTemp ? "Temperature" : "Humidity";
-    final double displayTemp = _tempMax > 0 ? _tempMax : _lastKnownTemp;
-    final double displayHumidity = _humidityLive > 0
-        ? _humidityLive
-        : _lastKnownHumidity;
+    final showTemp = _showingTemperature;
+    final displayTemp = _tempMax > 0 ? _tempMax : _lastKnownTemp;
+    final displayHumidity =
+    _humidityLive > 0 ? _humidityLive : _lastKnownHumidity;
+    final isOffline = _sensorStatus == "Sensor Offline" ||
+        _connectionStatus == "No connection";
 
-    final bool isOffline =
-        _connectionStatus == "No connection" ||
-        _sensorStatus == "Sensor Offline";
-
-    final String value = _isLoading
+    final value = _isLoading
         ? "--"
         : isOffline
         ? "--"
         : showTemp
-        ? (displayTemp > 0 ? "${displayTemp.toStringAsFixed(1)}°" : "--")
+        ? (displayTemp > 0
+        ? "${displayTemp.toStringAsFixed(1)}°"
+        : "--")
         : (displayHumidity > 0
-              ? "${displayHumidity.toStringAsFixed(1)}%"
-              : "--");
-    final IconData icon = showTemp
-        ? Icons.thermostat_outlined
-        : Icons.water_drop_outlined;
-    final Color iconColor = showTemp ? Colors.orange : Colors.blue;
+        ? "${displayHumidity.toStringAsFixed(1)}%"
+        : "--");
+
+    final icon =
+    showTemp ? Icons.thermostat_outlined : Icons.water_drop_outlined;
+    final iconColor = showTemp ? Colors.orange : Colors.blue;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1311,61 +1119,49 @@ class _DashboardScreenState extends State<DashboardScreen>
               children: [
                 FadeTransition(
                   opacity: _fadeAnimation,
-                  child: Row(
-                    children: [
-                      Icon(icon, size: 14, color: iconColor),
-                      const SizedBox(width: 4),
-                      Text(
-                        label,
+                  child: Row(children: [
+                    Icon(icon, size: 14, color: iconColor),
+                    const SizedBox(width: 4),
+                    Text(showTemp ? "Temperature" : "Humidity",
                         style: TextStyle(
-                          color: isDark ? Colors.white60 : Colors.grey,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
+                            color: isDark ? Colors.white60 : Colors.grey,
+                            fontSize: 12)),
+                  ]),
                 ),
                 const SizedBox(height: 4),
                 _isLoading
                     ? const SizedBox(
-                        height: 40,
-                        width: 40,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                    height: 40,
+                    width: 40,
+                    child: CircularProgressIndicator(strokeWidth: 2))
                     : FadeTransition(
-                        opacity: _fadeAnimation,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          transitionBuilder: (child, animation) =>
-                              SlideTransition(
-                                position: Tween<Offset>(
-                                  begin: const Offset(0, 0.2),
-                                  end: Offset.zero,
-                                ).animate(animation),
-                                child: FadeTransition(
-                                  opacity: animation,
-                                  child: child,
-                                ),
-                              ),
-                          child: Text(
-                            value,
-                            key: ValueKey(value),
-                            style: TextStyle(
-                              fontSize: 36,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
-                          ),
+                  opacity: _fadeAnimation,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    transitionBuilder: (child, animation) =>
+                        SlideTransition(
+                          position: Tween<Offset>(
+                              begin: const Offset(0, 0.2),
+                              end: Offset.zero)
+                              .animate(animation),
+                          child: FadeTransition(
+                              opacity: animation, child: child),
                         ),
-                      ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    _buildDot(isActive: showTemp, color: Colors.orange),
-                    const SizedBox(width: 4),
-                    _buildDot(isActive: !showTemp, color: Colors.blue),
-                  ],
+                    child: Text(value,
+                        key: ValueKey(value),
+                        style: TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            color:
+                            isDark ? Colors.white : Colors.black)),
+                  ),
                 ),
+                const SizedBox(height: 6),
+                Row(children: [
+                  _buildDot(isActive: showTemp, color: Colors.orange),
+                  const SizedBox(width: 4),
+                  _buildDot(isActive: !showTemp, color: Colors.blue),
+                ]),
               ],
             ),
           ),
@@ -1373,7 +1169,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             onTap: _isSprinklerLoading ? null : _confirmSprinkler,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
                 color: _isSprinklerLoading
                     ? Colors.grey.shade400
@@ -1384,32 +1181,28 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               child: _isSprinklerLoading
                   ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
                   : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _localIsActivated ? Icons.check_circle : Icons.shower,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                      _localIsActivated
+                          ? Icons.check_circle
+                          : Icons.shower,
+                      color: Colors.white,
+                      size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                      _localIsActivated ? 'Active' : 'Activate',
+                      style: const TextStyle(
                           color: Colors.white,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _localIsActivated ? 'Active' : 'Activate',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14)),
+                ],
+              ),
             ),
           ),
         ],
@@ -1442,10 +1235,12 @@ class _DashboardScreenState extends State<DashboardScreen>
               [
                 "Max Temp Today: ${() {
                   SensorMemory.resetIfNewDay();
-                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : (_tempMaxToday > 0 ? _tempMaxToday : 0);
+                  final v = SensorMemory.lastTempMaxToday > 0
+                      ? SensorMemory.lastTempMaxToday
+                      : _tempMaxToday;
                   return v == 0 ? '…' : '${v.toStringAsFixed(1)}°C';
                 }()}",
-                "Max Humidity Today: ${(_humidityMaxToday > 0 ? _humidityMaxToday : 0) == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
+                "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
                 "Pig Status: $_pigStatus",
               ],
               const Color(0xFFE53935),
@@ -1453,65 +1248,17 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           const SizedBox(width: 5),
           Expanded(
-            child: _buildInfoCard(isDark, Symbols.shower, "Sprinkler Info", [
-              "Status: $_sprinklerStatus",
-              "Time: $_lastActivated",
-              "Date: $_date",
-              "Duration: ${_duration}",
-            ], const Color(0xFF1E88E5)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(
-    bool isDark,
-    IconData icon,
-    String title,
-    List<String> items,
-    Color iconColor,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: _bentoDecoration(isDark, accentColor: iconColor),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 15, color: iconColor),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ...items.map(
-            (e) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Text(
-                e,
-                style: TextStyle(
-                  color: isDark ? Colors.white60 : const Color(0xFF707070),
-                  fontSize: 12,
-                ),
-              ),
+            child: _buildInfoCard(
+              isDark,
+              Symbols.shower,
+              "Sprinkler Info",
+              [
+                "Status: $_sprinklerStatus",
+                "Time: $_lastActivated",
+                "Date: $_date",
+                "Duration: $_duration",
+              ],
+              const Color(0xFF1E88E5),
             ),
           ),
         ],
@@ -1519,17 +1266,53 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _buildInfoCard(bool isDark, IconData icon, String title,
+      List<String> items, Color iconColor) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: _bentoDecoration(isDark, accentColor: iconColor),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8)),
+              child: Icon(icon, size: 15, color: iconColor),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(title,
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: isDark ? Colors.white : Colors.black)),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          ...items.map((e) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(e,
+                style: TextStyle(
+                    color: isDark
+                        ? Colors.white60
+                        : const Color(0xFF707070),
+                    fontSize: 12)),
+          )),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTemperatureGraph(bool isDark) {
-    final Color lineColor = Colors.green;
-    final Color axisColor = isDark ? Colors.white38 : Colors.black26;
-    final Color labelColor = isDark ? Colors.white54 : Colors.black45;
-
-    final List<FlSpot> spots = _graphSpots;
-    final bool hasData = spots.isNotEmpty;
-
-    final double yMin = 18.0;
-    final double yMax = 47.0;
-    final double xMax = _graphShowLast24hrs ? 24 : 23;
+    final lineColor = Colors.green;
+    final axisColor = isDark ? Colors.white38 : Colors.black26;
+    final labelColor = isDark ? Colors.white54 : Colors.black45;
+    final spots = _graphSpots;
+    final hasData = spots.isNotEmpty;
+    final xMax = _graphShowLast24hrs ? 24.0 : 23.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1537,272 +1320,218 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row with toggle
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Symbols.monitoring,
-                  color: Colors.green,
-                  size: 16,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
+                  borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Symbols.monitoring,
+                  color: Colors.green, size: 16),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
                   _graphShowLast24hrs
                       ? "Temperature (Last 24 hrs)"
                       : "Temperature (Today)",
                   style: TextStyle(
-                    color: isDark ? Colors.white : Colors.black87,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13)),
+            ),
+            GestureDetector(
+              onTap: () {
+                setState(
+                        () => _graphShowLast24hrs = !_graphShowLast24hrs);
+                _loadGraphData();
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.green, width: 1),
                 ),
-              ),
-              // Toggle pill
-              GestureDetector(
-                onTap: () {
-                  setState(() => _graphShowLast24hrs = !_graphShowLast24hrs);
-                  _loadGraphData();
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.green, width: 1),
-                  ),
-                  child: Text(
+                child: Text(
                     _graphShowLast24hrs ? "24 hrs" : "Today",
                     style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.green,
-                    ),
-                  ),
-                ),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green)),
               ),
-            ],
-          ),
-
+            ),
+          ]),
           const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("°C", style: TextStyle(fontSize: 10, color: labelColor)),
+              Text("°C",
+                  style: TextStyle(fontSize: 10, color: labelColor)),
               Text(
-                _graphShowLast24hrs ? "Hour (0 = 24hrs ago)" : "Hour",
-                style: TextStyle(fontSize: 10, color: labelColor),
-              ),
+                  _graphShowLast24hrs ? "Hour (0 = 24hrs ago)" : "Hour",
+                  style: TextStyle(fontSize: 10, color: labelColor)),
             ],
           ),
-
           const SizedBox(height: 8),
-
           SizedBox(
             height: 220,
             child: _graphLoading
                 ? Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.green,
-                    ),
-                  )
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.green))
                 : !hasData
                 ? Center(
-                    child: Text(
-                      "No temperature data available",
-                      style: TextStyle(color: labelColor, fontSize: 12),
-                    ),
-                  )
-                : LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: xMax,
-                      minY: yMin,
-                      maxY: yMax,
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: true,
-                          curveSmoothness: 0.6,
-                          color: lineColor,
-                          barWidth: 2.5,
-                          dotData: FlDotData(
-                            show: true,
-                            getDotPainter: (spot, percent, bar, index) =>
-                                FlDotCirclePainter(
-                                  radius: 2,
-                                  color: Colors.green,
-                                  strokeWidth: 0,
-                                  strokeColor: Colors.transparent,
-                                ),
-                          ),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.green.withValues(alpha: 0.35),
-                                Colors.green.withValues(alpha: 0.10),
-                              ],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                          ),
-                        ),
+                child: Text("No temperature data available",
+                    style: TextStyle(
+                        color: labelColor, fontSize: 12)))
+                : LineChart(LineChartData(
+              minX: 0,
+              maxX: xMax,
+              minY: 18,
+              maxY: 47,
+              lineBarsData: [
+                LineChartBarData(
+                  spots: spots,
+                  isCurved: true,
+                  curveSmoothness: 0.6,
+                  color: lineColor,
+                  barWidth: 2.5,
+                  dotData: FlDotData(
+                    show: true,
+                    getDotPainter: (s, p, b, i) =>
+                        FlDotCirclePainter(
+                            radius: 2,
+                            color: Colors.green,
+                            strokeWidth: 0,
+                            strokeColor: Colors.transparent),
+                  ),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.green.withValues(alpha: 0.35),
+                        Colors.green.withValues(alpha: 0.10),
                       ],
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        horizontalInterval: 5,
-                        getDrawingHorizontalLine: (_) => FlLine(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.08)
-                              : Colors.black.withValues(alpha: 0.06),
-                          strokeWidth: 1,
-                        ),
-                      ),
-                      borderData: FlBorderData(
-                        show: true,
-                        border: Border(
-                          bottom: BorderSide(color: axisColor, width: 1.5),
-                          left: BorderSide(color: axisColor, width: 1.5),
-                        ),
-                      ),
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 22,
-                            interval: 1,
-                            getTitlesWidget: (value, meta) {
-                              if (_graphShowLast24hrs) {
-                                // 0 = 24hrs ago, 24 = now
-                                const labels = {
-                                  0: '12AM',
-                                  4: '4AM',
-                                  8: '8AM',
-                                  12: '12PM',
-                                  16: '4PM',
-                                  20: '8PM',
-                                  23: '11PM',
-                                };
-                                final h = value.toInt();
-                                if (!labels.containsKey(h)) {
-                                  return const SizedBox.shrink();
-                                }
-                                return SideTitleWidget(
-                                  meta: meta,
-                                  child: Text(
-                                    labels[h]!,
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: labelColor,
-                                    ),
-                                  ),
-                                );
-                              } else {
-                                const labels = {
-                                  0: '12AM',
-                                  4: '4AM',
-                                  8: '8AM',
-                                  12: '12PM',
-                                  16: '4PM',
-                                  20: '8PM',
-                                  23: '11PM',
-                                };
-                                final h = value.toInt();
-                                if (!labels.containsKey(h)) {
-                                  return const SizedBox.shrink();
-                                }
-                                return SideTitleWidget(
-                                  meta: meta,
-                                  child: Text(
-                                    labels[h]!,
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: labelColor,
-                                    ),
-                                  ),
-                                );
-                              }
-                            },
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 36,
-                            interval: 5,
-                            getTitlesWidget: (value, meta) {
-                              const allowedValues = [20, 25, 30, 35, 40, 45];
-                              if (!allowedValues.contains(value.toInt()) ||
-                                  value != value.roundToDouble()) {
-                                return const SizedBox.shrink();
-                              }
-                              return SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  '${value.toInt()}°',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: labelColor,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      lineTouchData: LineTouchData(
-                        touchTooltipData: LineTouchTooltipData(
-                          getTooltipColor: (_) =>
-                              isDark ? const Color(0xFF2A2A2A) : Colors.white,
-                          getTooltipItems: (touchedSpots) {
-                            return touchedSpots.map((spot) {
-                              String label;
-                              if (_graphShowLast24hrs) {
-                                final hoursAgo = (24 - spot.x).toInt();
-                                label = hoursAgo == 0
-                                    ? 'Now'
-                                    : '${hoursAgo}h ago';
-                              } else {
-                                final h = spot.x.toInt();
-                                final isPM = h >= 12;
-                                final hour12 = h % 12 == 0 ? 12 : h % 12;
-                                final period = isPM ? 'PM' : 'AM';
-                                label = '$hour12:00 $period';
-                              }
-                              return LineTooltipItem(
-                                '$label\n${spot.y.toStringAsFixed(1)}°C',
-                                TextStyle(
-                                  color: lineColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              );
-                            }).toList();
-                          },
-                        ),
-                      ),
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
                     ),
                   ),
+                ),
+              ],
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                horizontalInterval: 5,
+                getDrawingHorizontalLine: (_) => FlLine(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.06),
+                    strokeWidth: 1),
+              ),
+              borderData: FlBorderData(
+                show: true,
+                border: Border(
+                  bottom: BorderSide(
+                      color: axisColor, width: 1.5),
+                  left: BorderSide(
+                      color: axisColor, width: 1.5),
+                ),
+              ),
+              titlesData: FlTitlesData(
+                topTitles: const AxisTitles(
+                    sideTitles:
+                    SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(
+                    sideTitles:
+                    SideTitles(showTitles: false)),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 22,
+                    interval: 1,
+                    getTitlesWidget: (value, meta) {
+                      const labels = {
+                        0: '12AM',
+                        4: '4AM',
+                        8: '8AM',
+                        12: '12PM',
+                        16: '4PM',
+                        20: '8PM',
+                        23: '11PM',
+                      };
+                      final h = value.toInt();
+                      if (!labels.containsKey(h))
+                        return const SizedBox.shrink();
+                      return SideTitleWidget(
+                        meta: meta,
+                        child: Text(labels[h]!,
+                            style: TextStyle(
+                                fontSize: 9,
+                                color: labelColor)),
+                      );
+                    },
+                  ),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 36,
+                    interval: 5,
+                    getTitlesWidget: (value, meta) {
+                      const allowed = [
+                        20, 25, 30, 35, 40, 45
+                      ];
+                      if (!allowed
+                          .contains(value.toInt()) ||
+                          value != value.roundToDouble())
+                        return const SizedBox.shrink();
+                      return SideTitleWidget(
+                        meta: meta,
+                        child: Text('${value.toInt()}°',
+                            style: TextStyle(
+                                fontSize: 10,
+                                color: labelColor)),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              lineTouchData: LineTouchData(
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipColor: (_) => isDark
+                      ? const Color(0xFF2A2A2A)
+                      : Colors.white,
+                  getTooltipItems: (touchedSpots) {
+                    return touchedSpots.map((spot) {
+                      String label;
+                      if (_graphShowLast24hrs) {
+                        final hoursAgo =
+                        (24 - spot.x).toInt();
+                        label = hoursAgo == 0
+                            ? 'Now'
+                            : '${hoursAgo}h ago';
+                      } else {
+                        final h = spot.x.toInt();
+                        final hour12 =
+                        h % 12 == 0 ? 12 : h % 12;
+                        label =
+                        '$hour12:00 ${h >= 12 ? 'PM' : 'AM'}';
+                      }
+                      return LineTooltipItem(
+                        '$label\n${spot.y.toStringAsFixed(1)}°C',
+                        TextStyle(
+                            color: lineColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600),
+                      );
+                    }).toList();
+                  },
+                ),
+              ),
+            )),
           ),
         ],
       ),
@@ -1828,7 +1557,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildWaterLevelCard(bool isDark) {
-    final Color statusColor = switch (_waterStatus) {
+    final statusColor = switch (_waterStatus) {
       "Full" => Colors.green,
       "Normal" => Colors.blue,
       "Low" => Colors.orange,
@@ -1838,74 +1567,59 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: _bentoDecoration(
-        isDark,
-        accentColor: const Color(0xFF1E88E5),
-      ),
+      decoration:
+      _bentoDecoration(isDark, accentColor: const Color(0xFF1E88E5)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Symbols.water_medium,
-                  size: 15,
-                  color: Color(0xFF1E88E5),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "Water Level",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            "Level: ${_waterPct.toStringAsFixed(0)}%",
-            style: TextStyle(
-              color: isDark ? Colors.white60 : const Color(0xFF707070),
-              fontSize: 12,
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                  color:
+                  const Color(0xFF1E88E5).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Symbols.water_medium,
+                  size: 15, color: Color(0xFF1E88E5)),
             ),
-          ),
+            const SizedBox(width: 8),
+            Text("Water Level",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black)),
+          ]),
+          const SizedBox(height: 10),
+          Text("Level: ${_waterPct.toStringAsFixed(0)}%",
+              style: TextStyle(
+                  color: isDark
+                      ? Colors.white60
+                      : const Color(0xFF707070),
+                  fontSize: 12)),
           const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                "Status: ",
+          Row(children: [
+            Text("Status: ",
                 style: TextStyle(
-                  color: isDark ? Colors.white60 : const Color(0xFF707070),
-                  fontSize: 12,
-                ),
-              ),
-              Text(
-                _waterStatus,
+                    color: isDark
+                        ? Colors.white60
+                        : const Color(0xFF707070),
+                    fontSize: 12)),
+            Text(_waterStatus,
                 style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
+                    color: statusColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold)),
+          ]),
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: (_waterPct / 100).clamp(0.0, 1.0),
               minHeight: 6,
-              backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
-              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+              backgroundColor:
+              isDark ? Colors.white12 : Colors.grey.shade200,
+              valueColor:
+              AlwaysStoppedAnimation<Color>(statusColor),
             ),
           ),
         ],
@@ -1925,123 +1639,94 @@ class _DashboardScreenState extends State<DashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                  color: conditionColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8)),
+              child: Icon(Icons.lightbulb_outline,
+                  size: 15, color: conditionColor),
+            ),
+            const SizedBox(width: 8),
+            Text("Smart Recommendation",
+                style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black)),
+            const Spacer(),
+            if (!_mlLoading)
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: conditionColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: conditionColor, width: 1),
                 ),
-                child: Icon(
-                  Icons.lightbulb_outline,
-                  size: 15,
-                  color: conditionColor,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "Smart Recommendation",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-              ),
-              const Spacer(),
-              if (!_mlLoading)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: conditionColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: conditionColor, width: 1),
-                  ),
-                  child: Text(
-                    _mlCondition,
+                child: Text(_mlCondition,
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: conditionColor,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: conditionColor)),
+              ),
+          ]),
           const SizedBox(height: 10),
           if (_mlLoading)
-            Row(
-              children: [
-                const SizedBox(
+            Row(children: [
+              const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  "Analyzing farm conditions...",
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+              const SizedBox(width: 10),
+              Text("Analyzing farm conditions...",
                   style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white60 : const Color(0xFF707070),
-                  ),
-                ),
-              ],
-            )
+                      fontSize: 12,
+                      color: isDark
+                          ? Colors.white60
+                          : const Color(0xFF707070))),
+            ])
           else if (_mlRecommendations.isEmpty)
-            Text(
-              "No recommendations at this time.",
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.white60 : const Color(0xFF707070),
-              ),
-            )
+            Text("No recommendations at this time.",
+                style: TextStyle(
+                    fontSize: 12,
+                    color: isDark
+                        ? Colors.white60
+                        : const Color(0xFF707070)))
           else
-            ..._mlRecommendations.map(
-              (r) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.arrow_right, size: 16, color: conditionColor),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        r,
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.white60
-                              : const Color(0xFF707070),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+            ..._mlRecommendations.map((r) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.arrow_right,
+                      size: 16, color: conditionColor),
+                  const SizedBox(width: 4),
+                  Expanded(
+                      child: Text(r,
+                          style: TextStyle(
+                              color: isDark
+                                  ? Colors.white60
+                                  : const Color(0xFF707070),
+                              fontSize: 12))),
+                ],
               ),
-            ),
+            )),
           if (!_mlLoading && _mlCondition != "Unavailable")
             Padding(
               padding: const EdgeInsets.only(top: 10),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.memory,
+              child: Row(children: [
+                Icon(Icons.memory,
                     size: 11,
-                    color: isDark ? Colors.white30 : Colors.black26,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    "Powered by PRISM trained ML · live sensor data",
+                    color: isDark ? Colors.white30 : Colors.black26),
+                const SizedBox(width: 4),
+                Text("Powered by PRISM trained ML · live sensor data",
                     style: TextStyle(
-                      fontSize: 10,
-                      color: isDark ? Colors.white30 : Colors.black38,
-                    ),
-                  ),
-                ],
-              ),
+                        fontSize: 10,
+                        color: isDark
+                            ? Colors.white30
+                            : Colors.black38)),
+              ]),
             ),
         ],
       ),
