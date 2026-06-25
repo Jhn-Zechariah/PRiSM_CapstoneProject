@@ -133,11 +133,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   DateTime? _customStart;
   DateTime? _customEnd;
   Timer? _hourlyRefreshTimer;
- 
-  DateTime get _todayStart {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
-  }
+
  
   @override
   void initState() {

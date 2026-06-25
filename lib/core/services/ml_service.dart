@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart'; // Handles user validation cr
 
 class MlService {
   // Switch to 'http://127.0.0.1:8000' if you are using ADB USB port forwarding!
-  static const String baseUrl = '192.168.1.28:8000';
+  static const String baseUrl = 'http://192.168.1.28:8000';
 
   /// Helper to fetch the current active user's JWT ID Token from Firebase Auth
   static Future<String?> _getFirebaseToken() async {
