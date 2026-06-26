@@ -66,7 +66,7 @@ class MedicineIntake {
       unitOfMeasurement: map['unitOfMeasurement'] ?? '',
       status: map['status'] ?? 'Ongoing',
       // 🔹 Read as Timestamp now, not a String.
-      nextSchedule: _parseDate(map['nextSchedule']),
+      nextSchedule: _parseDate(map['nextSchedule'] ?? DateTime.now()),
       purpose: map['purpose'] as String?,
       dateTaken: _parseDate(map['dateTaken']) ?? DateTime.now(),
     );
