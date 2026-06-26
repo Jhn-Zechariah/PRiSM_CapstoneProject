@@ -12,27 +12,49 @@ import 'medicine_states.dart';
 class MedicineCubit extends Cubit<MedicineState> {
   final MedicineRepository repository;
   final Map<String, String> expiryCache = {};
-
-  // 🔹 New: cache of fetched stock batches, keyed by medicine id.
   final Map<String, List<MedicineStock>> _stockCache = {};
 
   List<Medicine> currentMedicines = [];
 
   StreamSubscription? _medicineSubscription;
   StreamSubscription? _intakeSubscription;
+  StreamSubscription? _authSubscription; // 🔹 NEW
 
   String? _lastLoadedUid;
-  String? _lastIntakeUid; // also fixes the earlier multi-user intake bug
+  String? _lastIntakeUid;
 
-  MedicineCubit({required this.repository}) : super(MedicineInitial());
+  MedicineCubit({required this.repository}) : super(MedicineInitial()) {
+    _listenToAuthChanges(); // 🔹 NEW
+  }
+
+  // 🔹 NEW
+  void _listenToAuthChanges() {
+    _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
+      if (user != null) {
+        listenToMedicines();
+        listenToIntakes();
+      } else {
+        _medicineSubscription?.cancel();
+        _medicineSubscription = null;
+        _intakeSubscription?.cancel();
+        _intakeSubscription = null;
+        _lastLoadedUid = null;
+        _lastIntakeUid = null;
+        currentMedicines = [];
+        _stockCache.clear();
+        expiryCache.clear();
+        emit(MedicineInitial());
+      }
+    });
+  }
 
   void listenToMedicines() {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
     if (_lastLoadedUid == currentUser.uid && _medicineSubscription != null) return;
 
-    _lastLoadedUid = currentUser.uid;
     _medicineSubscription?.cancel();
+    _lastLoadedUid = currentUser.uid;
 
     emit(MedicineLoading());
 
@@ -50,10 +72,36 @@ class MedicineCubit extends Cubit<MedicineState> {
     if (currentUser == null) return;
     if (_lastIntakeUid == currentUser.uid && _intakeSubscription != null) return;
 
-    _lastIntakeUid = currentUser.uid;
     _intakeSubscription?.cancel();
+    _lastIntakeUid = currentUser.uid;
 
     _intakeSubscription = repository.streamIntakes(currentUser.uid).listen(
+          (intakes) => emit(MedicineIntakesLoaded(intakes)),
+      onError: (e) => emit(MedicineError(e.toString())),
+    );
+  }
+
+  /// 🔹 NEW: Explicit trusted reload, called from AppNav on Authenticated.
+  void forceReload(String uid) {
+    _medicineSubscription?.cancel();
+    _medicineSubscription = null;
+    _lastLoadedUid = uid;
+
+    _intakeSubscription?.cancel();
+    _intakeSubscription = null;
+    _lastIntakeUid = uid;
+
+    emit(MedicineLoading());
+
+    _medicineSubscription = repository.streamMedicines(uid).listen(
+          (medicines) {
+        currentMedicines = medicines;
+        emit(MedicineLoaded(medicines));
+      },
+      onError: (e) => emit(MedicineError(e.toString())),
+    );
+
+    _intakeSubscription = repository.streamIntakes(uid).listen(
           (intakes) => emit(MedicineIntakesLoaded(intakes)),
       onError: (e) => emit(MedicineError(e.toString())),
     );
@@ -74,8 +122,6 @@ class MedicineCubit extends Cubit<MedicineState> {
     }
   }
 
-  // 🔹 Now serves from cache when available — avoids a Firestore read
-  // every time the same medicine is selected again in the dialog.
   Future<List<MedicineStock>> getStocksForMedicine(
       String medId, {
         bool forceRefresh = false,
@@ -93,7 +139,6 @@ class MedicineCubit extends Cubit<MedicineState> {
     }
   }
 
-  // 🔹 Single place to invalidate both caches whenever stock changes.
   void _invalidateStockCache(String? medId) {
     if (medId == null) return;
     expiryCache.remove(medId);
@@ -149,7 +194,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   }) async {
     try {
       emit(MedicineLoading());
-      _invalidateStockCache(medicineId); // 🔹 stock amount just changed too
+      _invalidateStockCache(medicineId);
 
       await repository.addIntakeAndReduceStock(
         intake: intake,
@@ -169,6 +214,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   Future<void> close() {
     _medicineSubscription?.cancel();
     _intakeSubscription?.cancel();
+    _authSubscription?.cancel(); // 🔹 NEW
     return super.close();
   }
 }

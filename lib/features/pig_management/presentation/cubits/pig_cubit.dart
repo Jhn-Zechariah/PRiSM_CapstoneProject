@@ -6,7 +6,6 @@ import '../../data/firestore_pig_repo.dart';
 import '../../domain/model/app_pig.dart';
 import '../../domain/repo/pig_repo.dart';
 
-
 class PigCubit extends Cubit<PigState> {
   final PigRepo _pigRepo;
   StreamSubscription? _pigSubscription;
@@ -14,26 +13,17 @@ class PigCubit extends Cubit<PigState> {
 
   final Set<String> _migrationCheckedUids = {};
 
-
-  // Swapped FirebasePigRepo to PigRepo here for clean architecture
   PigCubit({required PigRepo pigRepo})
       : _pigRepo = pigRepo,
         super(PigInitial()) {
     _listenToAuthChanges();
   }
 
-
-  // 👇 Method for the UI to call when the dropdown changes
   void changeFilter(String newFilter) {
     if (state is PigLoaded) {
       final currentState = state as PigLoaded;
-
-
-      // Calculate the new filtered list
       final newFilteredPigs = _applyFilter(currentState.allPigs, newFilter);
 
-
-      // Emit the updated state
       emit(PigLoaded(
         allPigs: currentState.allPigs,
         filteredPigs: newFilteredPigs,
@@ -42,12 +32,9 @@ class PigCubit extends Cubit<PigState> {
     }
   }
 
-
-  // 👇 Apply the filter when new data arrives from Firebase
   void _onPigsUpdated(List<AppPig> newPigs) {
     final currentFilter = state is PigLoaded ? (state as PigLoaded).currentFilter : 'Active';
     final filtered = _applyFilter(newPigs, currentFilter);
-
 
     emit(PigLoaded(
       allPigs: newPigs,
@@ -56,11 +43,9 @@ class PigCubit extends Cubit<PigState> {
     ));
   }
 
-
   void _listenToAuthChanges() {
     _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
       if (user != null) {
-        // User logged in (or switched accounts), load THEIR pigs
         _loadPigs(user.uid);
 
         if (_pigRepo is FirebasePigRepo &&
@@ -72,15 +57,17 @@ class PigCubit extends Cubit<PigState> {
           });
         }
       } else {
-        // User logged out, cancel the stream and reset the UI
+        // 🔹 FIX: reset the uid guard too, not just the subscription —
+        // otherwise re-login (same account) can be skipped by _loadPigs's
+        // dedupe check.
         _pigSubscription?.cancel();
+        _pigSubscription = null;
+        _lastLoadedUid = null;
         emit(PigInitial());
       }
     });
   }
 
-
-  // 👇 Helper logic to filter the list
   List<AppPig> _applyFilter(List<AppPig> pigs, String filter) {
     return pigs.where((pig) {
       final statusLower = pig.status.toLowerCase();
@@ -89,38 +76,41 @@ class PigCubit extends Cubit<PigState> {
     }).toList();
   }
 
-
   String? _lastLoadedUid;
 
-
   void _loadPigs(String uid) {
-    // 🔹 Optimization: Only start a new stream if the user has actually changed
     if (_lastLoadedUid == uid && _pigSubscription != null) return;
 
-
-    _lastLoadedUid = uid;
     _pigSubscription?.cancel();
-
+    _lastLoadedUid = uid;
 
     emit(PigLoading());
 
-
     _pigSubscription = _pigRepo.streamPigs(uid).listen(
-          (pigs) {
-        _onPigsUpdated(pigs);
-      },
-      onError: (error) {
-        emit(PigError("Failed to load pigs: $error"));
-      },
+          (pigs) => _onPigsUpdated(pigs),
+      onError: (error) => emit(PigError("Failed to load pigs: $error")),
     );
   }
 
+  /// 🔹 NEW: Called explicitly by AppNav when AuthCubit confirms a login.
+  /// Bypasses the uid-equality dedupe guard since this is a trusted,
+  /// explicit signal — unlike userChanges(), which can miss emissions
+  /// during rapid logout→login cycles without a full app restart.
+  void forceReload(String uid) {
+    _pigSubscription?.cancel();
+    _pigSubscription = null;
+    _lastLoadedUid = uid;
 
-  // add pig
+    emit(PigLoading());
+
+    _pigSubscription = _pigRepo.streamPigs(uid).listen(
+          (pigs) => _onPigsUpdated(pigs),
+      onError: (error) => emit(PigError("Failed to load pigs: $error")),
+    );
+  }
+
   Future<void> addPig(AppPig pig) => _pigRepo.addPig(pig);
 
-
-  // update pig info
   Future<void> updatePigDetails(AppPig updatedPig, {required double oldWeightKg}) async {
     try {
       await _pigRepo.updatePigProfile(updatedPig, oldWeightKg: oldWeightKg);
@@ -129,35 +119,17 @@ class PigCubit extends Cubit<PigState> {
     }
   }
 
-
-  // update weight
-  Future<void> updateWeight(
-      String pigId,
-      double oldWeight,
-      double newWeight,
-      ) async {
+  Future<void> updateWeight(String pigId, double oldWeight, double newWeight) async {
     try {
-
-      if (oldWeight == newWeight) {
-        return;
-      }
-
-      await _pigRepo.updatePigWeight(
-        pigId,
-        newWeight,
-      );
-
+      if (oldWeight == newWeight) return;
+      await _pigRepo.updatePigWeight(pigId, newWeight);
     } catch (e) {
-      emit(PigError(
-        "Failed to update weight: $e",
-      ));
+      emit(PigError("Failed to update weight: $e"));
     }
   }
 
-
   @override
   Future<void> close() {
-    // Always cancel subscriptions to prevent memory leaks!
     _pigSubscription?.cancel();
     _authSubscription?.cancel();
     return super.close();
