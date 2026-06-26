@@ -66,15 +66,20 @@ class MedicineIntake {
       unitOfMeasurement: map['unitOfMeasurement'] ?? '',
       status: map['status'] ?? 'Ongoing',
       // 🔹 Read as Timestamp now, not a String.
-      nextSchedule: map['nextSchedule'] != null
-          ? (map['nextSchedule'] as Timestamp).toDate()
-          : null,
+      nextSchedule: _parseDate(map['nextSchedule']),
       purpose: map['purpose'] as String?,
-      dateTaken: map['dateTaken'] != null
-          ? DateTime.parse(map['dateTaken'].toString())
-          : DateTime.now(),
+      dateTaken: _parseDate(map['dateTaken']) ?? DateTime.now(),
     );
+
   }
+
+  static DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
 
   Map<String, dynamic> toMap() {
     return {
@@ -88,7 +93,7 @@ class MedicineIntake {
       // 🔹 Write as Timestamp, not a String.
       'nextSchedule': nextSchedule != null ? Timestamp.fromDate(nextSchedule!) : null,
       'purpose': purpose,
-      'dateTaken': dateTaken.toIso8601String(),
+      'dateTaken': Timestamp.fromDate(dateTaken), // ✅ was .toIso8601String()
     };
   }
 }
