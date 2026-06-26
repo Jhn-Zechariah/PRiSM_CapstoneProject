@@ -96,6 +96,82 @@ def get_stage(age_days: int):
             return stage, data
     return 'market_ready', None
 
+# ── Calibrated Pig Comfort-Zone Reference (from sensor calibration research) ──
+# Pig body-comfort temperature: 34-37 C
+# Optimal barn humidity:        60-70 %
+TEMP_NORMAL_LO        = 34.0
+TEMP_NORMAL_HI        = 37.0
+TEMP_CRITICAL_HI      = 40.0   # severe heat stress
+TEMP_LOW_LO           = 32.0   # chilling risk below this
+
+HUMIDITY_NORMAL_LO    = 60.0
+HUMIDITY_NORMAL_HI    = 70.0
+HUMIDITY_CRITICAL_HI  = 85.0
+
+WEIGHT_LOSS_THRESHOLD = 0.0     # any negative weight change = red flag
+FEED_LOW_THRESHOLD    = 1.5     # kg/day - possible heat anorexia
+
+def label_condition(row: dict) -> str:
+    """
+    Deterministic rule layer using calibrated thresholds.
+    This is the SAME logic used during training (see retrain_farm_model.py) -
+    kept in sync here so the API can enforce it directly, independent of
+    whatever the decision tree learned.
+    """
+    temp = row['temperature_c']
+    hum  = row['humidity_pct']
+    wt   = row['weight_change_kg']
+    feed = row['feed_intake_kg']
+
+    # HIGH RISK: severe heat/cold stress OR active weight loss
+    if wt < WEIGHT_LOSS_THRESHOLD:
+        return 'High Risk'
+    if temp >= TEMP_CRITICAL_HI or hum >= HUMIDITY_CRITICAL_HI:
+        return 'High Risk'
+    if temp <= TEMP_LOW_LO:
+        return 'High Risk'
+
+    # NEEDS ATTENTION: outside the 34-37C / 60-70% comfort zone but not yet critical
+    if temp > TEMP_NORMAL_HI or temp < TEMP_NORMAL_LO:
+        return 'Needs Attention'
+    if hum > HUMIDITY_NORMAL_HI or hum < HUMIDITY_NORMAL_LO:
+        return 'Needs Attention'
+    if feed < FEED_LOW_THRESHOLD:
+        return 'Needs Attention'
+
+    # GOOD: within 34-37C AND 60-70% AND no other red flags
+    return 'Good'
+
+def predict_condition_safe(model, temperature_c, humidity_pct, weight_change_kg, feed_intake_kg):
+    """
+    Rule-authoritative wrapper around the trained tree.
+    The rule layer ALWAYS wins for known thresholds; the tree's prediction
+    is kept only as an informational cross-check (result['tree_suggestion']).
+    """
+    rule_label = label_condition({
+        'temperature_c': temperature_c,
+        'humidity_pct': humidity_pct,
+        'weight_change_kg': weight_change_kg,
+        'feed_intake_kg': feed_intake_kg,
+    })
+
+    row = pd.DataFrame([{
+        'temperature_c': temperature_c,
+        'humidity_pct': humidity_pct,
+        'weight_change_kg': weight_change_kg,
+        'feed_intake_kg': feed_intake_kg,
+    }])
+    row['thi']           = row['temperature_c'] - (0.55 - 0.0055 * row['humidity_pct']) * (row['temperature_c'] - 14.5)
+    row['temp_avg3']     = row['temperature_c']
+    row['humidity_avg3'] = row['humidity_pct']
+    tree_label = model.predict(row[FARM_FEATURES])[0]
+
+    return {
+        'condition': rule_label,          # AUTHORITATIVE - always use this
+        'tree_suggestion': tree_label,    # informational only
+        'agree': rule_label == tree_label,
+    }
+
 # ── Open Health Check (No security required) ──────────────────────────────────
 @app.get("/")
 def root():
@@ -121,7 +197,14 @@ def analyze_farm(reading: FarmReading, user: dict = Depends(verify_firebase_toke
     df['temp_avg3']     = df['temperature_c']
     df['humidity_avg3'] = df['humidity_pct']
 
-    prediction = model.predict(df[FARM_FEATURES])[0]
+    result = predict_condition_safe(
+        model,
+        temperature_c=row['temperature_c'],
+        humidity_pct=row['humidity_pct'],
+        weight_change_kg=row['weight_change_kg'],
+        feed_intake_kg=row['feed_intake_kg'],
+    )
+    prediction = result['condition']
     thi        = float(df['thi'].iloc[0])
 
     temp  = row['temperature_c']
@@ -132,19 +215,35 @@ def analyze_farm(reading: FarmReading, user: dict = Depends(verify_firebase_toke
     insights        = []
     recommendations = []
 
-    if temp > 32:
-        insights.append(f"Barn temperature is critically high at {temp}°C — severe heat stress zone.")
+    # ── Temperature insights (calibrated: comfort zone 34–37°C) ─────────────
+    if temp >= 40.0:
+        insights.append(f"Pig temperature is critically high at {temp}°C — severe heat stress zone (≥40°C).")
         recommendations.append("Activate cooling system immediately and increase ventilation.")
-    elif temp > 25:
-        insights.append(f"Barn temperature ({temp}°C) is above the thermoneutral zone (18–25°C).")
+    elif temp > 37.0:
+        insights.append(f"Pig temperature ({temp}°C) is above the pig comfort zone (34–37°C).")
         recommendations.append("Monitor pigs closely. Consider pre-cooling or misting systems.")
+    elif temp < 32.0:
+        insights.append(f"Pig temperature is critically low at {temp}°C — chilling risk.")
+        recommendations.append("Provide supplemental heating and check for drafts.")
+    elif temp < 34.0:
+        insights.append(f"Pig temperature ({temp}°C) is below the pig comfort zone (34–37°C).")
+        recommendations.append("Check insulation and heating. Monitor pigs for huddling or lethargy.")
+    else:
+        insights.append(f"Pig temperature ({temp}°C) is within the optimal comfort zone (34–37°C).")
 
-    if hum > 90:
+    # ── Humidity insights (calibrated: optimal range 60–70%) ────────────────
+    if hum >= 85.0:
         insights.append(f"Humidity is critically high at {hum}% — compounds heat stress significantly.")
         recommendations.append("Improve barn ventilation. Check drainage and reduce water waste.")
-    elif hum > 80:
-        insights.append(f"Humidity ({hum}%) is elevated above optimal range (60–80%).")
+    elif hum > 70.0:
+        insights.append(f"Humidity ({hum}%) is above the optimal range (60–70%).")
         recommendations.append("Increase airflow. Avoid overcrowding.")
+    elif hum < 50.0:
+        insights.append(f"Humidity is critically low at {hum}% — respiratory risk.")
+        recommendations.append("Increase humidity via misting; check for excessive dust.")
+    elif hum < 60.0:
+        insights.append(f"Humidity ({hum}%) is below the optimal range (60–70%).")
+        recommendations.append("Monitor for dry/dusty conditions.")
 
     if thi >= 26.11:
         insights.append(f"THI is {thi:.1f} — farm is in the DANGER zone for heat stress.")
@@ -173,6 +272,8 @@ def analyze_farm(reading: FarmReading, user: dict = Depends(verify_firebase_toke
         "thi":             round(thi, 2),
         "insights":        insights,
         "recommendations": recommendations,
+        "tree_suggestion": result['tree_suggestion'],
+        "rule_tree_agree": result['agree'],
         "verified_uid":    user['uid']  # Proof that the server identified the user
     }
 

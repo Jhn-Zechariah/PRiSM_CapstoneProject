@@ -95,8 +95,8 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
             ),
             dropdownColor: isDark ? const Color(0xFF2C2C2C) : Colors.white,
             items: const [
-              DropdownMenuItem(value: 'Active', child: Text('Active Pigs')),
-              DropdownMenuItem(value: 'Inactive', child: Text('Inactive Pigs')),
+              DropdownMenuItem(value: 'Active', child: Text('Current Pigs')),
+              DropdownMenuItem(value: 'Inactive', child: Text('Removed Pigs')),
             ],
             onChanged: (value) {
               if (value != null && value != _currentFilter) {
