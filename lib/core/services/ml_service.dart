@@ -26,8 +26,8 @@ class MlService {
   static Future<Map<String, dynamic>> analyzeFarm({
     required double temperatureC,
     required double humidityPct,
-    required double weightChangeKg,
-    required double feedIntakeKg,
+    double weightChangeKg = 0.0,
+    double feedIntakeKg = 0.0,
     int medicineGiven = 0,
   }) async {
     final url = Uri.parse('$baseUrl/api/farm/analyze');
@@ -55,7 +55,9 @@ class MlService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Farm analysis failed: ${response.statusCode} - ${response.body}');
+      throw Exception(
+        'Farm analysis failed: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 
@@ -90,7 +92,9 @@ class MlService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Pig analysis failed: ${response.statusCode} - ${response.body}');
+      throw Exception(
+        'Pig analysis failed: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 }

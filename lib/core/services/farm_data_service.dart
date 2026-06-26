@@ -15,7 +15,7 @@ class FarmDataService {
       final since = DateTime.now().subtract(const Duration(hours: 24));
 
       final snapshot = await _db
-          .collection('temperature_readings')
+          .collection('temperature_hourly')
           .where('timestamp', isGreaterThan: Timestamp.fromDate(since))
           .orderBy('timestamp', descending: true)
           .get();
@@ -45,7 +45,7 @@ class FarmDataService {
       final since = DateTime.now().subtract(const Duration(hours: 24));
 
       final snapshot = await _db
-          .collection('humidity_readings')
+          .collection('humidity_hourly')
           .where('timestamp', isGreaterThan: Timestamp.fromDate(since))
           .orderBy('timestamp', descending: true)
           .get();
