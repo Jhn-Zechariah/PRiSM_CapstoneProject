@@ -11,12 +11,14 @@ import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
 import '../../features/feeding/data/firestore_feeding_record_repo.dart';
+import '../../features/medication/presentation/cubits/medicine_cubit.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
 import '../../features/auth/data/firestore_profile_repo.dart';
 import '../../features/auth/presentation/cubits/auth_cubit.dart';
+import '../../features/pig_management/presentation/cubits/pig_cubit.dart';
 import '../../features/pig_management/presentation/pages/pig_profiles.dart';
 import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
@@ -102,6 +104,11 @@ class _AppNavState extends State<AppNav> {
             ),
                 (route) => false,
           );
+        } else if (state is Authenticated) {
+          // 🔹 NEW: explicit, trusted reload — don't rely solely on
+          // userChanges() firing reliably during rapid logout/login cycles.
+          context.read<PigCubit>().forceReload(state.user.uid);
+          context.read<MedicineCubit>().forceReload(state.user.uid);
         }
       },
       child: Scaffold(
