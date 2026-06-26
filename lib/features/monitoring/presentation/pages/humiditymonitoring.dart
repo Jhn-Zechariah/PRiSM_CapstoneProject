@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
+import '../../../../core/services/ml_service.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 
@@ -81,6 +82,13 @@ class HumidityMonitoring extends StatefulWidget {
 }
 
 class _HumidityMonitoringState extends State<HumidityMonitoring> {
+  //ml part
+  String? _mlInsight;
+  String? _mlRecommendation;
+  String? _mlCondition;
+  bool _mlInsightLoading = false;
+  DateTime? _lastMlFetch; // ← add this
+
   int _selectedTab = 1;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
@@ -165,6 +173,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     final humLive = (data['humidity'] as num?)?.toDouble();
     if (humLive == null || humLive < 0) return;
 
+    final tempLive = (data['temperature'] as num?)?.toDouble() ??
+        (data['tempAvg'] as num?)?.toDouble();
+
     if (_lastAppliedTimestamp != null) {
       final tsField = data['timestamp'];
       DateTime? ts;
@@ -188,6 +199,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       _currentHumidity = humLive;
       _isLoading = false;
     });
+    final now = DateTime.now();
+    if (_lastMlFetch == null ||
+        now.difference(_lastMlFetch!) > const Duration(minutes: 1)) {
+      _lastMlFetch = now;
+      _fetchHumidityMLInsight(humLive, tempLive!);
+    }
   }
 
   void _onHumidityMaxNotifierChanged() {
@@ -249,6 +266,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     LiveSensorService.sensorStatus.removeListener(_onSharedStatusChanged);
     super.dispose();
   }
+
+
 
   void _clearStatsForRangeSwitch() {
     _chartData.clear();
@@ -590,7 +609,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       await showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Row(
             children: [
               Icon(Icons.sensors_off, color: Colors.red, size: 20),
@@ -1160,8 +1181,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildInsights(bool isDark) {
-    final accentAlpha = isDark ? 0.25 : 0.15;
-    final shadowAlpha = isDark ? 0.12 : 0.06;
+    Color conditionColor = const Color(0xFFE8A020); // amber default
+    if (_mlCondition == 'Good') conditionColor = Colors.green;
+    if (_mlCondition == 'High Risk') conditionColor = Colors.red;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1171,12 +1194,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
             : const Color(0xFFFFF9C4),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFE8A020).withValues(alpha: accentAlpha),
+          color: const Color(
+            0xFFE8A020,
+          ).withValues(alpha: isDark ? 0.25 : 0.15),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE8A020).withValues(alpha: shadowAlpha),
+            color: const Color(
+              0xFFE8A020,
+            ).withValues(alpha: isDark ? 0.12 : 0.06),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -1185,6 +1212,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Container(
@@ -1201,19 +1229,120 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Insights:',
+                'Insights',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   color: _textPrimary(isDark),
                 ),
               ),
+              const Spacer(),
+              // Condition badge
+              if (_mlCondition != null && !_mlInsightLoading)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
             ],
           ),
-          // TODO: ML output goes here
+          const SizedBox(height: 12),
+
+          // Body
+          if (_mlInsightLoading)
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: const Color(0xFFE8A020),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'AAnalyzing humidity data...',
+                  style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+                ),
+              ],
+            )
+          else if (_currentHumidity == null)
+            Text(
+              'Connect sensor to receive humidity insights.',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else if (_mlInsight == null)
+            Text(
+              'Waiting for analysis...',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else ...[
+            Text(
+              _mlInsight!,
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            ),
+            if (_mlRecommendation != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _mlRecommendation!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textSecondary(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ],
       ),
     );
+  }
+
+  //ml part
+  Future<void> _fetchHumidityMLInsight(double humidity, double temperature) async {
+    if (humidity <= 0) return;
+    setState(() => _mlInsightLoading = true);
+    try {
+      final result = await MlService.analyzeFarm(
+        temperatureC: temperature, // neutral temperature — not the focus here
+        humidityPct: humidity,
+      );
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = result['condition'] as String?;
+        _mlInsight = (result['insights'] as List?)?.join(' ');
+        _mlRecommendation =
+            (result['recommendations'] as List?)?.first as String?;
+        _mlInsightLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Humidity ML error: $e');
+      if (!mounted) return;
+      setState(() => _mlInsightLoading = false);
+    }
   }
 }
 
