@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart'; // Handles user validation cr
 
 class MlService {
   // Switch to 'http://127.0.0.1:8000' if you are using ADB USB port forwarding!
-  static const String baseUrl = '192.168.1.28:8000';
+  static const String baseUrl = 'http://192.168.1.28:8000';
 
   /// Helper to fetch the current active user's JWT ID Token from Firebase Auth
   static Future<String?> _getFirebaseToken() async {
@@ -26,8 +26,8 @@ class MlService {
   static Future<Map<String, dynamic>> analyzeFarm({
     required double temperatureC,
     required double humidityPct,
-    required double weightChangeKg,
-    required double feedIntakeKg,
+    double weightChangeKg = 0.0,
+    double feedIntakeKg = 0.0,
     int medicineGiven = 0,
   }) async {
     final url = Uri.parse('$baseUrl/api/farm/analyze');
@@ -55,7 +55,9 @@ class MlService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Farm analysis failed: ${response.statusCode} - ${response.body}');
+      throw Exception(
+        'Farm analysis failed: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 
@@ -90,7 +92,9 @@ class MlService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Pig analysis failed: ${response.statusCode} - ${response.body}');
+      throw Exception(
+        'Pig analysis failed: ${response.statusCode} - ${response.body}',
+      );
     }
   }
 }

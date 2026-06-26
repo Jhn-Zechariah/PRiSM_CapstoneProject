@@ -15,8 +15,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 
 const String esp32Ip = "192.168.1.249";
 
-// Global notifiers — shared across Dashboard, Temperature, and Humidity screens.
-// Writing to these triggers listeners in every screen without any setState on AppNav.
 final sprinklerNotifier = ValueNotifier<bool>(false);
 final tempMaxTodayNotifier = ValueNotifier<double>(0);
 final humidityMaxTodayNotifier = ValueNotifier<double>(0);
@@ -247,7 +245,6 @@ class SprinklerMemory {
   static Future<void> load() async {
     try {
       DocumentSnapshot? doc;
-      // Try cache first — instant, works offline
       try {
         doc = await FirebaseFirestore.instance
             .collection('sprinkler_state')
@@ -256,7 +253,6 @@ class SprinklerMemory {
       } catch (_) {
         doc = null;
       }
-      // Fallback to server if cache empty
       if (doc == null || !doc.exists) {
         try {
           doc = await FirebaseFirestore.instance
@@ -283,9 +279,6 @@ class SprinklerMemory {
   }
 }
 
-// ─────────────────────────────────────────────
-// SensorMemory — in-memory cache shared across screens
-// ─────────────────────────────────────────────
 class SensorMemory {
   static double lastTemp = 0;
   static double lastHumidity = 0;
@@ -300,7 +293,6 @@ class SensorMemory {
   static bool graphLoaded = false;
   static String lastGraphHourKey = "";
 
-  // Temperature monitoring screen cache
   static List<Map<String, double>> lastTempChartData = [];
   static bool tempChartLoaded = false;
   static String lastTempChartDate = "";
@@ -311,7 +303,6 @@ class SensorMemory {
   static double? lastTempSessionMax;
   static double? lastTempSessionMin;
 
-  // Humidity monitoring screen cache
   static List<Map<String, double>> lastHumidityChartData = [];
   static bool humidityChartLoaded = false;
   static String lastHumidityChartDate = "";
@@ -322,7 +313,6 @@ class SensorMemory {
   static double? lastHumiditySessionMax;
   static double? lastHumiditySessionMin;
 
-  // Centralized setters so notifiers always stay in sync
   static void setTempMaxToday(double v) {
     lastTempMaxToday = v;
     tempMaxTodayNotifier.value = v;
@@ -429,11 +419,6 @@ class SensorMemory {
   }
 }
 
-// ─────────────────────────────────────────────
-// DashboardScreen
-// No constructor params — reads from global notifiers directly so
-// AppNav never needs to call setState when sprinkler/sensor values change.
-// ─────────────────────────────────────────────
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -449,16 +434,18 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _vaxDateLabel = VaxScheduleMemory.dateLabel;
 
 
+  // _tempMax and _humidityLive intentionally start at 0 and are NEVER
+  // restored from cache — they must come from a live ESP32 response.
   double _tempMax = 0;
   String _tempStatus = "Normal";
   double _waterPct = 0;
   String _waterStatus = "Unknown";
-  double _lastKnownTemp = SensorMemory.lastTemp;
-  double _lastKnownHumidity = SensorMemory.lastHumidity;
+  double _lastKnownTemp = 0;
+  double _lastKnownHumidity = 0;
   bool _isSprinklerLoading = false;
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
-  double _humidityLive = SensorMemory.lastHumidity;
+  double _humidityLive = 0;
 
   String _sprinklerStatus = "OFF";
   String _lastActivated = "--";
@@ -466,10 +453,13 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _duration = "--";
   String _pigStatus = "--";
 
-  // ML
-  String _mlCondition = "Analyzing...";
+  bool _graphShowLast24hrs = false;
+
+  // ML — start with empty state; card is hidden until sensor is live
+  String _mlCondition = "";
   List<String> _mlRecommendations = [];
-  bool _mlLoading = true;
+  bool _mlLoading = false;
+
   List<FlSpot> _graphSpots = List.of(SensorMemory.lastGraphSpots);
   bool _graphLoading = !SensorMemory.graphLoaded;
   Timer? _hourlyRefreshTimer;
@@ -478,9 +468,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _durationTimer;
   bool _sprinklerMemoryLoaded = false;
   bool _sprinklerJustToggled = false;
+  double _lastMlTemp = 0;
+  double _lastMlHumidity = 0;
+  DateTime? _lastMlRun;
   late bool _localIsActivated;
 
-  // Crossfade animation
   bool _showingTemperature = true;
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
@@ -522,10 +514,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     _initializeData();
   }
-
-  // didUpdateWidget intentionally removed — DashboardScreen has no props
-  // to sync, so any call to didUpdateWidget was a sign of a parent setState
-  // leaking into this widget's lifecycle.
 
   @override
   void dispose() {
@@ -668,8 +656,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (v != _humidityMaxToday) setState(() => _humidityMaxToday = v);
   }
 
-  // ── Sprinkler duration timer ─────────────────
-
   void _startDurationTimer(DateTime activatedAt) {
     _durationTimer?.cancel();
     _sprinklerActivatedAt = activatedAt;
@@ -695,8 +681,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
     _sprinklerActivatedAt = null;
   }
-
-  // ── Initialisation ───────────────────────────
 
   Future<void> _initializeData() async {
     await Future.wait([SensorMemory.load(), SprinklerMemory.load()]);
@@ -1003,12 +987,26 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── ML insights ──────────────────────────────
 
   Future<void> _fetchMLInsights() async {
+    // Guard: only run when we have real live values from the ESP32
+    if (_tempMax <= 0 || _humidityLive <= 0) {
+      if (_mlCondition.isEmpty) {
+        setState(() {
+          _mlCondition = "Unavailable";
+          _mlRecommendations = [
+            "Sensor is offline. Connect to receive smart recommendations.",
+          ];
+          _mlLoading = false;
+        });
+      }
+      return;
+    }
+
+    setState(() => _mlLoading = true);
+
     try {
       final result = await MlService.analyzeFarm(
-        temperatureC: _tempMax > 0 ? _tempMax : 28.0,
-        humidityPct: _humidityMaxToday > 0 ? _humidityMaxToday : 75.0,
-        weightChangeKg: 0.0,
-        feedIntakeKg: 0.0,
+        temperatureC: _tempMax,
+        humidityPct: _humidityLive,
       ).timeout(const Duration(seconds: 6));
 
       if (!mounted) return;
@@ -1020,6 +1018,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           _mlRecommendations = recs;
           _mlLoading = false;
         });
+      } else {
+        setState(() => _mlLoading = false);
       }
     } catch (e) {
       if (!mounted) return;
@@ -1087,7 +1087,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       final now = DateTime.now();
       setState(() => _localIsActivated = turnOn);
-      sprinklerNotifier.value = turnOn; // broadcast to all screens
+      sprinklerNotifier.value = turnOn;
 
       if (turnOn) {
         final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
@@ -1206,6 +1206,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    // Show ML card only when we have a result (loading or done with real data)
+    final showMlCard = _mlLoading || _mlCondition.isNotEmpty;
+
     return Padding(
       padding: const EdgeInsets.only(top: 16, left: 16, right: 16),
       child: SingleChildScrollView(
@@ -1924,7 +1927,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
               const Spacer(),
-              if (!_mlLoading)
+              if (!_mlLoading && _mlCondition.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
@@ -1967,7 +1970,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             )
           else if (_mlRecommendations.isEmpty)
             Text(
-              "No recommendations at this time.",
+              "No recommendations at this time. Check your sensor connection.",
               style: TextStyle(
                 fontSize: 12,
                 color: isDark ? Colors.white60 : const Color(0xFF707070),
@@ -1997,7 +2000,9 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
             ),
-          if (!_mlLoading && _mlCondition != "Unavailable")
+          if (!_mlLoading &&
+              _mlCondition.isNotEmpty &&
+              _mlCondition != "Unavailable")
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Row(

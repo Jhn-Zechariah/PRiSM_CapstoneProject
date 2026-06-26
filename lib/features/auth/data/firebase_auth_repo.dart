@@ -11,11 +11,9 @@ import 'package:prism_app/features/auth/domain/model/app_user.dart';
 import 'package:prism_app/features/auth/domain/repo/auth_repo.dart';
 
 class FirebaseAuthRepo implements AuthRepo {
-
   //access to firebase
   final FirebaseAuth firebaseAuth = FirebaseAuth.instance;
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
-
 
   //saved user data
   Future<void> createUserDocument(AppUser user) async {
@@ -63,7 +61,6 @@ class FirebaseAuthRepo implements AuthRepo {
 
       //return user
       return user;
-
     } catch (e) {
       throw Exception('Log in Failed: $e');
     }
@@ -71,7 +68,11 @@ class FirebaseAuthRepo implements AuthRepo {
 
   //REGISTER WITH EMAIL AND PASS
   @override
-  Future<AppUser?> registerWithEmailPassword(String name, String email, String password) async {
+  Future<AppUser?> registerWithEmailPassword(
+    String name,
+    String email,
+    String password,
+  ) async {
     try {
       //attempt sign up
       UserCredential userCredential = await firebaseAuth
@@ -100,8 +101,7 @@ class FirebaseAuthRepo implements AuthRepo {
 
       //return user
       return user;
-
-    }  catch (e) {
+    } catch (e) {
       throw Exception('An unexpected error occurred: $e');
     }
   }
@@ -175,18 +175,19 @@ class FirebaseAuthRepo implements AuthRepo {
       await GoogleSignIn.instance.initialize();
 
       //begin sign-in process
-      final GoogleSignInAccount gUser = await GoogleSignIn.instance.authenticate();
+      final GoogleSignInAccount gUser = await GoogleSignIn.instance
+          .authenticate();
 
       //obtain details from req
       final GoogleSignInAuthentication gAuth = gUser.authentication;
 
       //create credential for user
-      final credential = GoogleAuthProvider.credential(
-        idToken: gAuth.idToken,
-      );
+      final credential = GoogleAuthProvider.credential(idToken: gAuth.idToken);
 
       //sign in with credential
-      UserCredential userCredential = await firebaseAuth.signInWithCredential(credential);
+      UserCredential userCredential = await firebaseAuth.signInWithCredential(
+        credential,
+      );
 
       //firebase user
       final firebaseUser = userCredential.user;
@@ -202,12 +203,9 @@ class FirebaseAuthRepo implements AuthRepo {
       await createUserDocument(user);
 
       return user;
-
     } catch (e) {
       // Ensure we return null if the try block fails!
       return null;
     }
   }
 }
-
-
