@@ -1431,7 +1431,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     : const Color(0xFFD32F2F),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: _isSprinklerLoading
+             child: _isSprinklerLoading
                   ? const SizedBox(
                       width: 18,
                       height: 18,
