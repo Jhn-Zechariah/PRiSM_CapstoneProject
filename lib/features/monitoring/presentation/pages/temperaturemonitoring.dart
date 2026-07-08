@@ -2,10 +2,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
+import '../../../../core/services/ml_service.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 
-const List<String> kTimeRanges = ['This Month', 'This Week', 'Today', 'Custom'];
+const List<String> kTimeRanges = [
+  'This Month',
+  'This Week',
+  'Today',
+  'Custom',
+];
 
 String _formatDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -18,7 +24,7 @@ String _formatDateTime(DateTime dt) {
 
 String _formatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/'
-    '${d.month.toString().padLeft(2, '0')}/${d.year}';
+        '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
 String _formatTime(TimeOfDay t) {
   final h = t.hour == 0
@@ -32,10 +38,10 @@ String _formatTime(TimeOfDay t) {
 }
 
 DateTimeRange? _resolveTimeRange(
-  int index,
-  DateTime? customStart,
-  DateTime? customEnd,
-) {
+    int index,
+    DateTime? customStart,
+    DateTime? customEnd,
+    ) {
   final now = DateTime.now();
   switch (index) {
     case 0:
@@ -75,6 +81,12 @@ class TemperatureMonitoring extends StatefulWidget {
 }
 
 class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
+  //added for ML insights
+  String? _mlInsight;
+  String? _mlRecommendation;
+  String? _mlCondition;
+  bool _mlLoading = false;
+
   int _selectedTab = 0;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
@@ -94,15 +106,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   static bool _tempCacheIsToday() =>
       SensorMemory.lastTempChartDate == SensorMemory.todayKey();
 
-  double? _displayMax = _tempCacheIsToday()
-      ? SensorMemory.lastTempDisplayMax
-      : null;
-  double? _displayAvg = _tempCacheIsToday()
-      ? SensorMemory.lastTempDisplayAvg
-      : null;
-  double? _displayMin = _tempCacheIsToday()
-      ? SensorMemory.lastTempDisplayMin
-      : null;
+  double? _displayMax = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMax : null;
+  double? _displayAvg = _tempCacheIsToday() ? SensorMemory.lastTempDisplayAvg : null;
+  double? _displayMin = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMin : null;
+
 
   // Per-session cache for This Week (index 1) and This Month (index 0).
   static List<Map<String, double>> _cachedWeekData = [];
@@ -118,17 +125,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   static String _cachedMonthHourKey = '';
 
   String get _tempStatus {
-  if (_currentTemp == null) return "";
-  final t = _currentTemp!;
-  if (t >= 41.0) return "Critical";
-  if (t > 38.8) return "Warning";
-  if (t < 34.3) return "Low";
-  return "Normal";
-}
+    if (_currentTemp == null) return "";
+    final t = _displayMax;
+    if (t == null) return "";
+    if (t >= 40.5) return "Critical";
+    if (t >= 38.5) return "Elevated";
+    return "Normal";
+  }
 
-  final List<Map<String, double>> _chartData = _tempCacheIsToday()
-      ? List.of(SensorMemory.lastTempChartData)
-      : [];
+  final List<Map<String, double>> _chartData =
+  _tempCacheIsToday() ? List.of(SensorMemory.lastTempChartData) : [];
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -136,10 +142,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   DateTime? _customEnd;
   Timer? _hourlyRefreshTimer;
 
-  DateTime get _todayStart {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
-  }
 
   @override
   void initState() {
@@ -151,9 +153,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
     _hourlyRefreshTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => _loadChartFromFirestore(),
-    );
+        const Duration(hours: 1), (_) => _loadChartFromFirestore());
   }
 
   void _onSharedStatusChanged() {
@@ -165,15 +165,18 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     });
   }
 
+  DateTime? _lastMlFetch;
+  
   void _onLiveDataChanged() {
     if (!mounted) return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
 
-    final tempLive =
-        (data['temperature'] as num?)?.toDouble() ??
+    final tempLive = (data['temperature'] as num?)?.toDouble() ??
         (data['tempAvg'] as num?)?.toDouble();
     if (tempLive == null || tempLive < 0) return;
+
+    final humLive = (data['humidity'] as num?)?.toDouble();
 
     if (_lastAppliedTimestamp != null) {
       final tsField = data['timestamp'];
@@ -198,6 +201,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       _currentTemp = tempLive;
       _isLoading = false;
     });
+    final now = DateTime.now();
+    if (_lastMlFetch == null || now.difference(_lastMlFetch!) > const Duration(minutes: 1)) {
+      _lastMlFetch = now;
+      _fetchTemperatureMLInsight(tempLive, humLive!);
+    }
   }
 
   void _onTempMaxNotifierChanged() {
@@ -289,9 +297,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       // (they were cleared by _clearStatsForRangeSwitch).
       if (mounted) {
         setState(() {
-          _chartData
-            ..clear()
-            ..addAll(SensorMemory.lastTempChartData);
+          _chartData..clear()..addAll(SensorMemory.lastTempChartData);
           _displayMax = SensorMemory.lastTempDisplayMax;
           _displayMin = SensorMemory.lastTempDisplayMin;
           _displayAvg = SensorMemory.lastTempDisplayAvg;
@@ -306,9 +312,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         _cachedWeekData.isNotEmpty) {
       if (mounted) {
         setState(() {
-          _chartData
-            ..clear()
-            ..addAll(_cachedWeekData);
+          _chartData..clear()..addAll(_cachedWeekData);
           _displayMax = _cachedWeekMax;
           _displayMin = _cachedWeekMin;
           _displayAvg = _cachedWeekAvg;
@@ -321,9 +325,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         _cachedMonthData.isNotEmpty) {
       if (mounted) {
         setState(() {
-          _chartData
-            ..clear()
-            ..addAll(_cachedMonthData);
+          _chartData..clear()..addAll(_cachedMonthData);
           _displayMax = _cachedMonthMax;
           _displayMin = _cachedMonthMin;
           _displayAvg = _cachedMonthAvg;
@@ -337,13 +339,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
           .collection('temperature_hourly')
           .orderBy('timestamp', descending: false)
           .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
-          )
+        'timestamp',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
+      )
           .where(
-            'timestamp',
-            isLessThanOrEqualTo: Timestamp.fromDate(range.end),
-          )
+        'timestamp',
+        isLessThanOrEqualTo: Timestamp.fromDate(range.end),
+      )
           .limit(800)
           .get();
 
@@ -493,18 +495,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         final period = now.hour < 12 ? 'AM' : 'PM';
         final timeStr = '$hour:$minute $period';
         const months = [
-          'Jan',
-          'Feb',
-          'Mar',
-          'Apr',
-          'May',
-          'Jun',
-          'Jul',
-          'Aug',
-          'Sep',
-          'Oct',
-          'Nov',
-          'Dec',
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
         ];
         final dateStr =
             '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
@@ -558,7 +550,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     borderRadius: BorderRadius.circular(20),
     border: Border.all(
       color:
-          accentColor?.withValues(alpha: 0.2) ??
+      accentColor?.withValues(alpha: 0.2) ??
           (isDark
               ? Colors.white.withValues(alpha: 0.07)
               : Colors.grey.shade200),
@@ -567,7 +559,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     boxShadow: [
       BoxShadow(
         color:
-            accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
+        accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
             Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
         blurRadius: 16,
         offset: const Offset(0, 6),
@@ -866,19 +858,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               _isLoading
                   ? const CircularProgressIndicator()
                   : Text(
-                      currentLabel,
-                      style: TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                        color: (_currentTemp ?? 0) >= 41.0
-                            ? Colors.red
-                            : (_currentTemp ?? 0) > 38.8
-                            ? Colors.orange
-                            : (_currentTemp ?? 0) < 34.3
-                            ? Colors.blue
-                            : _textPrimary(isDark),
-                      ),
-                    ),
+                currentLabel,
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: (_currentTemp ?? 0) >= 40.5
+                      ? Colors.red
+                      : _textPrimary(isDark),
+                ),
+              ),
             ],
           ),
           Column(
@@ -909,32 +897,32 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                     ),
                     child: _isSprinklerLoading
                         ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                         : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                isActive ? Icons.check_circle : Icons.shower,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                isActive ? 'Active' : 'Activate',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isActive ? Icons.check_circle : Icons.shower,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isActive ? 'Active' : 'Activate',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
                           ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -984,12 +972,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: isSelected
                     ? [
-                        BoxShadow(
-                          color: const Color(0xFFE8622A).withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        ),
-                      ]
+                  BoxShadow(
+                    color: const Color(0xFFE8622A).withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
                     : [],
               ),
               alignment: Alignment.center,
@@ -1091,23 +1079,23 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             ? const Center(child: CircularProgressIndicator())
             : _chartData.isEmpty
             ? Center(
-                child: Text(
-                  "No data for selected range",
-                  style: TextStyle(color: _textSecondary(isDark)),
-                ),
-              )
+          child: Text(
+            "No data for selected range",
+            style: TextStyle(color: _textSecondary(isDark)),
+          ),
+        )
             : ClipRect(
-                child: CustomPaint(
-                  painter: _TemperatureChartPainter(
-                    data: List.from(_chartData),
-                    isDark: isDark,
-                    rangeIndex: _selectedTimeRange,
-                    rangeStart: range?.start ?? now,
-                    rangeEnd: range?.end ?? now,
-                  ),
-                  child: const SizedBox(height: 210, width: double.infinity),
-                ),
-              ),
+          child: CustomPaint(
+            painter: _TemperatureChartPainter(
+              data: List.from(_chartData),
+              isDark: isDark,
+              rangeIndex: _selectedTimeRange,
+              rangeStart: range?.start ?? now,
+              rangeEnd: range?.end ?? now,
+            ),
+            child: const SizedBox(height: 210, width: double.infinity),
+          ),
+        ),
       ),
     );
   }
@@ -1182,11 +1170,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Widget _buildReviewStat(
-    String label,
-    String value,
-    Color valueColor,
-    bool isDark,
-  ) {
+      String label,
+      String value,
+      Color valueColor,
+      bool isDark,
+      ) {
     return Expanded(
       child: Column(
         children: [
@@ -1213,8 +1201,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Widget _buildInsights(bool isDark) {
-    final accentAlpha = isDark ? 0.25 : 0.15;
-    final shadowAlpha = isDark ? 0.12 : 0.06;
+    Color conditionColor = const Color(0xFFE8A020); // amber default
+    if (_mlCondition == 'Good') conditionColor = Colors.green;
+    if (_mlCondition == 'High Risk') conditionColor = Colors.red;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1224,12 +1214,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             : const Color(0xFFFFF9C4),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFE8A020).withValues(alpha: accentAlpha),
+          color: const Color(
+            0xFFE8A020,
+          ).withValues(alpha: isDark ? 0.25 : 0.15),
           width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFE8A020).withValues(alpha: shadowAlpha),
+            color: const Color(
+              0xFFE8A020,
+            ).withValues(alpha: isDark ? 0.12 : 0.06),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -1238,6 +1232,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             children: [
               Container(
@@ -1254,19 +1249,122 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               ),
               const SizedBox(width: 8),
               Text(
-                'Insights:',
+                'Insights',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                   color: _textPrimary(isDark),
                 ),
               ),
+              const Spacer(),
+              // Condition badge
+              if (_mlCondition != null && !_mlLoading)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: conditionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: conditionColor, width: 1),
+                  ),
+                  child: Text(
+                    _mlCondition!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: conditionColor,
+                    ),
+                  ),
+                ),
             ],
           ),
-          // TODO: ML output goes here
+          const SizedBox(height: 12),
+
+          // Body
+          if (_mlLoading)
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    color: const Color(0xFFE8A020),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Analyzing temperature data...',
+                  style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+                ),
+              ],
+            )
+          else if (_currentTemp == null)
+            Text(
+              'Connect sensor to receive temperature insights.',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else if (_mlInsight == null)
+            Text(
+              'Waiting for analysis...',
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            )
+          else ...[
+            Text(
+              _mlInsight!,
+              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+            ),
+            if (_mlRecommendation != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.arrow_right, size: 16, color: conditionColor),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _mlRecommendation!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _textSecondary(isDark),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ],
       ),
     );
+  }
+
+  //ml part
+  Future<void> _fetchTemperatureMLInsight(double temperature, double humidity) async {
+    if (temperature <= 0) return;
+    setState(() => _mlLoading = true);
+    try {
+      final result = await MlService.analyzeFarm(
+        temperatureC: temperature,
+        humidityPct: humidity, // neutral humidity — not the focus here
+        weightChangeKg: 0.0,
+        feedIntakeKg: 0.0,
+      );
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = result['condition'] as String?;
+        _mlInsight = (result['insights'] as List?)?.join(' ');
+        _mlRecommendation =
+            (result['recommendations'] as List?)?.first as String?;
+        _mlLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Temperature ML error: $e');
+      if (!mounted) return;
+      setState(() => _mlLoading = false);
+    }
   }
 }
 
@@ -1477,11 +1575,11 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
             child: ElevatedButton(
               onPressed: _isValid
                   ? () {
-                      // Returning `true` tells the caller a range was
-                      // actually applied, so it should NOT snap back to Today.
-                      Navigator.pop(context, true);
-                      widget.onApply(_fullStart, _fullEnd);
-                    }
+                // Returning `true` tells the caller a range was
+                // actually applied, so it should NOT snap back to Today.
+                Navigator.pop(context, true);
+                widget.onApply(_fullStart, _fullEnd);
+              }
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE8622A),
@@ -1584,10 +1682,10 @@ class _TemperatureChartPainter extends CustomPainter {
   });
 
   List<Map<String, double>> _sampleData(
-    List<Map<String, double>> src,
-    int maxPts,
-    String key,
-  ) {
+      List<Map<String, double>> src,
+      int maxPts,
+      String key,
+      ) {
     if (src.length <= maxPts) return src;
     final result = <Map<String, double>>[];
     final step = src.length / maxPts;
@@ -1674,7 +1772,8 @@ class _TemperatureChartPainter extends CustomPainter {
 
     // X maps "hours since rangeStart" → pixel. Both data points and X-axis
     // labels use this same unit, so they always stay aligned.
-    final double totalHours = rangeEnd.difference(rangeStart).inMinutes / 60.0;
+    final double totalHours =
+        rangeEnd.difference(rangeStart).inMinutes / 60.0;
     if (totalHours <= 0) return;
 
     double getX(double hoursFromStart) =>
@@ -1682,8 +1781,8 @@ class _TemperatureChartPainter extends CustomPainter {
 
     double getY(double temp) =>
         topPadding +
-        chartHeight -
-        ((temp.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
+            chartHeight -
+            ((temp.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
 
     final gridPaint = Paint()
       ..color = isDark
