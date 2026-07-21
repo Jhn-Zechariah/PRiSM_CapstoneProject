@@ -103,6 +103,30 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   double? _currentTemp;
   DateTime? _lastAppliedTimestamp;
 
+  // Granularity toggle for the Today AND Custom tabs: 0 = Hour (existing
+  // hourly docs), 1 = Minute (live buffer for Today, a one-off range query
+  // for Custom).
+  int _todayGranularity = 0;
+  final List<Map<String, double>> _minuteBufferToday = [];
+  String _minuteBufferDayKey = '';
+  bool _minuteChartLoading = false;
+  // Tracks which day we've pulled persisted temperature_minute history for —
+  // deliberately separate from _minuteBufferDayKey, which gets stamped by
+  // live data arriving in the background (via _appendMinuteBufferPoint)
+  // before the user ever opens the Minute tab. Reusing that field as the
+  // "already loaded" guard meant the Firestore fetch below was skipped
+  // every time, because live data had already set it first.
+  String _minuteHistoryLoadedDayKey = '';
+
+  // Minute-level data for Month, Week, and Custom — kept separate from
+  // _minuteBufferToday since these cover ranges other than "today" and
+  // aren't fed by live readings. Shared across all three (only one is ever
+  // the active tab at a time), keyed by range+hour so switching ranges
+  // triggers a fresh fetch.
+  final List<Map<String, double>> _minuteBufferCustom = [];
+  String _minuteCustomRangeKey = '';
+  bool _minuteCustomLoading = false;
+
   static bool _tempCacheIsToday() =>
       SensorMemory.lastTempChartDate == SensorMemory.todayKey();
 
@@ -126,8 +150,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
   String get _tempStatus {
     if (_currentTemp == null) return "";
-    final t = _displayMax;
-    if (t == null) return "";
+    final t = _currentTemp!;
     if (t >= 40.5) return "Critical";
     if (t >= 38.5) return "Elevated";
     return "Normal";
@@ -135,6 +158,41 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
   final List<Map<String, double>> _chartData =
   _tempCacheIsToday() ? List.of(SensorMemory.lastTempChartData) : [];
+
+  List<Map<String, double>> get _activeChartData {
+    if (_todayGranularity != 1) return _chartData;
+    if (_selectedTimeRange == 2) return _minuteBufferToday;
+    return _minuteBufferCustom; // Month, Week, or Custom
+  }
+
+  bool get _isMinuteViewActive => _todayGranularity == 1;
+
+  // Stat cards recompute from the raw minute-level buffer when Minute view
+  // is selected, instead of always showing the hourly rollup — otherwise
+  // switching to Minute only changed the line chart whileest/Lowest/
+  // Average kept showing the coarser hourly-based numbers.
+  double? get _activeDisplayMax {
+    if (!_isMinuteViewActive) return _displayMax;
+    if (_activeChartData.isEmpty) return null;
+    return _activeChartData
+        .map((p) => p['temp']!)
+        .reduce((a, b) => a > b ? a : b);
+  }
+
+  double? get _activeDisplayMin {
+    if (!_isMinuteViewActive) return _displayMin;
+    if (_activeChartData.isEmpty) return null;
+    return _activeChartData
+        .map((p) => p['temp']!)
+        .reduce((a, b) => a < b ? a : b);
+  }
+
+  double? get _activeDisplayAvg {
+    if (!_isMinuteViewActive) return _displayAvg;
+    if (_activeChartData.isEmpty) return null;
+    final values = _activeChartData.map((p) => p['temp']!);
+    return values.reduce((a, b) => a + b) / _activeChartData.length;
+  }
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -152,8 +210,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     LiveSensorService.latestData.addListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
-    _hourlyRefreshTimer = Timer.periodic(
-        const Duration(hours: 1), (_) => _loadChartFromFirestore());
+    _hourlyRefreshTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      _loadChartFromFirestore();
+      if (_todayGranularity == 1 && _selectedTimeRange != 2) {
+        _loadMinuteChartForRange(_selectedTimeRange);
+      }
+    });
   }
 
   void _onSharedStatusChanged() {
@@ -166,40 +228,214 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   DateTime? _lastMlFetch;
-  
+
+  void _appendMinuteBufferPoint(double temp, DateTime ts) {
+    final todayKey = SensorMemory.todayKey();
+    if (_minuteBufferDayKey != todayKey) {
+      _minuteBufferToday.clear();
+      _minuteBufferDayKey = todayKey;
+    }
+    final midnight = DateTime(ts.year, ts.month, ts.day);
+    final hoursFromMidnight = ts.difference(midnight).inSeconds / 3600.0;
+
+    if (_minuteBufferToday.isNotEmpty) {
+      final lastX = _minuteBufferToday.last['x']!;
+      if ((hoursFromMidnight - lastX) < (1 / 60.0) * 0.9) return; // same minute, skip
+    }
+    _minuteBufferToday.add({'x': hoursFromMidnight, 'temp': temp});
+    if (_minuteBufferToday.length > 1440) {
+      _minuteBufferToday.removeAt(0); // cap at 24h of minute points
+    }
+  }
+
+  // Loads today's persisted per-minute readings from the ESP32's
+  // temperature_minute collection so the Minute view has real history
+  // instead of only whatever arrived live while this screen happened to
+  // be open. Runs once per day (guarded by _minuteBufferDayKey) — after
+  // that, _appendMinuteBufferPoint keeps it current as live data arrives.
+  Future<void> _loadMinuteChartFromFirestore() async {
+    final todayKey = SensorMemory.todayKey();
+    if (_minuteHistoryLoadedDayKey == todayKey) {
+      return;
+    }
+    if (_minuteChartLoading) return;
+    _minuteChartLoading = true;
+
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day);
+
+    try {
+      final snapshot = await _db
+          .collection('temperature_minute')
+          .orderBy('timestamp', descending: false)
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(midnight),
+          )
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+          .limit(1500)
+          .get();
+
+      if (!mounted) return;
+
+      debugPrint(
+        '[MinuteChart/temp] query range ${midnight.toIso8601String()} .. '
+        '${now.toIso8601String()}, got ${snapshot.docs.length} docs',
+      );
+
+      final points = <Map<String, double>>[];
+      int skippedNoTemp = 0;
+      int skippedNoTs = 0;
+      for (final doc in snapshot.docs) {
+        final d = doc.data();
+        final rawTemp = d['tempMax'];
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
+        if (rawTemp == null) {
+          skippedNoTemp++;
+          continue;
+        }
+        if (ts == null) {
+          skippedNoTs++;
+          continue;
+        }
+        final hoursFromMidnight = ts.difference(midnight).inSeconds / 3600.0;
+        points.add({
+          'x': hoursFromMidnight,
+          'temp': (rawTemp as num).toDouble(),
+        });
+      }
+      debugPrint(
+        '[MinuteChart/temp] usable points=${points.length}, '
+        'skippedNoTemp=$skippedNoTemp, skippedNoTs=$skippedNoTs',
+      );
+
+      setState(() {
+        // Merge with whatever is already buffered instead of overwriting —
+        // if the ESP32 hasn't written any temperature_minute docs yet today
+        // (not reflashed, or hasn't hit the 60s mark), the Firestore query
+        // legitimately returns nothing. Blowing away the points already
+        // accumulated from live data in that case would leave too few
+        // points to draw a visible line, making the chart look empty.
+        final byMinute = <int, Map<String, double>>{};
+        for (final p in _minuteBufferToday) {
+          byMinute[(p['x']! * 60).round()] = p;
+        }
+        for (final p in points) {
+          byMinute[(p['x']! * 60).round()] = p;
+        }
+        final sortedKeys = byMinute.keys.toList()..sort();
+
+        _minuteBufferToday
+          ..clear()
+          ..addAll([for (final k in sortedKeys) byMinute[k]!]);
+        _minuteBufferDayKey = todayKey;
+        _minuteHistoryLoadedDayKey = todayKey;
+
+        // Fold in the most recent live reading too, in case it's newer
+        // than the last persisted minute doc.
+        final live = LiveSensorService.latestData.value;
+        final liveTemp = (live?['tempMax'] as num?)?.toDouble() ??
+            (live?['tempAvg'] as num?)?.toDouble();
+        if (liveTemp != null && liveTemp >= 0) {
+          _appendMinuteBufferPoint(
+            liveTemp,
+            _lastAppliedTimestamp ?? DateTime.now(),
+          );
+        }
+      });
+    } catch (e) {
+      // Leave whatever was already buffered in place on failure.
+      debugPrint('[MinuteChart/temp] query failed: $e');
+    } finally {
+      _minuteChartLoading = false;
+    }
+  }
+
+  // Loads persisted per-minute readings for any non-Today range (Month,
+  // Week, or Custom). Unlike the Today buffer, these ranges are fixed and
+  // never get live updates, so they're simply re-fetched whenever the
+  // range actually changes (guarded by _minuteCustomRangeKey, keyed by
+  // range + hour so Month/Week re-check once per hour as "now" advances).
+  //
+  // Month/Week can span tens of thousands of minute docs — far too many to
+  // fetch or render in one shot — so this always takes the MOST RECENT
+  // ~1500 readings within the range (via descending order + limit, then
+  // reversed back to chronological order) rather than the oldest, since
+  // recent trends are what actually matter for monitoring.
+  Future<void> _loadMinuteChartForRange(int rangeIndex) async {
+    final range = _resolveTimeRange(rangeIndex, _customStart, _customEnd);
+    if (range == null) return;
+    final rangeKey = '$rangeIndex-${currentHourKey()}';
+    if (_minuteCustomRangeKey == rangeKey) return;
+    if (_minuteCustomLoading) return;
+    _minuteCustomLoading = true;
+
+    final start = range.start;
+    final end = range.end;
+
+    try {
+      final snapshot = await _db
+          .collection('temperature_minute')
+          .orderBy('timestamp', descending: true)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .limit(1500)
+          .get();
+
+      if (!mounted || _selectedTimeRange != rangeIndex) return;
+
+      final points = <Map<String, double>>[];
+      for (final doc in snapshot.docs.reversed) {
+        final d = doc.data();
+        final rawTemp = d['tempMax'];
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
+        if (rawTemp == null || ts == null) continue;
+        final hoursFromStart = ts.difference(start).inSeconds / 3600.0;
+        points.add({'x': hoursFromStart, 'temp': (rawTemp as num).toDouble()});
+      }
+
+      setState(() {
+        _minuteBufferCustom
+          ..clear()
+          ..addAll(points);
+        _minuteCustomRangeKey = rangeKey;
+      });
+    } catch (e) {
+      debugPrint('[MinuteChart/temp range] query failed: $e');
+    } finally {
+      _minuteCustomLoading = false;
+    }
+  }
+
   void _onLiveDataChanged() {
     if (!mounted) return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
 
-    final tempLive = (data['temperature'] as num?)?.toDouble() ??
+    final tempLive = (data['tempMax'] as num?)?.toDouble() ??
         (data['tempAvg'] as num?)?.toDouble();
     if (tempLive == null || tempLive < 0) return;
 
     final humLive = (data['humidity'] as num?)?.toDouble();
 
-    if (_lastAppliedTimestamp != null) {
-      final tsField = data['timestamp'];
-      DateTime? ts;
-      if (tsField is String) {
-        ts = DateTime.tryParse(tsField);
-      } else if (tsField is Timestamp) {
-        ts = tsField.toDate();
-      }
-      if (ts != null && !ts.isAfter(_lastAppliedTimestamp!)) return;
+   final tsField = data['timestamp'];
+    DateTime? ts;
+    if (tsField is String) {
+      ts = DateTime.tryParse(tsField);
+    } else if (tsField is Timestamp) {
+      ts = tsField.toDate();
+    }
+    // Track the newest timestamp seen for the minute buffer, but never
+    // let a stale/unchanged timestamp block the live display from updating.
+    if (ts != null) {
       _lastAppliedTimestamp = ts;
-    } else {
-      final tsField = data['timestamp'];
-      if (tsField is String) {
-        _lastAppliedTimestamp = DateTime.tryParse(tsField);
-      } else if (tsField is Timestamp) {
-        _lastAppliedTimestamp = tsField.toDate();
-      }
     }
 
+    final tsForBuffer = _lastAppliedTimestamp ?? DateTime.now();
     setState(() {
       _currentTemp = tempLive;
       _isLoading = false;
+      _appendMinuteBufferPoint(tempLive, tsForBuffer);
     });
     final now = DateTime.now();
     if (_lastMlFetch == null || now.difference(_lastMlFetch!) > const Duration(minutes: 1)) {
@@ -277,6 +513,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     _displayMax = null;
     _displayMin = null;
     _displayAvg = null;
+    _minuteBufferCustom.clear();
+    _minuteCustomRangeKey = '';
   }
 
   Future<void> _loadChartFromFirestore() async {
@@ -695,15 +933,18 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       builder: (_) => _CustomRangeSheet(
         initialStart: _customStart,
         initialEnd: _customEnd,
-        onApply: (start, end) {
+        initialGranularity: _todayGranularity,
+        onApply: (start, end, granularity) {
           setState(() {
             _customStart = start;
             _customEnd = end;
             _selectedTimeRange = 3;
+            _todayGranularity = granularity;
             // Clear stale stats when custom range is applied.
             _clearStatsForRangeSwitch();
           });
           _loadChartFromFirestore();
+          if (_todayGranularity == 1) _loadMinuteChartForRange(3);
         },
       ),
     );
@@ -720,6 +961,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         _clearStatsForRangeSwitch();
       });
       _loadChartFromFirestore();
+      if (_todayGranularity == 1) _loadMinuteChartFromFirestore();
     }
   }
 
@@ -754,6 +996,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 _buildStatusCard(isDark),
                 const SizedBox(height: 12),
                 _buildTimeRangeSelector(isDark),
+                if (_selectedTimeRange != 3 ||
+                    (_customStart != null && _customEnd != null)) ...[
+                  const SizedBox(height: 8),
+                  _buildGranularityToggle(isDark),
+                ],
                 if (_selectedTimeRange == 3 &&
                     _customStart != null &&
                     _customEnd != null) ...[
@@ -779,7 +1026,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = isDark ? Colors.white : Colors.black;
     final sensorOnline = _sensorStatus == "Sensor Online";
+    final isNoInternet = _connectionStatus == "No Connection";
     final sensorColor = sensorOnline ? Colors.green : Colors.red;
+    // When there's no internet at all, the ESP32 might be perfectly fine —
+    // we simply have no way to check it. Saying "Sensor Offline" in that
+    // case wrongly implies the device itself is broken. Show the same
+    // "No Internet" reason on both badges instead of two conflicting
+    // messages.
+    final sensorLabel = isNoInternet
+        ? "No Internet"
+        : (sensorOnline ? "Sensor Online" : "Sensor Offline");
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -820,7 +1076,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    sensorOnline ? "Sensor Online" : "Sensor Offline",
+                    sensorLabel,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -952,6 +1208,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 await _showCustomRangePicker();
               } else {
                 _loadChartFromFirestore();
+                if (_todayGranularity == 1) {
+                  if (index == 2) {
+                    _loadMinuteChartFromFirestore();
+                  } else {
+                    _loadMinuteChartForRange(index);
+                  }
+                }
               }
             },
             child: AnimatedContainer(
@@ -1018,6 +1281,58 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
+  Widget _buildGranularityToggle(bool isDark) {
+    const options = ['Hour', 'Minute'];
+    return Row(
+      children: [
+        Text(
+          'Show:',
+          style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
+        ),
+        const SizedBox(width: 8),
+        ...List.generate(options.length, (index) {
+          final isSelected = _todayGranularity == index;
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: GestureDetector(
+              onTap: () {
+                setState(() => _todayGranularity = index);
+                if (index == 1) {
+                  if (_selectedTimeRange == 2) {
+                    _loadMinuteChartFromFirestore();
+                  } else {
+                    _loadMinuteChartForRange(_selectedTimeRange);
+                  }
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFF1B3A4B) : _cardBg(isDark),
+                  border: Border.all(
+                    color: isSelected
+                        ? const Color(0xFF1B3A4B)
+                        : _dividerColor(isDark),
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  options[index],
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? Colors.white : _textSecondary(isDark),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
   Widget _buildCustomRangeBanner() {
     return Container(
       width: double.infinity,
@@ -1054,6 +1369,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 _clearStatsForRangeSwitch();
               });
               _loadChartFromFirestore();
+              if (_todayGranularity == 1) _loadMinuteChartFromFirestore();
             },
             child: const Icon(Icons.close, size: 14, color: Color(0xFFE8622A)),
           ),
@@ -1075,19 +1391,23 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       child: SizedBox(
         height: 210,
         width: double.infinity,
-        child: _isLoading
+        child: (_isLoading || (_selectedTimeRange != 2 && _todayGranularity == 1 && _minuteCustomLoading))
             ? const Center(child: CircularProgressIndicator())
-            : _chartData.isEmpty
+            : _activeChartData.isEmpty
             ? Center(
           child: Text(
-            "No data for selected range",
+            _selectedTimeRange == 2 && _todayGranularity == 1
+                ? "Waiting for live readings..."
+                : _todayGranularity == 1
+                ? "No minute data for this range"
+                : "No data for selected range",
             style: TextStyle(color: _textSecondary(isDark)),
           ),
         )
             : ClipRect(
           child: CustomPaint(
             painter: _TemperatureChartPainter(
-              data: List.from(_chartData),
+              data: List.from(_activeChartData),
               isDark: isDark,
               rangeIndex: _selectedTimeRange,
               rangeStart: range?.start ?? now,
@@ -1101,14 +1421,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Widget _buildTemperatureReview(bool isDark) {
-    final avgLabel = _displayAvg != null
-        ? '${_displayAvg!.toStringAsFixed(1)}°C'
+    final avgLabel = _activeDisplayAvg != null
+        ? '${_activeDisplayAvg!.toStringAsFixed(1)}°C'
         : '--';
-    final minLabel = _displayMin != null
-        ? '${_displayMin!.toStringAsFixed(1)}°C'
+    final minLabel = _activeDisplayMin != null
+        ? '${_activeDisplayMin!.toStringAsFixed(1)}°C'
         : '--';
-    final maxLabel = _displayMax != null
-        ? '${_displayMax!.toStringAsFixed(1)}°C'
+    final maxLabel = _activeDisplayMax != null
+        ? '${_activeDisplayMax!.toStringAsFixed(1)}°C'
         : '--';
 
     return Container(
@@ -1373,12 +1693,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 class _CustomRangeSheet extends StatefulWidget {
   final DateTime? initialStart;
   final DateTime? initialEnd;
-  final void Function(DateTime start, DateTime end) onApply;
+  final int initialGranularity;
+  final void Function(DateTime start, DateTime end, int granularity) onApply;
 
   const _CustomRangeSheet({
     required this.onApply,
     this.initialStart,
     this.initialEnd,
+    this.initialGranularity = 0,
   });
 
   @override
@@ -1390,6 +1712,7 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
   late TimeOfDay _startTime;
   late DateTime _endDate;
   late TimeOfDay _endTime;
+  late int _granularity;
 
   @override
   void initState() {
@@ -1399,6 +1722,7 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
     _startTime = TimeOfDay.fromDateTime(widget.initialStart ?? now);
     _endDate = widget.initialEnd ?? now;
     _endTime = TimeOfDay.fromDateTime(widget.initialEnd ?? now);
+    _granularity = widget.initialGranularity;
   }
 
   DateTime get _fullStart => DateTime(
@@ -1568,6 +1892,46 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
               ],
             ),
           ],
+          const SizedBox(height: 20),
+          _rowLabel('Show Data By'),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(2, (index) {
+              final label = index == 0 ? 'Hour' : 'Minute';
+              final isSelected = _granularity == index;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _granularity = index),
+                  child: Container(
+                    margin: EdgeInsets.only(right: index == 0 ? 8 : 0),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFFE8622A)
+                          : const Color(0xFFE8622A).withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFFE8622A).withValues(
+                          alpha: isSelected ? 1 : 0.3,
+                        ),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFFE8622A),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
@@ -1578,7 +1942,7 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
                 // Returning `true` tells the caller a range was
                 // actually applied, so it should NOT snap back to Today.
                 Navigator.pop(context, true);
-                widget.onApply(_fullStart, _fullEnd);
+                widget.onApply(_fullStart, _fullEnd, _granularity);
               }
                   : null,
               style: ElevatedButton.styleFrom(
