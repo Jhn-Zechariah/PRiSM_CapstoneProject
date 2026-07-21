@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -59,15 +60,35 @@ class LiveSensorService {
   static Timer? _timer;
   static StreamSubscription<DocumentSnapshot>? _firestoreSub;
   static StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  static int _consecutiveFailures = 0;
   static bool _started = false;
 
-  // Unified staleness rule used everywhere (was 20s/4-fail on Dashboard,
-  // 15s/2-fail on Temperature & Humidity — now consistent across all three,
-  // using the more lenient values since those already correctly absorb
-  // the ESP32's blocking Firestore/sprinkler-poll calls without flicker).
-  static const int _stalenessLimitSeconds = 20;
-  static const int _failuresBeforeOffline = 4;
+  // Staleness is judged against the PHONE's own clock at the moment a
+  // reading is received (LAN response or Firestore snapshot) — never
+  // against the ESP32's embedded 'timestamp' field. That field comes from
+  // the ESP32's NTP sync; if NTP fails at boot the firmware falls back to
+  // sending "1970-01-01T00:00:00Z" forever, which used to make every
+  // reading look decades old and the sensor permanently "offline" even
+  // though it kept pushing fresh data every few seconds.
+  //
+  // Kept at 5s (matching the 5s poll interval below) so a missed/offline
+  // reading is reflected within one poll cycle. NOTE: this only controls
+  // how fast the badge flips to "Sensor Offline" — flipping back to
+  // "Sensor Online" already happens the instant any reading arrives, with
+  // no waiting period. If plugging the sensor back in doesn't bring the
+  // badge back online, no reading is arriving at all (check the
+  // [LiveSensorService] debugPrint logs to see whether the LAN poll or the
+  // Firestore fallback is the one failing).
+  static const int _stalenessLimitSeconds = 5;
+
+  /// How old the 'timestamp' field on a one-shot Firestore GET is allowed
+  /// to be before it's trusted as proof the sensor is currently live. A
+  /// plain .get() (unlike a LAN response or a listener's change event)
+  /// just returns whatever is currently stored, so this is what actually
+  /// catches the "ESP32 unplugged, doc frozen" case for that path.
+  static const int _oneShotGetFreshnessLimitSeconds = 15;
+
+  /// Wall-clock time this phone last actually received a reading.
+  static DateTime? _lastUpdateReceivedAt;
 
   /// Latest raw sensor JSON, however it was sourced (LAN or Firestore).
   /// Screens listen to this directly via ValueListenableBuilder.
@@ -94,8 +115,14 @@ class LiveSensorService {
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       final hasNet = results.any((r) => r != ConnectivityResult.none);
       if (!hasNet) {
-        connectionStatus.value = "Connecting...";
-        sensorStatus.value = "Sensor Offline";
+        // Don't flip to offline here directly — connectivity_plus can
+        // report a transient "no network" blip for a second or two during
+        // normal WiFi roaming/DHCP renewal even though the connection is
+        // actually fine, and that used to instantly flash the status red
+        // with zero grace period, bypassing the staleness window
+        // everything else respects. Let _checkStaleness() (driven by the
+        // 5s poll timer) be the single source of truth for the offline
+        // label — it already accounts for genuinely lost connectivity.
       } else {
         // Net just came back — try a poll immediately instead of waiting
         // for the next tick, so the UI recovers fast.
@@ -107,7 +134,35 @@ class LiveSensorService {
     _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
   }
 
+  /// Guards against overlapping polls — the LAN request (2s timeout) plus a
+  /// possible reachability check (DNS lookup, up to a few seconds) can take
+  /// longer than the 5s timer interval, so without this a second _poll()
+  /// could start while the first is still resolving and race it.
+  static bool _polling = false;
+
+  /// Age (in seconds) of a Firestore-sourced reading's own 'timestamp'
+  /// field, vs. the phone's wall clock. Null if there's no usable
+  /// timestamp. Used to tell a genuinely fresh reading apart from "this is
+  /// just whatever was last stored," which a plain .get() or the first
+  /// event after a listener (re)subscribe can both hand back even when the
+  /// ESP32 has been unplugged for hours.
+  static int? _dataAgeSeconds(Map<String, dynamic>? data) {
+    final ts = data?['timestamp'];
+    if (ts is! Timestamp) return null;
+    return DateTime.now().toUtc().difference(ts.toDate().toUtc()).inSeconds;
+  }
+
   static Future<void> _poll() async {
+    if (_polling) return;
+    _polling = true;
+    try {
+      await _pollOnce();
+    } finally {
+      _polling = false;
+    }
+  }
+
+  static Future<void> _pollOnce() async {
     Map<String, dynamic>? data;
 
     // 1. LAN first — fastest path, zero Firestore read cost.
@@ -117,80 +172,198 @@ class LiveSensorService {
           .timeout(const Duration(seconds: 2));
       if (response.statusCode == 200) {
         data = jsonDecode(response.body) as Map<String, dynamic>;
+      } else {
+        debugPrint(
+          '[LiveSensorService] LAN poll got HTTP ${response.statusCode}',
+        );
       }
-    } catch (_) {
+    } catch (e) {
       // not on home network, or ESP32 unreachable — fall through
+      debugPrint('[LiveSensorService] LAN poll failed: $e');
     }
 
     if (data != null) {
+      debugPrint('[LiveSensorService] LAN poll OK');
       _attachFirestoreFallbackIfNeeded(); // keep it warm for when LAN drops
-      _applyData(data);
+      _markOnline(data);
       return;
     }
 
-    // 2. LAN failed — ensure the Firestore fallback listener is attached.
-    // Its snapshots feed _applyData() asynchronously as they arrive; here
-    // we just track the failure streak for the LAN path itself.
-    _attachFirestoreFallbackIfNeeded();
-    _consecutiveFailures++;
-    if (_consecutiveFailures >= _failuresBeforeOffline &&
-        latestData.value == null) {
-      final results = await Connectivity().checkConnectivity();
-      final hasNet = results.any((r) => r != ConnectivityResult.none);
-      connectionStatus.value = hasNet ? "Sensor Offline" : "No connection";
-      sensorStatus.value = "Sensor Offline";
+    // 2. LAN failed — try a direct one-shot Firestore read first. Some
+    // networks silently throttle or kill long-lived streaming connections
+    // (which the snapshot listener below depends on) while still letting
+    // discrete short HTTPS request/response calls through fine — exactly
+    // like the ESP32's own pushes, which always succeed on the same kind
+    // of network. A plain .get() is a single request/response, so it isn't
+    // affected by that.
+    //
+    // Unlike a LAN response or a listener's change event, a one-shot .get()
+    // is NOT proof the sensor is live right now — it just returns whatever
+    // document is currently stored, even if it's hours old (e.g. the ESP32
+    // got unplugged). So this path — and only this path — has to check the
+    // document's own 'timestamp' field for actual recency before trusting
+    // it. Threshold is generous (well above the ~3-7s push interval) to
+    // tolerate normal network/round-trip delay without false negatives.
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('live_sensor')
+          .doc('latest')
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 3));
+      final d = doc.data();
+      final ageSeconds = _dataAgeSeconds(d);
+      if (d != null && ageSeconds != null && ageSeconds <= _oneShotGetFreshnessLimitSeconds) {
+        debugPrint('[LiveSensorService] Firestore one-shot GET OK (age ${ageSeconds}s)');
+        _attachFirestoreFallbackIfNeeded(); // keep it warm in case it does work
+        _markOnline(d);
+        return;
+      } else if (d != null) {
+        debugPrint(
+          '[LiveSensorService] Firestore one-shot GET returned stale doc '
+          '(age ${ageSeconds}s) — treating as no data',
+        );
+      }
+    } catch (e) {
+      debugPrint('[LiveSensorService] Firestore one-shot GET failed: $e');
     }
+
+    // 3. One-shot GET also failed/returned nothing — ensure the Firestore
+    // listener is attached anyway (free extra coverage if the network
+    // allows it after all), then fall back to the staleness check.
+    _attachFirestoreFallbackIfNeeded();
+    await _checkStaleness();
   }
 
   static void _attachFirestoreFallbackIfNeeded() {
     if (_firestoreSub != null) return;
+    debugPrint('[LiveSensorService] attaching Firestore fallback listener');
     _firestoreSub = FirebaseFirestore.instance
         .collection('live_sensor')
         .doc('latest')
         .snapshots()
-        .listen((snap) {
-          if (!snap.exists) return;
-          final data = snap.data();
-          if (data == null) return;
-          _applyData(data);
-        }, onError: (_) {});
+        .listen(
+          (snap) {
+            if (!snap.exists) {
+              debugPrint('[LiveSensorService] Firestore snapshot: doc missing');
+              return;
+            }
+            final data = snap.data();
+            if (data == null) return;
+            // The FIRST snapshot delivered right after (re)subscribing is
+            // just "whatever is currently stored," not proof of a fresh
+            // write — same trap as the one-shot GET above. Only trust it
+            // if the doc's own timestamp is actually recent, otherwise a
+            // reattach right after the ESP32 gets unplugged would still
+            // flash "Online" once using the stale last-known reading.
+            final ageSeconds = _dataAgeSeconds(data);
+            if (ageSeconds == null || ageSeconds > _oneShotGetFreshnessLimitSeconds) {
+              debugPrint(
+                '[LiveSensorService] Firestore snapshot stale (age ${ageSeconds}s) — ignoring',
+              );
+              return;
+            }
+            debugPrint('[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)');
+            _markOnline(data);
+          },
+          onError: (e) {
+            // A Firestore stream that hits an error (auth token refresh,
+            // transient network blip, etc.) terminates for good — it will
+            // never deliver another snapshot. Previously this left
+            // _firestoreSub pointing at that dead subscription forever,
+            // so the fallback was never re-attached. If LAN also wasn't
+            // reachable at that moment, no data source was left at all
+            // and the app got stuck "offline" permanently after the
+            // first hiccup. Clearing it here lets the next _poll() tick
+            // (every 5s) resubscribe automatically.
+            debugPrint('[LiveSensorService] Firestore listener error: $e');
+            _firestoreSub = null;
+          },
+          onDone: () {
+            debugPrint('[LiveSensorService] Firestore listener closed');
+            _firestoreSub = null;
+          },
+        );
   }
 
-  static void _applyData(Map<String, dynamic> data) {
-    DateTime? ts;
-    final tsField = data['timestamp'];
-    if (tsField is String) {
-      ts = DateTime.tryParse(tsField);
-    } else if (tsField is Timestamp) {
-      ts = tsField.toDate();
-    }
+  /// Only call this once a reading is already known to be live: a LAN
+  /// response is live by construction (a dead ESP32 wouldn't answer at
+  /// all), while Firestore-sourced data must first pass the
+  /// [_dataAgeSeconds] freshness check at the call site.
+  static void _markOnline(Map<String, dynamic> data) {
+    debugPrint('[LiveSensorService] _markOnline data=$data');
+    _lastUpdateReceivedAt = DateTime.now();
+    latestData.value = data;
+    connectionStatus.value = "Live";
+    sensorStatus.value = "Sensor Online";
+    SensorMemory.lastConnectionStatus = "Live";
+    SensorMemory.lastSensorStatus = "Sensor Online";
+  }
 
-    final nowUtc = DateTime.now().toUtc();
-    final tsUtc = ts?.toUtc();
-    final diffSeconds = tsUtc != null ? nowUtc.difference(tsUtc).inSeconds : -1;
-    final isStale = ts == null || diffSeconds.abs() > _stalenessLimitSeconds;
+  /// Only flips to offline once _stalenessLimitSeconds has passed since the
+  /// last reading actually arrived — naturally absorbs occasional LAN
+  /// misses/timeouts without flicker, since Firestore keeps updating every
+  /// ~7s in the meantime.
+  static Future<void> _checkStaleness() async {
+    final last = _lastUpdateReceivedAt;
+    final secondsSinceLast = last == null
+        ? -1
+        : DateTime.now().difference(last).inSeconds;
+    final isStale = last == null || secondsSinceLast > _stalenessLimitSeconds;
+    if (!isStale) return;
 
-    if (isStale) {
-      _consecutiveFailures++;
-    } else {
-      _consecutiveFailures = 0;
-    }
-    final shouldShowOffline = _consecutiveFailures >= _failuresBeforeOffline;
+    // connectivity_plus only reports whether a network INTERFACE is active
+    // (e.g. "connected to WiFi") — it says true even when that WiFi has no
+    // actual route to the internet (dead ISP link, captive portal, etc.).
+    // Do a real reachability check instead, so the connection badge always
+    // reads "Live" whenever the phone genuinely has internet — independent
+    // of whether the ESP32 itself is sending data — and only drops to "No
+    // Connection" when the internet is actually down. The sensor badge is
+    // the one that reports "Sensor Offline"; the two are intentionally
+    // decoupled so the UI never shows the same "Sensor Offline" text on
+    // both badges at once.
+    final hasNet = await _hasRealInternet();
 
-    if (!isStale) {
-      connectionStatus.value = "Live";
-      sensorStatus.value = "Sensor Online";
-      latestData.value = data;
-      SensorMemory.lastConnectionStatus = "Live";
-      SensorMemory.lastSensorStatus = "Sensor Online";
-    } else if (shouldShowOffline) {
-      connectionStatus.value = "Sensor Offline";
-      sensorStatus.value = "Sensor Offline";
-      SensorMemory.lastConnectionStatus = "Sensor Offline";
-      SensorMemory.lastSensorStatus = "Sensor Offline";
+    // _hasRealInternet() does a real DNS lookup and can take a couple of
+    // seconds. A fresh reading (LAN poll or Firestore snapshot) may well
+    // have arrived and called _markOnline() while we were awaiting it —
+    // if so, _lastUpdateReceivedAt has moved on from the `last` we
+    // captured above, and the sensor is no longer stale. Bail out instead
+    // of clobbering that fresh "online" status with this now-outdated
+    // "offline" verdict.
+    if (_lastUpdateReceivedAt != last) return;
+
+    debugPrint(
+      '[LiveSensorService] marking offline — ${secondsSinceLast}s since '
+      'last update, hasNet=$hasNet',
+    );
+    connectionStatus.value = hasNet ? "Live" : "No Connection";
+    sensorStatus.value = "Sensor Offline";
+    SensorMemory.lastConnectionStatus = connectionStatus.value;
+    SensorMemory.lastSensorStatus = "Sensor Offline";
+
+    // The Firestore snapshot stream can go silently dead on some networks
+    // (WiFi NAT/idle timeouts) — it stops delivering server updates without
+    // ever firing onError/onDone, so _attachFirestoreFallbackIfNeeded()'s
+    // "already attached" guard would otherwise never retry it. If we're
+    // stale despite having real internet, tear the subscription down so
+    // the next _poll() tick (5s later) re-attaches a fresh one.
+    if (hasNet) {
+      await _firestoreSub?.cancel();
+      _firestoreSub = null;
     }
-    // Between 1 and (failuresBeforeOffline-1) failures: keep previous
-    // label — avoids flicker from a single transient miss.
+  }
+
+  static Future<bool> _hasRealInternet() async {
+    try {
+      final results = await Connectivity().checkConnectivity();
+      if (results.every((r) => r == ConnectivityResult.none)) return false;
+      final lookup = await InternetAddress.lookup(
+        'google.com',
+      ).timeout(const Duration(seconds: 3));
+      return lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Only call this if the whole app is tearing down — screens should NOT
@@ -1037,7 +1210,42 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _confirmSprinkler() async {
     if (_isSprinklerLoading || _isSprinklerDialogOpen) return;
     _isSprinklerDialogOpen = true;
-    // Sensor offline does NOT block the button — command goes via Firestore
+
+    if (LiveSensorService.sensorStatus.value != "Sensor Online" &&
+        !_localIsActivated) {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.sensors_off, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text('Sensor Offline'),
+            ],
+          ),
+          content: const Text(
+            'Cannot activate the sprinkler while the sensor is offline. Please ensure the sensor is online and try again.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text('OK', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      _isSprinklerDialogOpen = false;
+      return;
+    }
 
     final action = _localIsActivated ? 'Deactivate' : 'Activate';
     final confirmed = await showDialog<bool>(
@@ -1239,8 +1447,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     final connStatus = LiveSensorService.connectionStatus.value;
     final sensStatus = LiveSensorService.sensorStatus.value;
     final isLive = connStatus == "Live";
+    final isNoInternet = connStatus == "No Connection";
     final sensorOnline = sensStatus == "Sensor Online";
     final sensorColor = sensorOnline ? Colors.green : Colors.red;
+    // When there's no internet at all, the ESP32 might be perfectly fine —
+    // we simply have no way to check it. Saying "Sensor Offline" in that
+    // case wrongly implies the device itself is broken. Show the same
+    // "No Internet" reason on both pills instead of two conflicting
+    // messages.
+    final sensorLabel = isNoInternet
+        ? "No Internet"
+        : (sensorOnline ? "Sensor Online" : "Sensor Offline");
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1290,7 +1507,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             const SizedBox(width: 8),
             _statusPill(
               sensorOnline ? Icons.sensors : Icons.sensors_off,
-              sensorOnline ? "Sensor Online" : "Sensor Offline",
+              sensorLabel,
               sensorColor,
             ),
           ],
@@ -1334,7 +1551,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final sensStatus = LiveSensorService.sensorStatus.value;
     final connStatus = LiveSensorService.connectionStatus.value;
     final isOffline =
-        sensStatus == "Sensor Offline" || connStatus == "No connection";
+        sensStatus == "Sensor Offline" || connStatus == "No Connection";
 
     final value = _isLoading
         ? "--"

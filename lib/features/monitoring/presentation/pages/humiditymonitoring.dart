@@ -106,6 +106,28 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   double? _currentHumidity;
   DateTime? _lastAppliedTimestamp;
 
+  // Granularity toggle for the Today AND Custom tabs: 0 = Hour (existing
+  // hourly docs), 1 = Minute (live buffer for Today, a one-off range query
+  // for Custom).
+  int _todayGranularity = 0;
+  final List<Map<String, double>> _minuteBufferToday = [];
+  String _minuteBufferDayKey = '';
+  bool _minuteChartLoading = false;
+  // Tracks which day we've pulled persisted humidity_minute history for —
+  // deliberately separate from _minuteBufferDayKey, which gets stamped by
+  // live data arriving in the background (via _appendMinuteBufferPoint)
+  // before the user ever opens the Minute tab. Reusing that field as the
+  // "already loaded" guard meant the Firestore fetch below was skipped
+  // every time, because live data had already set it first.
+  String _minuteHistoryLoadedDayKey = '';
+
+  // Minute-level data for the Custom range tab — kept separate from
+  // _minuteBufferToday since it covers an arbitrary user-picked range
+  // instead of "today", and isn't fed by live readings.
+  final List<Map<String, double>> _minuteBufferCustom = [];
+  String _minuteCustomRangeKey = '';
+  bool _minuteCustomLoading = false;
+
   static bool _humidityCacheIsToday() =>
       SensorMemory.lastHumidityChartDate == SensorMemory.todayKey();
 
@@ -144,6 +166,41 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       ? List.of(SensorMemory.lastHumidityChartData)
       : [];
 
+  List<Map<String, double>> get _activeChartData {
+    if (_todayGranularity != 1) return _chartData;
+    if (_selectedTimeRange == 2) return _minuteBufferToday;
+    return _minuteBufferCustom; // Month, Week, or Custom
+  }
+
+  bool get _isMinuteViewActive => _todayGranularity == 1;
+
+  // Stat cards recompute from the raw minute-level buffer when Minute view
+  // is selected, instead of always showing the hourly rollup — otherwise
+  // switching to Minute only changed the line chart while Highest/Lowest/
+  // Average kept showing the coarser hourly-based numbers.
+  double? get _activeDisplayMax {
+    if (!_isMinuteViewActive) return _displayMax;
+    if (_activeChartData.isEmpty) return null;
+    return _activeChartData
+        .map((p) => p['humidity']!)
+        .reduce((a, b) => a > b ? a : b);
+  }
+
+  double? get _activeDisplayMin {
+    if (!_isMinuteViewActive) return _displayMin;
+    if (_activeChartData.isEmpty) return null;
+    return _activeChartData
+        .map((p) => p['humidity']!)
+        .reduce((a, b) => a < b ? a : b);
+  }
+
+  double? get _activeDisplayAvg {
+    if (!_isMinuteViewActive) return _displayAvg;
+    if (_activeChartData.isEmpty) return null;
+    final values = _activeChartData.map((p) => p['humidity']!);
+    return values.reduce((a, b) => a + b) / _activeChartData.length;
+  }
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   DateTime? _customStart;
@@ -159,10 +216,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     LiveSensorService.latestData.addListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
-    _hourlyRefreshTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => _loadChartFromFirestore(),
-    );
+    _hourlyRefreshTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      _loadChartFromFirestore();
+      if (_todayGranularity == 1 && _selectedTimeRange != 2) {
+        _loadMinuteChartForRange(_selectedTimeRange);
+      }
+    });
   }
 
   void _onSharedStatusChanged() {
@@ -172,6 +231,183 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       _sensorStatus = LiveSensorService.sensorStatus.value;
       if (_sensorStatus == "Sensor Offline") _currentHumidity = null;
     });
+  }
+
+  void _appendMinuteBufferPoint(double hum, DateTime ts) {
+    final todayKey = SensorMemory.todayKey();
+    if (_minuteBufferDayKey != todayKey) {
+      _minuteBufferToday.clear();
+      _minuteBufferDayKey = todayKey;
+    }
+    final midnight = DateTime(ts.year, ts.month, ts.day);
+    final hoursFromMidnight = ts.difference(midnight).inSeconds / 3600.0;
+
+    if (_minuteBufferToday.isNotEmpty) {
+      final lastX = _minuteBufferToday.last['x']!;
+      if ((hoursFromMidnight - lastX) < (1 / 60.0) * 0.9) return; // same minute, skip
+    }
+    _minuteBufferToday.add({'x': hoursFromMidnight, 'humidity': hum});
+    if (_minuteBufferToday.length > 1440) {
+      _minuteBufferToday.removeAt(0); // cap at 24h of minute points
+    }
+  }
+
+  // Loads today's persisted per-minute readings from the ESP32's
+  // humidity_minute collection so the Minute view has real history
+  // instead of only whatever arrived live while this screen happened to
+  // be open. Runs once per day (guarded by _minuteBufferDayKey) — after
+  // that, _appendMinuteBufferPoint keeps it current as live data arrives.
+  Future<void> _loadMinuteChartFromFirestore() async {
+    final todayKey = SensorMemory.todayKey();
+    if (_minuteHistoryLoadedDayKey == todayKey) {
+      return;
+    }
+    if (_minuteChartLoading) return;
+    _minuteChartLoading = true;
+
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day);
+
+    try {
+      final snapshot = await _db
+          .collection('humidity_minute')
+          .orderBy('timestamp', descending: false)
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(midnight),
+          )
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+          .limit(1500)
+          .get();
+
+      if (!mounted) return;
+
+      debugPrint(
+        '[MinuteChart/humidity] query range ${midnight.toIso8601String()} .. '
+        '${now.toIso8601String()}, got ${snapshot.docs.length} docs',
+      );
+
+      final points = <Map<String, double>>[];
+      int skippedNoHum = 0;
+      int skippedNoTs = 0;
+      for (final doc in snapshot.docs) {
+        final d = doc.data();
+        final rawHum = d['humidity'];
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
+        if (rawHum == null) {
+          skippedNoHum++;
+          continue;
+        }
+        if (ts == null) {
+          skippedNoTs++;
+          continue;
+        }
+        final hoursFromMidnight = ts.difference(midnight).inSeconds / 3600.0;
+        points.add({
+          'x': hoursFromMidnight,
+          'humidity': (rawHum as num).toDouble(),
+        });
+      }
+      debugPrint(
+        '[MinuteChart/humidity] usable points=${points.length}, '
+        'skippedNoHum=$skippedNoHum, skippedNoTs=$skippedNoTs',
+      );
+
+      setState(() {
+        // Merge with whatever is already buffered instead of overwriting —
+        // if the ESP32 hasn't written any humidity_minute docs yet today
+        // (not reflashed, or hasn't hit the 60s mark), the Firestore query
+        // legitimately returns nothing. Blowing away the points already
+        // accumulated from live data in that case would leave too few
+        // points to draw a visible line, making the chart look empty.
+        final byMinute = <int, Map<String, double>>{};
+        for (final p in _minuteBufferToday) {
+          byMinute[(p['x']! * 60).round()] = p;
+        }
+        for (final p in points) {
+          byMinute[(p['x']! * 60).round()] = p;
+        }
+        final sortedKeys = byMinute.keys.toList()..sort();
+
+        _minuteBufferToday
+          ..clear()
+          ..addAll([for (final k in sortedKeys) byMinute[k]!]);
+        _minuteBufferDayKey = todayKey;
+        _minuteHistoryLoadedDayKey = todayKey;
+
+        // Fold in the most recent live reading too, in case it's newer
+        // than the last persisted minute doc.
+        final live = LiveSensorService.latestData.value;
+        final liveHum = (live?['humidity'] as num?)?.toDouble();
+        if (liveHum != null && liveHum >= 0) {
+          _appendMinuteBufferPoint(
+            liveHum,
+            _lastAppliedTimestamp ?? DateTime.now(),
+          );
+        }
+      });
+    } catch (e) {
+      // Leave whatever was already buffered in place on failure.
+      debugPrint('[MinuteChart/humidity] query failed: $e');
+    } finally {
+      _minuteChartLoading = false;
+    }
+  }
+
+  // Loads persisted per-minute readings for any non-Today range (Month,
+  // Week, or Custom). Unlike the Today buffer, these ranges are fixed and
+  // never get live updates, so they're simply re-fetched whenever the
+  // range actually changes (guarded by _minuteCustomRangeKey, keyed by
+  // range + hour so Month/Week re-check once per hour as "now" advances).
+  //
+  // Month/Week can span tens of thousands of minute docs — far too many to
+  // fetch or render in one shot — so this always takes the MOST RECENT
+  // ~1500 readings within the range (via descending order + limit, then
+  // reversed back to chronological order) rather than the oldest, since
+  // recent trends are what actually matter for monitoring.
+  Future<void> _loadMinuteChartForRange(int rangeIndex) async {
+    final range = _humResolveTimeRange(rangeIndex, _customStart, _customEnd);
+    if (range == null) return;
+    final rangeKey = '$rangeIndex-${currentHourKey()}';
+    if (_minuteCustomRangeKey == rangeKey) return;
+    if (_minuteCustomLoading) return;
+    _minuteCustomLoading = true;
+
+    final start = range.start;
+    final end = range.end;
+
+    try {
+      final snapshot = await _db
+          .collection('humidity_minute')
+          .orderBy('timestamp', descending: true)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .limit(1500)
+          .get();
+
+      if (!mounted || _selectedTimeRange != rangeIndex) return;
+
+      final points = <Map<String, double>>[];
+      for (final doc in snapshot.docs.reversed) {
+        final d = doc.data();
+        final rawHum = d['humidity'];
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
+        if (rawHum == null || ts == null) continue;
+        final hoursFromStart = ts.difference(start).inSeconds / 3600.0;
+        points.add({'x': hoursFromStart, 'humidity': (rawHum as num).toDouble()});
+      }
+
+      setState(() {
+        _minuteBufferCustom
+          ..clear()
+          ..addAll(points);
+        _minuteCustomRangeKey = rangeKey;
+      });
+    } catch (e) {
+      debugPrint('[MinuteChart/humidity range] query failed: $e');
+    } finally {
+      _minuteCustomLoading = false;
+    }
   }
 
   void _onLiveDataChanged() {
@@ -204,9 +440,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       }
     }
 
+    final tsForBuffer = _lastAppliedTimestamp ?? DateTime.now();
     setState(() {
       _currentHumidity = humLive;
       _isLoading = false;
+      _appendMinuteBufferPoint(humLive, tsForBuffer);
     });
     final now = DateTime.now();
     if (_lastMlFetch == null ||
@@ -283,6 +521,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     _displayMax = null;
     _displayMin = null;
     _displayAvg = null;
+    _minuteBufferCustom.clear();
+    _minuteCustomRangeKey = '';
   }
 
   Future<void> _loadChartFromFirestore() async {
@@ -714,14 +954,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       builder: (_) => _HumidityCustomRangeSheet(
         initialStart: _customStart,
         initialEnd: _customEnd,
-        onApply: (start, end) {
+        initialGranularity: _todayGranularity,
+        onApply: (start, end, granularity) {
           setState(() {
             _customStart = start;
             _customEnd = end;
             _selectedTimeRange = 3;
+            _todayGranularity = granularity;
             _clearStatsForRangeSwitch();
           });
           _loadChartFromFirestore();
+          if (_todayGranularity == 1) _loadMinuteChartForRange(3);
         },
       ),
     );
@@ -738,6 +981,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
         _clearStatsForRangeSwitch();
       });
       _loadChartFromFirestore();
+      if (_todayGranularity == 1) _loadMinuteChartFromFirestore();
     }
   }
 
@@ -772,6 +1016,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                 _buildStatusCard(isDark),
                 const SizedBox(height: 12),
                 _buildTimeRangeSelector(isDark),
+                if (_selectedTimeRange != 3 ||
+                    (_customStart != null && _customEnd != null)) ...[
+                  const SizedBox(height: 8),
+                  _buildGranularityToggle(isDark),
+                ],
                 if (_selectedTimeRange == 3 &&
                     _customStart != null &&
                     _customEnd != null) ...[
@@ -797,7 +1046,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = isDark ? Colors.white : Colors.black;
     final sensorOnline = _sensorStatus == "Sensor Online";
+    final isNoInternet = _connectionStatus == "No Connection";
     final sensorColor = sensorOnline ? Colors.green : Colors.red;
+    // When there's no internet at all, the ESP32 might be perfectly fine —
+    // we simply have no way to check it. Saying "Sensor Offline" in that
+    // case wrongly implies the device itself is broken. Show the same
+    // "No Internet" reason on both badges instead of two conflicting
+    // messages.
+    final sensorLabel = isNoInternet
+        ? "No Internet"
+        : (sensorOnline ? "Sensor Online" : "Sensor Offline");
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -838,7 +1096,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    sensorOnline ? "Sensor Online" : "Sensor Offline",
+                    sensorLabel,
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -969,6 +1227,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                 await _showCustomRangePicker();
               } else {
                 _loadChartFromFirestore();
+                if (_todayGranularity == 1) {
+                  if (index == 2) {
+                    _loadMinuteChartFromFirestore();
+                  } else {
+                    _loadMinuteChartForRange(index);
+                  }
+                }
               }
             },
             child: AnimatedContainer(
@@ -1035,6 +1300,58 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
     );
   }
 
+  Widget _buildGranularityToggle(bool isDark) {
+    const options = ['Hour', 'Minute'];
+    return Row(
+      children: [
+        Text(
+          'Show:',
+          style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
+        ),
+        const SizedBox(width: 8),
+        ...List.generate(options.length, (index) {
+          final isSelected = _todayGranularity == index;
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: GestureDetector(
+              onTap: () {
+                setState(() => _todayGranularity = index);
+                if (index == 1) {
+                  if (_selectedTimeRange == 2) {
+                    _loadMinuteChartFromFirestore();
+                  } else {
+                    _loadMinuteChartForRange(_selectedTimeRange);
+                  }
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFF1B3A4B) : _cardBg(isDark),
+                  border: Border.all(
+                    color: isSelected
+                        ? const Color(0xFF1B3A4B)
+                        : _dividerColor(isDark),
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  options[index],
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? Colors.white : _textSecondary(isDark),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
   Widget _buildCustomRangeBanner() {
     return Container(
       width: double.infinity,
@@ -1069,6 +1386,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
                 _clearStatsForRangeSwitch();
               });
               _loadChartFromFirestore();
+              if (_todayGranularity == 1) _loadMinuteChartFromFirestore();
             },
             child: const Icon(Icons.close, size: 14, color: Color(0xFFE8622A)),
           ),
@@ -1090,19 +1408,23 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
       child: SizedBox(
         height: 210,
         width: double.infinity,
-        child: _isLoading
+        child: (_isLoading || (_selectedTimeRange != 2 && _todayGranularity == 1 && _minuteCustomLoading))
             ? const Center(child: CircularProgressIndicator())
-            : _chartData.isEmpty
+            : _activeChartData.isEmpty
             ? Center(
                 child: Text(
-                  "No data for selected range",
+                  _selectedTimeRange == 2 && _todayGranularity == 1
+                      ? "Waiting for live readings..."
+                      : _todayGranularity == 1
+                      ? "No minute data for this range"
+                      : "No data for selected range",
                   style: TextStyle(color: _textSecondary(isDark)),
                 ),
               )
             : ClipRect(
                 child: CustomPaint(
                   painter: _HumidityChartPainter(
-                    data: List.from(_chartData),
+                    data: List.from(_activeChartData),
                     isDark: isDark,
                     rangeIndex: _selectedTimeRange,
                     rangeStart: range?.start ?? now,
@@ -1116,14 +1438,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
   }
 
   Widget _buildHumidityReview(bool isDark) {
-    final avgLabel = _displayAvg != null
-        ? '${_displayAvg!.toStringAsFixed(1)}%'
+    final avgLabel = _activeDisplayAvg != null
+        ? '${_activeDisplayAvg!.toStringAsFixed(1)}%'
         : '--';
-    final minLabel = _displayMin != null
-        ? '${_displayMin!.toStringAsFixed(1)}%'
+    final minLabel = _activeDisplayMin != null
+        ? '${_activeDisplayMin!.toStringAsFixed(1)}%'
         : '--';
-    final maxLabel = _displayMax != null
-        ? '${_displayMax!.toStringAsFixed(1)}%'
+    final maxLabel = _activeDisplayMax != null
+        ? '${_activeDisplayMax!.toStringAsFixed(1)}%'
         : '--';
 
     return Container(
@@ -1386,12 +1708,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring> {
 class _HumidityCustomRangeSheet extends StatefulWidget {
   final DateTime? initialStart;
   final DateTime? initialEnd;
-  final void Function(DateTime start, DateTime end) onApply;
+  final int initialGranularity;
+  final void Function(DateTime start, DateTime end, int granularity) onApply;
 
   const _HumidityCustomRangeSheet({
     required this.onApply,
     this.initialStart,
     this.initialEnd,
+    this.initialGranularity = 0,
   });
 
   @override
@@ -1404,6 +1728,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
   late TimeOfDay _startTime;
   late DateTime _endDate;
   late TimeOfDay _endTime;
+  late int _granularity;
 
   @override
   void initState() {
@@ -1413,6 +1738,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
     _startTime = TimeOfDay.fromDateTime(widget.initialStart ?? now);
     _endDate = widget.initialEnd ?? now;
     _endTime = TimeOfDay.fromDateTime(widget.initialEnd ?? now);
+    _granularity = widget.initialGranularity;
   }
 
   DateTime get _fullStart => DateTime(
@@ -1582,6 +1908,46 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
               ],
             ),
           ],
+          const SizedBox(height: 20),
+          _rowLabel('Show Data By'),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(2, (index) {
+              final label = index == 0 ? 'Hour' : 'Minute';
+              final isSelected = _granularity == index;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _granularity = index),
+                  child: Container(
+                    margin: EdgeInsets.only(right: index == 0 ? 8 : 0),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFFE8622A)
+                          : const Color(0xFFE8622A).withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFFE8622A).withValues(
+                          alpha: isSelected ? 1 : 0.3,
+                        ),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFFE8622A),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
@@ -1592,7 +1958,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
                       // Returning `true` tells the caller a range was
                       // actually applied, so it should NOT snap back to Today.
                       Navigator.pop(context, true);
-                      widget.onApply(_fullStart, _fullEnd);
+                      widget.onApply(_fullStart, _fullEnd, _granularity);
                     }
                   : null,
               style: ElevatedButton.styleFrom(
