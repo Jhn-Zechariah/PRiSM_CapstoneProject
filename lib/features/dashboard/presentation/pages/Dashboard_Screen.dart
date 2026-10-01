@@ -70,22 +70,22 @@ class LiveSensorService {
   // reading look decades old and the sensor permanently "offline" even
   // though it kept pushing fresh data every few seconds.
   //
-  // Kept at 5s (matching the 5s poll interval below) so a missed/offline
-  // reading is reflected within one poll cycle. NOTE: this only controls
+  // Kept at 15s (above the 10s ESP32 update and poll interval) so a
+  // missed/offline reading is reflected within about one cycle. NOTE: this only controls
   // how fast the badge flips to "Sensor Offline" — flipping back to
   // "Sensor Online" already happens the instant any reading arrives, with
   // no waiting period. If plugging the sensor back in doesn't bring the
   // badge back online, no reading is arriving at all (check the
   // [LiveSensorService] debugPrint logs to see whether the LAN poll or the
   // Firestore fallback is the one failing).
-  static const int _stalenessLimitSeconds = 5;
+  static const int _stalenessLimitSeconds = 15;
 
   /// How old the 'timestamp' field on a one-shot Firestore GET is allowed
   /// to be before it's trusted as proof the sensor is currently live. A
   /// plain .get() (unlike a LAN response or a listener's change event)
   /// just returns whatever is currently stored, so this is what actually
   /// catches the "ESP32 unplugged, doc frozen" case for that path.
-  static const int _oneShotGetFreshnessLimitSeconds = 15;
+  static const int _oneShotGetFreshnessLimitSeconds = 25;
 
   /// Wall-clock time this phone last actually received a reading.
   static DateTime? _lastUpdateReceivedAt;
@@ -131,7 +131,7 @@ class LiveSensorService {
     });
 
     _poll();
-    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
   }
 
   /// Guards against overlapping polls — the LAN request (2s timeout) plus a
@@ -162,7 +162,12 @@ class LiveSensorService {
     }
   }
 
-  static Future<void> _pollOnce() async {
+    static Future<void> _pollOnce() async {
+    // Check real internet reachability IN PARALLEL with the LAN attempt,
+    // instead of only after LAN + Firestore both fail. Updates the badge
+    // almost immediately instead of waiting behind ~8s of other timeouts.
+    final internetCheckFuture = _hasRealInternet();
+
     Map<String, dynamic>? data;
 
     // 1. LAN first — fastest path, zero Firestore read cost.
@@ -182,8 +187,16 @@ class LiveSensorService {
       debugPrint('[LiveSensorService] LAN poll failed: $e');
     }
 
+    unawaited(internetCheckFuture.then((hasNet) {
+      if (connectionStatus.value != "Live") {
+        connectionStatus.value = hasNet ? "Live" : "No Connection";
+        SensorMemory.lastConnectionStatus = connectionStatus.value;
+      }
+    }));
+
     if (data != null) {
       debugPrint('[LiveSensorService] LAN poll OK');
+      connectionStatus.value = "Live";
       _attachFirestoreFallbackIfNeeded(); // keep it warm for when LAN drops
       _markOnline(data);
       return;
@@ -626,8 +639,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _duration = "--";
   String _pigStatus = "--";
 
-  bool _graphShowLast24hrs = false;
-
   // ML — start with empty state; card is hidden until sensor is live
   String _mlCondition = "";
   List<String> _mlRecommendations = [];
@@ -641,12 +652,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _durationTimer;
   bool _sprinklerMemoryLoaded = false;
   bool _sprinklerJustToggled = false;
+  // ignore: unused_field, prefer_final_fields
   double _lastMlTemp = 0;
+  // ignore: unused_field, prefer_final_fields
   double _lastMlHumidity = 0;
+  // ignore: unused_field
   DateTime? _lastMlRun;
   late bool _localIsActivated;
 
-  bool _showingTemperature = true;
+  bool _showingTemperature = false; // Temperature sensor (AMG8833) is disabled — always show Humidity.
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
   Timer? _toggleTimer;
@@ -727,10 +741,11 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (data == null) return;
 
     setState(() {
-      final newTempLive =
-          (data['tempMax'] as num?)?.toDouble() ??
-          (data['tempAvg'] as num?)?.toDouble();
-      if (newTempLive != null && newTempLive > 0) {
+      final tempValid = data['ambientTempValid'] as bool? ?? true;
+      final newTempLive = tempValid
+          ? (data['ambientTemp'] as num?)?.toDouble()
+          : null;
+      if (newTempLive != null && newTempLive > 0 && newTempLive <= 80) {
         _tempMax = newTempLive;
         _lastKnownTemp = _tempMax;
         SensorMemory.lastTemp = _tempMax;
@@ -917,22 +932,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     _fetchMLInsights();
-    _loadGraphData();
-    _syncTodayMaxFromFirestore();
+    // _loadGraphData(); // Temperature sensor disabled — nothing to graph.
     _loadNextVaccineSchedule();
+    _syncTodayMaxFromFirestore().then((_) => _scanTodayTempMax());
 
+    _toggleTimer?.cancel();
     _toggleTimer = Timer.periodic(
-      const Duration(seconds: 3),
+      const Duration(seconds: 4),
       (_) => _crossfadeToggle(),
     );
 
-    // Re-check the rolling 24h graph once per hour. _loadGraphData() itself
-    // is a no-op (zero Firestore reads) if the hour key hasn't advanced
-    // since the last load, so this is safe to fire on a simple timer.
-    _hourlyRefreshTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => _loadGraphData(),
-    );
+    // Temperature sensor disabled — no graph to refresh hourly.
   }
 
   // ── Crossfade temp/humidity display ─────────
@@ -987,8 +997,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (tempSnapshot != null) {
         for (final doc in tempSnapshot.docs) {
           final d = doc.data() as Map<String, dynamic>;
-          final t = (d['tempMax'] as num?)?.toDouble() ?? 0;
-          if (t > firestoreTempMax) firestoreTempMax = t;
+          // Temperature max now comes only from _scanTodayTempMax().
         }
       }
      QuerySnapshot? humiditySnapshot;
@@ -1032,7 +1041,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       if (!mounted) return;
 
-      if (firestoreTempMax > 0) {
+      if (firestoreTempMax > SensorMemory.lastTempMaxToday) {
         SensorMemory.setTempMaxToday(firestoreTempMax);
         SensorMemory.save();
         if (mounted) setState(() => _tempMaxToday = firestoreTempMax);
@@ -1046,6 +1055,48 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     } catch (e) {
       debugPrint('Error syncing today max from Firestore: $e');
+    }
+  }
+
+  // Scans every temperature_second reading since midnight and sets the
+  // exact highest valid value, same rule as the Temperature screen.
+  Future<void> _scanTodayTempMax() async {
+    try {
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      var cursor = midnight.subtract(const Duration(milliseconds: 1));
+      double maxT = 0;
+
+      while (true) {
+        final snap = await FirebaseFirestore.instance
+            .collection('temperature_second')
+            .orderBy('timestamp')
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
+            .limit(1000)
+            .get();
+
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final ts = (d['timestamp'] as Timestamp?)?.toDate();
+          if (ts == null) continue;
+          cursor = ts;
+          final raw = d['ambientTemp'];
+          if (raw == null) continue;
+          final t = (raw as num).toDouble();
+          if (d['ambientTempValid'] == false || t < 0 || t > 80) continue;
+          if (t > maxT) maxT = t;
+        }
+
+        if (snap.docs.length < 1000) break;
+      }
+
+      if (!mounted || maxT <= 0) return;
+      SensorMemory.lastTempMaxDate = SensorMemory.todayKey();
+      SensorMemory.setTempMaxToday(maxT);
+      SensorMemory.save();
+      setState(() => _tempMaxToday = maxT);
+    } catch (e) {
+      debugPrint('Error scanning today temp max: $e');
     }
   }
 
@@ -1160,8 +1211,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── ML insights ──────────────────────────────
 
   Future<void> _fetchMLInsights() async {
-    // Guard: only run when we have real live values from the ESP32
-    if (_tempMax <= 0 || _humidityLive <= 0) {
+    // Guard: only run when we have a real live humidity value. Temperature
+    // sensor (AMG8833) is disabled, so it's no longer part of this check —
+    // a neutral placeholder temperature is passed to the ML service instead.
+    if (_humidityLive <= 0) {
       if (_mlCondition.isEmpty) {
         setState(() {
           _mlCondition = "Unavailable";
@@ -1178,7 +1231,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     try {
       final result = await MlService.analyzeFarm(
-        temperatureC: _tempMax,
+        temperatureC: 25.0, // neutral placeholder — temperature sensor disabled
         humidityPct: _humidityLive,
       ).timeout(const Duration(seconds: 6));
 
@@ -1286,6 +1339,19 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _toggleSprinkler(bool turnOn) async {
     setState(() => _isSprinklerLoading = true);
     try {
+      // Fire the LAN command first — this is what makes the relay flip
+      // instantly instead of waiting for the ESP32's 2s Firestore poll.
+      unawaited(
+        http
+            .post(
+              Uri.parse('http://$esp32Ip/sprinkler'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
+            )
+            .timeout(const Duration(seconds: 2))
+            .catchError((e) => debugPrint('[Sprinkler] LAN command failed: $e')),
+      );
+
       await FirebaseFirestore.instance
           .collection('sprinkler_command')
           .doc('pending')
@@ -1415,6 +1481,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     // Show ML card only when we have a result (loading or done with real data)
+    // ignore: unused_local_variable
     final showMlCard = _mlLoading || _mlCondition.isNotEmpty;
 
     return Padding(
@@ -1430,8 +1497,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             _buildWeatherCard(isDarkMode),
             const SizedBox(height: 16),
             _buildQuickStatsRow(isDarkMode),
-            const SizedBox(height: 16),
-            _buildTemperatureGraph(isDarkMode),
             const SizedBox(height: 16),
             _buildBottomStatsRow(isDarkMode),
             const SizedBox(height: 16),
@@ -1709,11 +1774,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Symbols.bar_chart_4_bars,
               "Quick Stats",
               [
-                "Max Temp Today: ${() {
-                  SensorMemory.resetIfNewDay();
-                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : _tempMaxToday;
-                  return v == 0 ? '…' : '${v.toStringAsFixed(1)}°C';
-                }()}",
+                "Max Temperature Today: ${_tempMaxToday == 0 ? '…' : '${_tempMaxToday.toStringAsFixed(1)}°C'}",
                 "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
                 "Pig Status: $_pigStatus",
               ],
@@ -2022,91 +2083,101 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildWaterLevelCard(bool isDark) {
-    final statusColor = switch (_waterStatus) {
-      "Full" => Colors.green,
-      "Normal" => Colors.blue,
-      "Low" => Colors.orange,
-      "Critical" => Colors.red.shade900,
-      _ => Colors.grey,
-    };
+ Widget _buildWaterLevelCard(bool isDark) {
+  // Same offline rule used by the weather card: sensor offline OR no internet
+  final sensStatus = LiveSensorService.sensorStatus.value;
+  final connStatus = LiveSensorService.connectionStatus.value;
+  final isOffline =
+      sensStatus == "Sensor Offline" || connStatus == "No Connection";
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: _bentoDecoration(
-        isDark,
-        accentColor: const Color(0xFF1E88E5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Symbols.water_medium,
-                  size: 15,
-                  color: Color(0xFF1E88E5),
-                ),
+  // When offline, force Unknown regardless of the last stored value
+  final displayStatus = isOffline ? "Unknown" : _waterStatus;
+  final displayPct = isOffline ? 0.0 : _waterPct;
+
+  final statusColor = switch (displayStatus) {
+    "Full" => Colors.green,
+    "Normal" => Colors.blue,
+    "Low" => Colors.orange,
+    "Critical" => Colors.red.shade900,
+    _ => Colors.grey,
+  };
+
+  return Container(
+    padding: const EdgeInsets.all(14),
+    decoration: _bentoDecoration(
+      isDark,
+      accentColor: const Color(0xFF1E88E5),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 8),
-              Text(
-                "Water Level",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
+              child: const Icon(
+                Symbols.water_medium,
+                size: 15,
+                color: Color(0xFF1E88E5),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            "Level: ${_waterPct.toStringAsFixed(0)}%",
-            style: TextStyle(
-              color: isDark ? Colors.white60 : const Color(0xFF707070),
-              fontSize: 12,
             ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                "Status: ",
-                style: TextStyle(
-                  color: isDark ? Colors.white60 : const Color(0xFF707070),
-                  fontSize: 12,
-                ),
+            const SizedBox(width: 8),
+            Text(
+              "Water Level",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isDark ? Colors.white : Colors.black,
               ),
-              Text(
-                _waterStatus,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: (_waterPct / 100).clamp(0.0, 1.0),
-              minHeight: 6,
-              backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
-              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
             ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          isOffline ? "Level: --" : "Level: ${displayPct.toStringAsFixed(0)}%",
+          style: TextStyle(
+            color: isDark ? Colors.white60 : const Color(0xFF707070),
+            fontSize: 12,
           ),
-        ],
-      ),
-    );
-  }
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(
+              "Status: ",
+              style: TextStyle(
+                color: isDark ? Colors.white60 : const Color(0xFF707070),
+                fontSize: 12,
+              ),
+            ),
+            Text(
+              displayStatus,
+              style: TextStyle(
+                color: statusColor,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: (displayPct / 100).clamp(0.0, 1.0),
+            minHeight: 6,
+            backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
+            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildRecommendationCard(bool isDark) {
     Color conditionColor = Colors.amber;
