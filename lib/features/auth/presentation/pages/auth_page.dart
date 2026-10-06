@@ -52,13 +52,13 @@ class _AuthPageState extends State<AuthPage> {
         if (showLoginPage) {
           return LoginScreen(
             // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
-            onThemeToggle: () => widget.onThemeToggle,
+            onThemeToggle:  widget.onThemeToggle,
             togglePages: togglePages,
           );
         } else {
           return SignupScreen(
             // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
-            onThemeToggle: () => widget.onThemeToggle,
+            onThemeToggle: widget.onThemeToggle,
             togglePages: togglePages,
           );
         }
