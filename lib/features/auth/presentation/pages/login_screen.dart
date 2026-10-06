@@ -10,7 +10,7 @@ import '../components/social_logins.dart';
 
 class LoginScreen extends StatefulWidget {
   final void Function()? togglePages;
-  final VoidCallback onThemeToggle;
+  final Function(ThemeMode) onThemeToggle;
 
   const LoginScreen({super.key, this.togglePages, required this.onThemeToggle});
 
@@ -220,7 +220,7 @@ class LoginScreenState extends State<LoginScreen> {
 
                   const SizedBox(height: 20),
 
-                  // ✅ Fixed: no Padding or Row wrapper
+                  // Social login
                   SocialLoginButton(
                     asset: 'assets/google.svg',
                     label: "Sign in with Google",
