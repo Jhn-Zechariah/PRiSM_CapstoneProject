@@ -36,6 +36,28 @@ class AppPig {
     this.lastIntakeName,
   });
 
+  /// Calculates the pig's life stage based on its age in days:
+  /// - Piglet: 0-21 days
+  /// - Nursery: 22-70 days
+  /// - Grower: 71-120 days
+  /// - Finisher: 121-170 days
+  /// - Mature: 171+ days
+  static String calculateStage(DateTime birthDate) {
+    final ageInDays = DateTime.now().difference(birthDate).inDays;
+
+    if (ageInDays <= 21) {
+      return 'Piglet';
+    } else if (ageInDays <= 70) {
+      return 'Nursery';
+    } else if (ageInDays <= 120) {
+      return 'Grower';
+    } else if (ageInDays <= 170) {
+      return 'Finisher';
+    } else {
+      return 'Mature';
+    }
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'pigId': pigId,
@@ -61,12 +83,13 @@ class AppPig {
   }
 
   factory AppPig.fromJson(Map<String, dynamic> json, String documentId) {
+    final birthDate = (json['birthDate'] as Timestamp?)?.toDate() ?? DateTime.now();
     return AppPig(
       pigId: documentId,
       userId: json['userId'] ?? '',
       displayId: json['displayId'] as String? ?? '',
       breed: json['breed'] as String? ?? 'Unknown',
-      birthDate: (json['birthDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      birthDate: birthDate,
       sex: json['sex'] as String? ?? 'Unknown',
       birthWeightKg:
           (json['birthWeightKg'] as num?)?.toDouble() ??
@@ -74,7 +97,8 @@ class AppPig {
           1.4,
       currentWeightKg: (json['currentWeightKg'] as num?)?.toDouble() ?? 0.0,
       notes: json['notes'] as String? ?? '',
-      stage: json['stage'] as String? ?? 'Unknown',
+      // Dynamically calculate stage based on age whenever data is loaded
+      stage: calculateStage(birthDate),
       status: json['status'] as String? ?? 'Unknown',
       createdAt: (json['createdAt'] as Timestamp?)?.toDate(),
       updatedAt: (json['updatedAt'] as Timestamp?)?.toDate(),

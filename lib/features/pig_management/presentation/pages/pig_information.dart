@@ -40,13 +40,16 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   String? _selectedStatus;
 
 
-  // 👇 Removed 'final' so we can assign it dynamically
+
   List<String> _statusOptions = [];
 
 
   @override
   void initState() {
     super.initState();
+
+    // Breed is always "Hybrid"
+    _breedController.text = 'Hybrid';
 
 
     if (widget.existingPig != null) {
@@ -55,7 +58,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
 
       final pig = widget.existingPig!;
-      _breedController.text = pig.breed;
+      // Note: We ignore the breed from the existing pig to enforce "Hybrid"
       _weightController.text = pig.currentWeightKg.toString();
       _birthDateController.text = pig.birthDate.toString().split(' ')[0];
       if (_sexOptions.contains(pig.sex)) {
@@ -389,16 +392,12 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                   Expanded(
                                     child: CustomTextField(
                                       label: 'Breed:',
-                                      readonly: isReadOnly,
-                                      enabled: !isReadOnly,
+                                      readonly: true, // Breed is now always read-only
+                                      enabled: false, // Breed is now always disabled
                                       controller: _breedController,
                                       borderColor: Colors.black54,
                                       border: 6,
                                       contentPadding: fieldPadding,
-                                      validator: (value) =>
-                                      value == null || value.isEmpty
-                                          ? 'Required'
-                                          : null,
                                     ),
                                   ),
                                   const SizedBox(width: 12),
