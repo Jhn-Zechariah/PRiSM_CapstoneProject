@@ -14,11 +14,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-const String esp32Ip = "192.168.1.249";
+const String esp32Ip = "192.168.1.8";
 
 final sprinklerNotifier = ValueNotifier<bool>(false);
 final tempMaxTodayNotifier = ValueNotifier<double>(0);
 final humidityMaxTodayNotifier = ValueNotifier<double>(0);
+
+// Stores the time when the sprinkler was last toggled.
+// Shared with Temperature and Humidity monitoring screens.
+DateTime? sprinklerToggledAt;
+
+// True only while the ESP32 (schedule start/end, auto-off) is changing the
+// sprinkler state, as opposed to the user tapping the button.
+bool sprinklerChangeIsRemote = false;
 
 // ─────────────────────────────────────────────
 // Hour-boundary helper — used by Dashboard, Temperature, and Humidity to
@@ -70,22 +78,24 @@ class LiveSensorService {
   // reading look decades old and the sensor permanently "offline" even
   // though it kept pushing fresh data every few seconds.
   //
-  // Kept at 5s (matching the 5s poll interval below) so a missed/offline
-  // reading is reflected within one poll cycle. NOTE: this only controls
+  // Kept at 15s (above the 10s ESP32 update and poll interval) so a
+  // missed/offline reading is reflected within about one cycle. NOTE: this only controls
   // how fast the badge flips to "Sensor Offline" — flipping back to
   // "Sensor Online" already happens the instant any reading arrives, with
   // no waiting period. If plugging the sensor back in doesn't bring the
   // badge back online, no reading is arriving at all (check the
   // [LiveSensorService] debugPrint logs to see whether the LAN poll or the
   // Firestore fallback is the one failing).
-  static const int _stalenessLimitSeconds = 5;
+ // Require 2 consecutive failed checks before showing Sensor Offline.
+static const int _maxConsecutiveFailures = 2;
+static int _consecutiveFailures = 0;
 
   /// How old the 'timestamp' field on a one-shot Firestore GET is allowed
   /// to be before it's trusted as proof the sensor is currently live. A
   /// plain .get() (unlike a LAN response or a listener's change event)
   /// just returns whatever is currently stored, so this is what actually
   /// catches the "ESP32 unplugged, doc frozen" case for that path.
-  static const int _oneShotGetFreshnessLimitSeconds = 15;
+  static const int _oneShotGetFreshnessLimitSeconds = 30;
 
   /// Wall-clock time this phone last actually received a reading.
   static DateTime? _lastUpdateReceivedAt;
@@ -106,6 +116,11 @@ class LiveSensorService {
   static void start() {
     if (_started) return;
     _started = true;
+
+    sensorStatus.addListener(() => debugPrint(
+        '[LiveSensorService] >>> BADGE sensor = ${sensorStatus.value}'));
+    connectionStatus.addListener(() => debugPrint(
+        '[LiveSensorService] >>> BADGE connection = ${connectionStatus.value}'));
 
     Connectivity().checkConnectivity().then((results) {
       final hasNet = results.any((r) => r != ConnectivityResult.none);
@@ -131,7 +146,7 @@ class LiveSensorService {
     });
 
     _poll();
-    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _poll());
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
   }
 
   /// Guards against overlapping polls — the LAN request (2s timeout) plus a
@@ -146,13 +161,25 @@ class LiveSensorService {
   /// just whatever was last stored," which a plain .get() or the first
   /// event after a listener (re)subscribe can both hand back even when the
   /// ESP32 has been unplugged for hours.
-  static int? _dataAgeSeconds(Map<String, dynamic>? data) {
-    final ts = data?['timestamp'];
-    if (ts is! Timestamp) return null;
-    return DateTime.now().toUtc().difference(ts.toDate().toUtc()).inSeconds;
+ static int? _dataAgeSeconds(Map<String, dynamic>? data) {
+  final ts = data?['timestamp'];
+  DateTime? t;
+  if (ts is Timestamp) {
+    t = ts.toDate();
+  } else if (ts is String) {
+    t = DateTime.tryParse(ts);
   }
+  // Missing, unparseable, or NTP-failed (1970) timestamp = unknown age.
+  if (t == null || t.year < 2020) {
+    debugPrint('[LiveSensorService] timestamp unusable: raw=$ts parsed=$t '
+        '(null = missing/unparseable, year<2020 = ESP32 NTP failed)');
+    return null;
+  }
+  return DateTime.now().toUtc().difference(t.toUtc()).inSeconds;
+}
 
   static Future<void> _poll() async {
+    _attachSprinklerCommandListener();
     if (_polling) return;
     _polling = true;
     try {
@@ -162,7 +189,17 @@ class LiveSensorService {
     }
   }
 
-  static Future<void> _pollOnce() async {
+    static Future<void> _pollOnce() async {
+    // Check real internet reachability IN PARALLEL with the LAN attempt,
+    // instead of only after LAN + Firestore both fail. Updates the badge
+    // almost immediately instead of waiting behind ~8s of other timeouts.
+    final internetCheckFuture = _hasRealInternet();
+    final sw = Stopwatch()..start();
+    debugPrint('[LiveSensorService] ── poll start ── '
+        '${DateTime.now().toIso8601String()} | '
+        'fails=$_consecutiveFailures/$_maxConsecutiveFailures | '
+        'lastReading=${_lastUpdateReceivedAt == null ? "never" : "${DateTime.now().difference(_lastUpdateReceivedAt!).inSeconds}s ago"}');
+
     Map<String, dynamic>? data;
 
     // 1. LAN first — fastest path, zero Firestore read cost.
@@ -182,9 +219,16 @@ class LiveSensorService {
       debugPrint('[LiveSensorService] LAN poll failed: $e');
     }
 
+    unawaited(internetCheckFuture.then((hasNet) {
+      if (connectionStatus.value != "Live") {
+        connectionStatus.value = hasNet ? "Live" : "No Connection";
+        SensorMemory.lastConnectionStatus = connectionStatus.value;
+      }
+    }));
+
     if (data != null) {
-      debugPrint('[LiveSensorService] LAN poll OK');
-      _attachFirestoreFallbackIfNeeded(); // keep it warm for when LAN drops
+      debugPrint('[LiveSensorService] LAN poll OK (${sw.elapsedMilliseconds} ms)');
+      connectionStatus.value = "Live";
       _markOnline(data);
       return;
     }
@@ -212,15 +256,35 @@ class LiveSensorService {
           .timeout(const Duration(seconds: 3));
       final d = doc.data();
       final ageSeconds = _dataAgeSeconds(d);
+      debugPrint('[LiveSensorService] Firestore GET returned after ${sw.elapsedMilliseconds} ms | '
+          'fromCache=${doc.metadata.isFromCache} | '
+          'raw timestamp=${d?['timestamp']} (${d?['timestamp'].runtimeType}) | '
+          'age=${ageSeconds}s | limit=${_oneShotGetFreshnessLimitSeconds}s');
       if (d != null && ageSeconds != null && ageSeconds <= _oneShotGetFreshnessLimitSeconds) {
         debugPrint('[LiveSensorService] Firestore one-shot GET OK (age ${ageSeconds}s)');
         _attachFirestoreFallbackIfNeeded(); // keep it warm in case it does work
         _markOnline(d);
         return;
-      } else if (d != null) {
+      } else if (d != null && ageSeconds != null) {
+        // Doc has a valid timestamp but is older than the limit, so the
+        // ESP32 has stopped pushing. Mark offline immediately instead of
+        // waiting for the failure counter.
         debugPrint(
-          '[LiveSensorService] Firestore one-shot GET returned stale doc '
-          '(age ${ageSeconds}s) — treating as no data',
+          '[LiveSensorService] stale doc (age ${ageSeconds}s) — '
+          'ESP32 not pushing, marking Offline',
+        );
+        _attachFirestoreFallbackIfNeeded();
+        final hasNet = await _hasRealInternet();
+        connectionStatus.value = hasNet ? "Live" : "No Connection";
+        sensorStatus.value = "Sensor Offline";
+        SensorMemory.lastConnectionStatus = connectionStatus.value;
+        SensorMemory.lastSensorStatus = "Sensor Offline";
+        return;
+      } else if (d != null) {
+        // ageSeconds == null (missing/1970 timestamp): age unknown, so
+        // fall through to the failure counter below.
+        debugPrint(
+          '[LiveSensorService] doc has unusable timestamp — treating as no data',
         );
       }
     } catch (e) {
@@ -290,70 +354,102 @@ class LiveSensorService {
   /// all), while Firestore-sourced data must first pass the
   /// [_dataAgeSeconds] freshness check at the call site.
   static void _markOnline(Map<String, dynamic> data) {
-    debugPrint('[LiveSensorService] _markOnline data=$data');
-    _lastUpdateReceivedAt = DateTime.now();
-    latestData.value = data;
-    connectionStatus.value = "Live";
-    sensorStatus.value = "Sensor Online";
-    SensorMemory.lastConnectionStatus = "Live";
-    SensorMemory.lastSensorStatus = "Sensor Online";
+  debugPrint('[LiveSensorService] _markOnline data=$data');
+
+  // Any successful reading immediately resets failed attempts.
+  _consecutiveFailures = 0;
+
+  _lastUpdateReceivedAt = DateTime.now();
+  connectionStatus.value = "Live";
+  sensorStatus.value = "Sensor Online";
+  latestData.value = data; // must be LAST so listeners see "Online"
+
+  SensorMemory.lastConnectionStatus = "Live";
+  SensorMemory.lastSensorStatus = "Sensor Online";
+
+  debugPrint(
+    '[LiveSensorService] Sensor Online — failure counter reset',
+  );
+}
+
+  /// Handles a failed sensor check.
+/// The sensor is marked Offline only after 3 consecutive failed checks.
+static Future<void> _checkStaleness() async {
+  final hasNet = await _hasRealInternet();
+
+  connectionStatus.value = hasNet ? "Live" : "No Connection";
+  SensorMemory.lastConnectionStatus = connectionStatus.value;
+
+  _consecutiveFailures++;
+
+  debugPrint(
+    '[LiveSensorService] Failed sensor check: '
+    '$_consecutiveFailures/$_maxConsecutiveFailures',
+  );
+
+  // Do not immediately mark the sensor offline.
+  if (_consecutiveFailures < _maxConsecutiveFailures) {
+    return;
   }
 
-  /// Only flips to offline once _stalenessLimitSeconds has passed since the
-  /// last reading actually arrived — naturally absorbs occasional LAN
-  /// misses/timeouts without flicker, since Firestore keeps updating every
-  /// ~7s in the meantime.
-  static Future<void> _checkStaleness() async {
-    final last = _lastUpdateReceivedAt;
-    final secondsSinceLast = last == null
-        ? -1
-        : DateTime.now().difference(last).inSeconds;
-    final isStale = last == null || secondsSinceLast > _stalenessLimitSeconds;
-    if (!isStale) return;
+  sensorStatus.value = "Sensor Offline";
+  SensorMemory.lastSensorStatus = "Sensor Offline";
 
-    // connectivity_plus only reports whether a network INTERFACE is active
-    // (e.g. "connected to WiFi") — it says true even when that WiFi has no
-    // actual route to the internet (dead ISP link, captive portal, etc.).
-    // Do a real reachability check instead, so the connection badge always
-    // reads "Live" whenever the phone genuinely has internet — independent
-    // of whether the ESP32 itself is sending data — and only drops to "No
-    // Connection" when the internet is actually down. The sensor badge is
-    // the one that reports "Sensor Offline"; the two are intentionally
-    // decoupled so the UI never shows the same "Sensor Offline" text on
-    // both badges at once.
-    final hasNet = await _hasRealInternet();
+  debugPrint(
+    '[LiveSensorService] Sensor Offline after '
+    '$_consecutiveFailures consecutive failed checks',
+  );
 
-    // _hasRealInternet() does a real DNS lookup and can take a couple of
-    // seconds. A fresh reading (LAN poll or Firestore snapshot) may well
-    // have arrived and called _markOnline() while we were awaiting it —
-    // if so, _lastUpdateReceivedAt has moved on from the `last` we
-    // captured above, and the sensor is no longer stale. Bail out instead
-    // of clobbering that fresh "online" status with this now-outdated
-    // "offline" verdict.
-    if (_lastUpdateReceivedAt != last) return;
+  // Allow Firestore listener to reconnect on the next poll.
+  if (hasNet) {
+    await _firestoreSub?.cancel();
+    _firestoreSub = null;
+  }
+}
 
-    debugPrint(
-      '[LiveSensorService] marking offline — ${secondsSinceLast}s since '
-      'last update, hasNet=$hasNet',
+  // ── Real-time sprinkler ON/OFF from the ESP32 ──
+  static StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _sprinklerCmdSub;
+  static bool _sprinklerCmdFirstEvent = true;
+
+  static void _attachSprinklerCommandListener() {
+    if (_sprinklerCmdSub != null) return;
+    _sprinklerCmdFirstEvent = true;
+    _sprinklerCmdSub = FirebaseFirestore.instance
+        .collection('sprinkler_command')
+        .doc('pending')
+        .snapshots()
+        .listen(
+      (snap) {
+        // First event is only the stored value, not a new change.
+        if (_sprinklerCmdFirstEvent) {
+          _sprinklerCmdFirstEvent = false;
+          return;
+        }
+        // Our own button tap: the screens already update themselves.
+        if (snap.metadata.hasPendingWrites) return;
+
+        final state = snap.data()?['state'] as String?;
+        if (state == null) return;
+        final isOn = state == 'on';
+        if (isOn == sprinklerNotifier.value) return;
+
+        debugPrint('[LiveSensorService] sprinkler changed by ESP32 -> $state');
+        // Stops stale sensor readings from flipping the button back.
+        sprinklerToggledAt = DateTime.now();
+        sprinklerChangeIsRemote = true;
+        sprinklerNotifier.value = isOn; // listeners run right here
+        sprinklerChangeIsRemote = false;
+      },
+      onError: (e) {
+        debugPrint('[LiveSensorService] sprinkler listener error: $e');
+        _sprinklerCmdSub = null; // re-attached on the next poll
+      },
+      onDone: () => _sprinklerCmdSub = null,
     );
-    connectionStatus.value = hasNet ? "Live" : "No Connection";
-    sensorStatus.value = "Sensor Offline";
-    SensorMemory.lastConnectionStatus = connectionStatus.value;
-    SensorMemory.lastSensorStatus = "Sensor Offline";
-
-    // The Firestore snapshot stream can go silently dead on some networks
-    // (WiFi NAT/idle timeouts) — it stops delivering server updates without
-    // ever firing onError/onDone, so _attachFirestoreFallbackIfNeeded()'s
-    // "already attached" guard would otherwise never retry it. If we're
-    // stale despite having real internet, tear the subscription down so
-    // the next _poll() tick (5s later) re-attaches a fresh one.
-    if (hasNet) {
-      await _firestoreSub?.cancel();
-      _firestoreSub = null;
-    }
   }
 
-  static Future<bool> _hasRealInternet() async {
+static Future<bool> _hasRealInternet() async {
     try {
       final results = await Connectivity().checkConnectivity();
       if (results.every((r) => r == ConnectivityResult.none)) return false;
@@ -376,6 +472,8 @@ class LiveSensorService {
     _firestoreSub = null;
     _connectivitySub?.cancel();
     _connectivitySub = null;
+    _sprinklerCmdSub?.cancel();
+    _sprinklerCmdSub = null;
     _started = false;
   }
 }
@@ -533,7 +631,12 @@ class SensorMemory {
     }
   }
 
+  static DateTime _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);
+
   static Future<void> save() async {
+    final nowT = DateTime.now();
+    if (nowT.difference(_lastSaveAt) < const Duration(seconds: 60)) return;
+    _lastSaveAt = nowT;
     try {
       await FirebaseFirestore.instance
           .collection('sensor_memory')
@@ -626,8 +729,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _duration = "--";
   String _pigStatus = "--";
 
-  bool _graphShowLast24hrs = false;
-
   // ML — start with empty state; card is hidden until sensor is live
   String _mlCondition = "";
   List<String> _mlRecommendations = [];
@@ -641,12 +742,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   Timer? _durationTimer;
   bool _sprinklerMemoryLoaded = false;
   bool _sprinklerJustToggled = false;
+  // ignore: unused_field, prefer_final_fields
   double _lastMlTemp = 0;
+  // ignore: unused_field, prefer_final_fields
   double _lastMlHumidity = 0;
+  // ignore: unused_field
   DateTime? _lastMlRun;
   late bool _localIsActivated;
 
-  bool _showingTemperature = true;
+  bool _showingTemperature = false;
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
   Timer? _toggleTimer;
@@ -726,14 +830,34 @@ class _DashboardScreenState extends State<DashboardScreen>
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
 
+    debugPrint('[Dashboard] new reading -> hum=${data['humidity']} | '
+        'temp=${data['ambientTemp']} | water=${data['waterPct']}% '
+        '(${data['waterStatus']}) | sprinkler=${data['sprinkler']}');
+
+    final espSprinkler = data['sprinkler'] as bool?;
+    final recentlyToggled = sprinklerToggledAt != null &&
+        DateTime.now().difference(sprinklerToggledAt!) <
+            const Duration(seconds: 25);
+    if (espSprinkler != null &&
+        !recentlyToggled &&
+        !_sprinklerJustToggled &&
+        espSprinkler != sprinklerNotifier.value) {
+      sprinklerNotifier.value = espSprinkler;
+    }
+
     setState(() {
-      final newTempLive =
-          (data['tempMax'] as num?)?.toDouble() ??
-          (data['tempAvg'] as num?)?.toDouble();
-      if (newTempLive != null && newTempLive > 0) {
+      final tempValid = data['ambientTempValid'] as bool? ?? true;
+      final newTempLive = tempValid
+          ? (data['ambientTemp'] as num?)?.toDouble()
+          : null;
+      if (newTempLive != null && newTempLive > 0 && newTempLive <= 80) {
         _tempMax = newTempLive;
         _lastKnownTemp = _tempMax;
         SensorMemory.lastTemp = _tempMax;
+        _pigStatus = newTempLive < 38.7
+            ? "Low"
+            : (newTempLive <= 39.8 ? "Normal" : "High");
+        SensorMemory.lastPigStatus = _pigStatus;
         SensorMemory.resetIfNewDay();
         if (newTempLive > SensorMemory.lastTempMaxToday) {
           SensorMemory.setTempMaxToday(newTempLive);
@@ -742,8 +866,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         _tempMaxToday = SensorMemory.lastTempMaxToday;
       }
 
-      final newHumidity = (data['humidity'] as num?)?.toDouble();
-      if (newHumidity != null && newHumidity > 0) {
+      final humValid = data['humidityValid'] as bool? ?? true;
+      final newHumidity = humValid ? (data['humidity'] as num?)?.toDouble() : null;
+      if (newHumidity != null && newHumidity > 0 && newHumidity <= 100) {
         _humidityLive = newHumidity;
         _lastKnownHumidity = newHumidity;
         SensorMemory.lastHumidity = newHumidity;
@@ -796,6 +921,14 @@ class _DashboardScreenState extends State<DashboardScreen>
       final elapsed = DateTime.now().difference(_sprinklerActivatedAt!);
       if (elapsed.inSeconds > 3) _stopDurationTimer(keepDuration: true);
     }
+
+    if (!_mlLoading &&
+        (_lastMlRun == null ||
+            DateTime.now().difference(_lastMlRun!) >
+                const Duration(minutes: 1))) {
+      _lastMlRun = DateTime.now();
+      _fetchMLInsights();
+    }
   }
 
   // ── Notifier listeners ──────────────────────
@@ -804,16 +937,41 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     _sprinklerJustToggled = false;
     final newVal = sprinklerNotifier.value;
+    final remote = sprinklerChangeIsRemote; // ESP32 changed it (schedule)
+
     if (_localIsActivated != newVal) {
       setState(() {
         _localIsActivated = newVal;
         _sprinklerStatus = newVal ? "ON" : "OFF";
         if (!newVal && _sprinklerActivatedAt != null) {
           _stopDurationTimer(keepDuration: true);
+          SprinklerMemory.duration = _duration;
           SprinklerMemory.status = "OFF";
           SprinklerMemory.activatedAt = null;
+          SprinklerMemory.save();
         }
       });
+    }
+
+    // Schedule just started: fill in the Sprinkler Info card + timer.
+    if (remote && newVal && _sprinklerActivatedAt == null) {
+      final now = DateTime.now();
+      final timeStr = DateFormat('h:mm a').format(now); // e.g. 6:00 PM
+      final dateStr = DateFormat('MMM dd').format(now);
+
+      SprinklerMemory.lastActivated = timeStr;
+      SprinklerMemory.date = dateStr;
+      SprinklerMemory.duration = '0s';
+      SprinklerMemory.status = "ON";
+      SprinklerMemory.activatedAt = now;
+      SprinklerMemory.save();
+
+      setState(() {
+        _lastActivated = timeStr;
+        _date = dateStr;
+        _duration = '0s';
+      });
+      _startDurationTimer(now);
     }
   }
 
@@ -917,22 +1075,21 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
 
     _fetchMLInsights();
-    _loadGraphData();
-    _syncTodayMaxFromFirestore();
+    // _loadGraphData(); // Temperature sensor disabled — nothing to graph.
     _loadNextVaccineSchedule();
 
+    // Recompute today's max from the same data the Temperature/Humidity
+    // screens use, so a stale or spiky stored value gets corrected.
+    unawaited(_scanTodayTempMax());
+    unawaited(_scanTodayHumidityMax());
+
+    _toggleTimer?.cancel();
     _toggleTimer = Timer.periodic(
-      const Duration(seconds: 3),
+      const Duration(seconds: 4),
       (_) => _crossfadeToggle(),
     );
 
-    // Re-check the rolling 24h graph once per hour. _loadGraphData() itself
-    // is a no-op (zero Firestore reads) if the hour key hasn't advanced
-    // since the last load, so this is safe to fire on a simple timer.
-    _hourlyRefreshTimer = Timer.periodic(
-      const Duration(hours: 1),
-      (_) => _loadGraphData(),
-    );
+    // Temperature sensor disabled — no graph to refresh hourly.
   }
 
   // ── Crossfade temp/humidity display ─────────
@@ -947,105 +1104,84 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── Firestore: sync today's historical max on startup ───────────────
 
-  Future<void> _syncTodayMaxFromFirestore() async {
+   Future<void> _scanTodayHumidityMax() async {
     try {
       final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-
-      QuerySnapshot? tempSnapshot;
-      try {
-        tempSnapshot = await FirebaseFirestore.instance
-            .collection('temperature_hourly')
-            .where(
-              'timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-            )
-            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+      var cursor = DateTime(now.year, now.month, now.day)
+          .subtract(const Duration(milliseconds: 1));
+      double maxH = 0;
+      while (true) {
+        final snap = await FirebaseFirestore.instance
+            .collection('humidity_second')
             .orderBy('timestamp')
-            .get(const GetOptions(source: Source.cache));
-      } catch (_) {
-        tempSnapshot = null;
-      }
-      if (tempSnapshot == null || tempSnapshot.docs.isEmpty) {
-        try {
-          tempSnapshot = await FirebaseFirestore.instance
-              .collection('temperature_hourly')
-              .where(
-                'timestamp',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-              )
-              .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-              .orderBy('timestamp')
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          tempSnapshot = null;
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
+            .limit(1000)
+            .get();
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final ts = (d['timestamp'] as Timestamp?)?.toDate();
+          if (ts == null) continue;
+          cursor = ts;
+          final h = (d['humidity'] as num?)?.toDouble();
+          if (h == null ||
+              d['humidityValid'] == false ||
+              h <= 0 ||
+              h > 100) {
+            continue;
+          }
+          if (h > maxH) maxH = h;
         }
+        if (snap.docs.length < 1000) break;
       }
-
-      double firestoreTempMax = 0;
-      if (tempSnapshot != null) {
-        for (final doc in tempSnapshot.docs) {
-          final d = doc.data() as Map<String, dynamic>;
-          final t = (d['tempMax'] as num?)?.toDouble() ?? 0;
-          if (t > firestoreTempMax) firestoreTempMax = t;
-        }
-      }
-     QuerySnapshot? humiditySnapshot;
-      try {
-        humiditySnapshot = await FirebaseFirestore.instance
-            .collection('humidity_hourly')
-            .where(
-              'timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-            )
-            .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-            .orderBy('timestamp')
-            .get(const GetOptions(source: Source.cache));
-      } catch (_) {
-        humiditySnapshot = null;
-      }
-      if (humiditySnapshot == null || humiditySnapshot.docs.isEmpty) {
-        try {
-          humiditySnapshot = await FirebaseFirestore.instance
-              .collection('humidity_hourly')
-              .where(
-                'timestamp',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart),
-              )
-              .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-              .orderBy('timestamp')
-              .get(const GetOptions(source: Source.server))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          humiditySnapshot = null;
-        }
-      }
-
-      double firestoreHumidityMax = 0;
-      if (humiditySnapshot != null) {
-        for (final doc in humiditySnapshot.docs) {
-          final d = doc.data() as Map<String, dynamic>;
-          final h = (d['humidityMax'] as num?)?.toDouble() ?? 0;
-          if (h > firestoreHumidityMax) firestoreHumidityMax = h;
-        }
-      }
-      if (!mounted) return;
-
-      if (firestoreTempMax > 0) {
-        SensorMemory.setTempMaxToday(firestoreTempMax);
-        SensorMemory.save();
-        if (mounted) setState(() => _tempMaxToday = firestoreTempMax);
-      }
-
-      if (firestoreHumidityMax > 0) {
-        SensorMemory.setHumidityMaxToday(firestoreHumidityMax);
-        SensorMemory.save();
-        if (mounted) setState(() => _humidityMaxToday = firestoreHumidityMax);
-      }
-
+      if (!mounted || maxH <= 0) return;
+      SensorMemory.lastHumidityMaxDate = SensorMemory.todayKey();
+      SensorMemory.setHumidityMaxToday(maxH);
+      SensorMemory.save();
+      setState(() => _humidityMaxToday = maxH);
     } catch (e) {
-      debugPrint('Error syncing today max from Firestore: $e');
+      debugPrint('Error scanning today humidity max: $e');
+    }
+  }
+
+  // Scans every temperature_second reading since midnight and sets the
+  // exact highest valid value, same rule as the Temperature screen.
+  Future<void> _scanTodayTempMax() async {
+    try {
+      final now = DateTime.now();
+      final midnight = DateTime(now.year, now.month, now.day);
+      var cursor = midnight.subtract(const Duration(milliseconds: 1));
+      double maxT = 0;
+
+      while (true) {
+        final snap = await FirebaseFirestore.instance
+            .collection('temperature_second')
+            .orderBy('timestamp')
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
+            .limit(1000)
+            .get();
+
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final ts = (d['timestamp'] as Timestamp?)?.toDate();
+          if (ts == null) continue;
+          cursor = ts;
+          final raw = d['ambientTemp'];
+          if (raw == null) continue;
+          final t = (raw as num).toDouble();
+          if (d['ambientTempValid'] == false || t < 0 || t > 80) continue;
+          if (t > maxT) maxT = t;
+        }
+
+        if (snap.docs.length < 1000) break;
+      }
+
+      if (!mounted || maxT <= 0) return;
+      SensorMemory.lastTempMaxDate = SensorMemory.todayKey();
+      SensorMemory.setTempMaxToday(maxT);
+      SensorMemory.save();
+      setState(() => _tempMaxToday = maxT);
+    } catch (e) {
+      debugPrint('Error scanning today temp max: $e');
     }
   }
 
@@ -1069,6 +1205,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           scheduleDate = DateTime.tryParse(ts);
         }
         if (scheduleDate == null) continue;
+        if (scheduleDate.isBefore(
+          DateTime.now().subtract(const Duration(days: 1)),
+        )) continue;
 
         if (bestDate == null || scheduleDate.isBefore(bestDate)) {
           bestDate = scheduleDate;
@@ -1160,9 +1299,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── ML insights ──────────────────────────────
 
   Future<void> _fetchMLInsights() async {
-    // Guard: only run when we have real live values from the ESP32
-    if (_tempMax <= 0 || _humidityLive <= 0) {
-      if (_mlCondition.isEmpty) {
+    // Guard: only run when we have a real live humidity value. Temperature
+    // sensor (AMG8833) is disabled, so it's no longer part of this check —
+    // a neutral placeholder temperature is passed to the ML service instead.
+    if (_humidityLive <= 0) {
+      if (_mlCondition.isEmpty || _mlCondition == "Unavailable") {
         setState(() {
           _mlCondition = "Unavailable";
           _mlRecommendations = [
@@ -1178,7 +1319,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     try {
       final result = await MlService.analyzeFarm(
-        temperatureC: _tempMax,
+        temperatureC: _lastKnownTemp > 0 ? _lastKnownTemp : 25.0,
         humidityPct: _humidityLive,
       ).timeout(const Duration(seconds: 6));
 
@@ -1286,6 +1427,22 @@ class _DashboardScreenState extends State<DashboardScreen>
   Future<void> _toggleSprinkler(bool turnOn) async {
     setState(() => _isSprinklerLoading = true);
     try {
+      // Fire the LAN command first — this is what makes the relay flip
+      // instantly instead of waiting for the ESP32's 2s Firestore poll.
+      unawaited(
+        http
+            .post(
+              Uri.parse('http://$esp32Ip/sprinkler'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
+            )
+            .timeout(const Duration(seconds: 2))
+            .then<void>((_) {})
+            .catchError((e) {
+              debugPrint('[Sprinkler] LAN command failed: $e');
+            }),
+      );
+
       await FirebaseFirestore.instance
           .collection('sprinkler_command')
           .doc('pending')
@@ -1295,6 +1452,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       final now = DateTime.now();
       setState(() => _localIsActivated = turnOn);
+      sprinklerToggledAt = DateTime.now();
       sprinklerNotifier.value = turnOn;
 
       if (turnOn) {
@@ -1415,6 +1573,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     // Show ML card only when we have a result (loading or done with real data)
+    // ignore: unused_local_variable
     final showMlCard = _mlLoading || _mlCondition.isNotEmpty;
 
     return Padding(
@@ -1430,8 +1589,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             _buildWeatherCard(isDarkMode),
             const SizedBox(height: 16),
             _buildQuickStatsRow(isDarkMode),
-            const SizedBox(height: 16),
-            _buildTemperatureGraph(isDarkMode),
             const SizedBox(height: 16),
             _buildBottomStatsRow(isDarkMode),
             const SizedBox(height: 16),
@@ -1709,11 +1866,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               Symbols.bar_chart_4_bars,
               "Quick Stats",
               [
-                "Max Temp Today: ${() {
-                  SensorMemory.resetIfNewDay();
-                  final v = SensorMemory.lastTempMaxToday > 0 ? SensorMemory.lastTempMaxToday : _tempMaxToday;
-                  return v == 0 ? '…' : '${v.toStringAsFixed(1)}°C';
-                }()}",
+                "Max Temperature Today: ${_tempMaxToday == 0 ? '…' : '${_tempMaxToday.toStringAsFixed(1)}°C'}",
                 "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
                 "Pig Status: $_pigStatus",
               ],
@@ -2022,91 +2175,101 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
-  Widget _buildWaterLevelCard(bool isDark) {
-    final statusColor = switch (_waterStatus) {
-      "Full" => Colors.green,
-      "Normal" => Colors.blue,
-      "Low" => Colors.orange,
-      "Critical" => Colors.red.shade900,
-      _ => Colors.grey,
-    };
+ Widget _buildWaterLevelCard(bool isDark) {
+  // Same offline rule used by the weather card: sensor offline OR no internet
+  final sensStatus = LiveSensorService.sensorStatus.value;
+  final connStatus = LiveSensorService.connectionStatus.value;
+  final isOffline =
+      sensStatus == "Sensor Offline" || connStatus == "No Connection";
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: _bentoDecoration(
-        isDark,
-        accentColor: const Color(0xFF1E88E5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Symbols.water_medium,
-                  size: 15,
-                  color: Color(0xFF1E88E5),
-                ),
+  // When offline, force Unknown regardless of the last stored value
+  final displayStatus = isOffline ? "Unknown" : _waterStatus;
+  final displayPct = isOffline ? 0.0 : _waterPct;
+
+  final statusColor = switch (displayStatus) {
+    "Full" => Colors.green,
+    "Normal" => Colors.blue,
+    "Low" => Colors.orange,
+    "Empty" || "Critical" => Colors.red.shade900,
+    _ => Colors.grey,
+  };
+
+  return Container(
+    padding: const EdgeInsets.all(14),
+    decoration: _bentoDecoration(
+      isDark,
+      accentColor: const Color(0xFF1E88E5),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 8),
-              Text(
-                "Water Level",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: isDark ? Colors.white : Colors.black,
-                ),
+              child: const Icon(
+                Symbols.water_medium,
+                size: 15,
+                color: Color(0xFF1E88E5),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            "Level: ${_waterPct.toStringAsFixed(0)}%",
-            style: TextStyle(
-              color: isDark ? Colors.white60 : const Color(0xFF707070),
-              fontSize: 12,
             ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text(
-                "Status: ",
-                style: TextStyle(
-                  color: isDark ? Colors.white60 : const Color(0xFF707070),
-                  fontSize: 12,
-                ),
+            const SizedBox(width: 8),
+            Text(
+              "Water Level",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isDark ? Colors.white : Colors.black,
               ),
-              Text(
-                _waterStatus,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: (_waterPct / 100).clamp(0.0, 1.0),
-              minHeight: 6,
-              backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
-              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
             ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          isOffline ? "Level: --" : "Level: ${displayPct.toStringAsFixed(0)}%",
+          style: TextStyle(
+            color: isDark ? Colors.white60 : const Color(0xFF707070),
+            fontSize: 12,
           ),
-        ],
-      ),
-    );
-  }
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Text(
+              "Status: ",
+              style: TextStyle(
+                color: isDark ? Colors.white60 : const Color(0xFF707070),
+                fontSize: 12,
+              ),
+            ),
+            Text(
+              displayStatus,
+              style: TextStyle(
+                color: statusColor,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: (displayPct / 100).clamp(0.0, 1.0),
+            minHeight: 6,
+            backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
+            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildRecommendationCard(bool isDark) {
     Color conditionColor = Colors.amber;
