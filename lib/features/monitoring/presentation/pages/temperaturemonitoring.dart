@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
@@ -6,12 +9,7 @@ import '../../../../core/services/ml_service.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 
-const List<String> kTimeRanges = [
-  'This Month',
-  'This Week',
-  'Today',
-  'Custom',
-];
+const List<String> kTimeRanges = ['This Month', 'This Week', 'Today', 'Custom'];
 
 String _formatDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -24,7 +22,7 @@ String _formatDateTime(DateTime dt) {
 
 String _formatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/'
-        '${d.month.toString().padLeft(2, '0')}/${d.year}';
+    '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
 String _formatTime(TimeOfDay t) {
   final h = t.hour == 0
@@ -38,19 +36,22 @@ String _formatTime(TimeOfDay t) {
 }
 
 DateTimeRange? _resolveTimeRange(
-    int index,
-    DateTime? customStart,
-    DateTime? customEnd,
-    ) {
+  int index,
+  DateTime? customStart,
+  DateTime? customEnd,
+) {
   final now = DateTime.now();
   switch (index) {
     case 0:
-      return DateTimeRange(start: DateTime(now.year, now.month, 1), end: now);
+      return DateTimeRange(
+        start: DateTime(now.year, now.month, 1),
+        end: now, // never the end of the month
+      );
     case 1:
       final ws = now.subtract(Duration(days: now.weekday - 1));
       return DateTimeRange(
-        start: DateTime(ws.year, ws.month, ws.day),
-        end: now,
+        start: DateTime(ws.year, ws.month, ws.day), // Monday 12:00 AM
+        end: now, // never Sunday
       );
     case 2:
       return DateTimeRange(
@@ -63,6 +64,52 @@ DateTimeRange? _resolveTimeRange(
     default:
       return null;
   }
+}
+
+// Chart gap handling: a gap is a stretch with no readings (connection lost).
+const double _kTodayGapHours = 15 / 3600.0; // > 15s without data = gap
+const double _kTodayBlankHours = 20 / 3600.0; // gap is drawn this wide (60 px)
+const int _kTodayTail = 360; // same as rawTailCount on the Today chart
+
+class _Gap {
+  final double start;
+  final double end;
+  const _Gap(this.start, this.end);
+}
+
+List<_Gap> _findGaps(
+  List<Map<String, double>> data, {
+  required double gap,
+  required int tailStart,
+}) {
+  final gaps = <_Gap>[];
+  // Older data is stored thinned (one point per 30s), so it needs a looser limit.
+  final oldGap = gap > 45 / 3600.0 ? gap : 45 / 3600.0;
+  for (int i = 1; i < data.length; i++) {
+    final limit = i >= tailStart ? gap : oldGap;
+    final a = data[i - 1]['x']!;
+    final b = data[i]['x']!;
+    if (b - a > limit) gaps.add(_Gap(a, b));
+  }
+  return gaps;
+}
+
+// Converts a real time (hours) to a chart position (hours) where every gap
+// longer than [blank] is squeezed down to [blank].
+double _compressX(double h, List<_Gap> gaps, double blank) {
+  double shift = 0;
+  for (final g in gaps) {
+    final len = g.end - g.start;
+    if (len <= blank) continue;
+    if (h >= g.end) {
+      shift += len - blank;
+    } else if (h > g.start) {
+      return g.start - shift + blank * ((h - g.start) / len);
+    } else {
+      break;
+    }
+  }
+  return h - shift;
 }
 
 // ── Temperature Monitoring ────────────────────────────────────────────────────
@@ -80,7 +127,8 @@ class TemperatureMonitoring extends StatefulWidget {
   State<TemperatureMonitoring> createState() => _TemperatureMonitoringState();
 }
 
-class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
+class _TemperatureMonitoringState extends State<TemperatureMonitoring>
+    with WidgetsBindingObserver {
   //added for ML insights
   String? _mlInsight;
   String? _mlRecommendation;
@@ -91,8 +139,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
   bool _isLoading =
-      !SensorMemory.tempChartLoaded ||
-      SensorMemory.lastTempChartDate != SensorMemory.todayKey();
+      !_todayBufferReady() &&
+      (!SensorMemory.tempChartLoaded ||
+          SensorMemory.lastTempChartDate != SensorMemory.todayKey());
 
   String _connectionStatus = LiveSensorService.connectionStatus.value;
   String _sensorStatus = LiveSensorService.sensorStatus.value;
@@ -101,22 +150,118 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   DateTime? _sprinklerActivatedAt;
 
   double? _currentTemp;
-  DateTime? _lastAppliedTimestamp;
 
-  // Granularity toggle for the Today AND Custom tabs: 0 = Hour (existing
-  // hourly docs), 1 = Minute (live buffer for Today, a one-off range query
-  // for Custom).
-  int _todayGranularity = 0;
-  final List<Map<String, double>> _minuteBufferToday = [];
-  String _minuteBufferDayKey = '';
-  bool _minuteChartLoading = false;
-  // Tracks which day we've pulled persisted temperature_minute history for —
-  // deliberately separate from _minuteBufferDayKey, which gets stamped by
-  // live data arriving in the background (via _appendMinuteBufferPoint)
-  // before the user ever opens the Minute tab. Reusing that field as the
-  // "already loaded" guard meant the Firestore fetch below was skipped
-  // every time, because live data had already set it first.
-  String _minuteHistoryLoadedDayKey = '';
+  // static: keeps today's collected data across navigating away from and
+  // back to this screen — same pattern as the Humidity screen. These used
+  // to be per-instance fields, so leaving and returning threw away
+  // everything collected so far and started over empty, waiting on a
+  // fresh Firestore fetch.
+  static final List<Map<String, double>> _minuteBufferToday = [];
+  static String _minuteBufferDayKey = '';
+
+  // Tracks whether the full-day Firestore history fetch has completed for
+  // today, separately from _minuteBufferDayKey.
+  //
+  // _minuteBufferDayKey tells us which day the current buffer belongs to.
+  // _todayHistoryFetchedDayKey tells us whether the complete history for
+  // that day has already been fetched from Firestore.
+  static String _todayHistoryFetchedDayKey = '';
+
+  // Exact running stats for Today (independent of chart sampling).
+  static double? _statMax;
+  static double? _statMin;
+  static double _statSum = 0;
+  static int _statCount = 0;
+  static DateTime _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
+  static const String _prefsKey = 'temp_today_v1';
+  static DateTime? _lastDocTs; // timestamp of the last document counted
+  static bool _syncing = false;
+
+  static void _resetStats() {
+    _statMax = null;
+    _statMin = null;
+    _statSum = 0;
+    _statCount = 0;
+  }
+
+  static void _addToStats(double t) {
+    if (_statMax == null || t > _statMax!) _statMax = t;
+    if (_statMin == null || t < _statMin!) _statMin = t;
+    _statSum += t;
+    _statCount++;
+  }
+
+  static Future<void> _persistToday() async {
+    try {
+      final out = <List<double>>[];
+      double lastX = -1;
+      // Keep the last hour at full resolution (every 10s reading) so the
+      // dotted part of the graph is complete after a restart. Older data
+      // is thinned to one point per 30s.
+      final fullResFrom = _minuteBufferToday.isEmpty
+          ? 0.0
+          : _minuteBufferToday.last['x']! - 1.0;
+      for (final p in _minuteBufferToday) {
+        final x = p['x']!;
+        if (x >= fullResFrom || lastX < 0 || x - lastX >= 30 / 3600.0) {
+          out.add([x, p['temp']!]);
+          lastX = x;
+        }
+      }
+      if (_minuteBufferToday.isNotEmpty &&
+          _minuteBufferToday.last['x'] != lastX) {
+        out.add([
+          _minuteBufferToday.last['x']!,
+          _minuteBufferToday.last['temp']!,
+        ]);
+      }
+      final payload = jsonEncode({
+        'day': _minuteBufferDayKey,
+        'pts': out,
+        'max': _statMax,
+        'min': _statMin,
+        'sum': _statSum,
+        'count': _statCount,
+        'lastTs': _lastDocTs?.millisecondsSinceEpoch,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, payload);
+    } catch (e) {
+      debugPrint('[Temp persist] failed: $e');
+    }
+  }
+
+   static Future<bool> _restoreToday() async {
+    if (_minuteBufferToday.isNotEmpty || _syncing) return false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null) return false;
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      if (m['day'] != SensorMemory.todayKey()) return false;
+      final lastTs = (m['lastTs'] as num?)?.toInt();
+      if (lastTs == null) return false;
+      if (_minuteBufferToday.isNotEmpty || _syncing) return false;
+      for (final p in (m['pts'] as List)) {
+        _minuteBufferToday.add({
+          'x': (p[0] as num).toDouble(),
+          'temp': (p[1] as num).toDouble(),
+          'avg': (p[1] as num).toDouble(),
+          'min': (p[1] as num).toDouble(),
+        });
+      }
+      _statMax = (m['max'] as num?)?.toDouble();
+      _statMin = (m['min'] as num?)?.toDouble();
+      _statSum = (m['sum'] as num?)?.toDouble() ?? 0;
+      _statCount = (m['count'] as num?)?.toInt() ?? 0;
+      _lastDocTs = DateTime.fromMillisecondsSinceEpoch(lastTs);
+      _minuteBufferDayKey = m['day'] as String;
+      return true;
+    } catch (e) {
+      debugPrint('[Temp restore] failed: $e');
+      return false;
+    }
+  }
 
   // Minute-level data for Month, Week, and Custom — kept separate from
   // _minuteBufferToday since these cover ranges other than "today" and
@@ -126,72 +271,158 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   final List<Map<String, double>> _minuteBufferCustom = [];
   String _minuteCustomRangeKey = '';
   bool _minuteCustomLoading = false;
+  bool _rangeLoadFailed = false;
+  int _rangeRequestId = 0;
+
+  // Keeps the loaded Week/Month so re-tapping a tab costs no Firestore reads.
+  static final Map<int, Map<String, dynamic>> _rangeCache = {};
+
+  // Start of the range that _minuteBufferCustom was loaded for. Used to
+  // ignore stale data when a new week/month begins.
+  DateTime? _minuteBufferRangeStart;
+
+  static const double _kChartLeftPad = 40;
+  static const double _kChartRightPad = 8;
+
+  // Today's graph ends at the current time (hours since 12:00 AM).
+  double _todayEndHours() {
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day);
+    double end = now.difference(midnight).inMilliseconds / 3600000.0;
+    final data = _activeChartData;
+    // Tolerate small clock differences between phone and ESP32.
+    if (data.isNotEmpty && data.last['x']! > end) end = data.last['x']!;
+    return end;
+  }
+
+  // Canvas is only as wide as 12:00 AM -> now (after gap compression).
+  double _todayCanvasWidth(double endMapped) {
+    final w =
+        _kChartLeftPad + _kChartRightPad + endMapped * _todayChartPxPerHour;
+    final minW = MediaQuery.of(context).size.width - 56;
+    return w < minW ? minW : w;
+  }
+
+  // Pixel position of the newest reading on Today's canvas.
+  double _todayLatestPx() {
+    final data = _activeChartData;
+    final endHours = _todayEndHours();
+    final tailStart = (data.length - _kTodayTail).clamp(0, data.length);
+    final gaps = _findGaps(data, gap: _kTodayGapHours, tailStart: tailStart);
+    final endMapped = _compressX(endHours, gaps, _kTodayBlankHours);
+    final latestX = data.isNotEmpty ? data.last['x']! : endHours;
+    final latestMapped = _compressX(latestX, gaps, _kTodayBlankHours);
+    final chartWidth =
+        _todayCanvasWidth(endMapped) - _kChartLeftPad - _kChartRightPad;
+    final frac = endMapped > 0 ? latestMapped / endMapped : 1.0;
+    return _kChartLeftPad + frac * chartWidth;
+  }
+
+  // Exact statistics for This Month, This Week, and Custom.
+  // These are calculated from EVERY Firestore reading in the selected range,
+  // not from the compressed graph points.
+  double? _rangeStatMax;
+  double? _rangeStatMin;
+  double _rangeStatSum = 0;
+  int _rangeStatCount = 0;
+
+  void _resetRangeStats() {
+    _rangeStatMax = null;
+    _rangeStatMin = null;
+    _rangeStatSum = 0;
+    _rangeStatCount = 0;
+  }
 
   static bool _tempCacheIsToday() =>
       SensorMemory.lastTempChartDate == SensorMemory.todayKey();
 
-  double? _displayMax = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMax : null;
-  double? _displayAvg = _tempCacheIsToday() ? SensorMemory.lastTempDisplayAvg : null;
-  double? _displayMin = _tempCacheIsToday() ? SensorMemory.lastTempDisplayMin : null;
-
-
-  // Per-session cache for This Week (index 1) and This Month (index 0).
-  static List<Map<String, double>> _cachedWeekData = [];
-  static double? _cachedWeekMax;
-  static double? _cachedWeekMin;
-  static double? _cachedWeekAvg;
-  static String _cachedWeekHourKey = '';
-
-  static List<Map<String, double>> _cachedMonthData = [];
-  static double? _cachedMonthMax;
-  static double? _cachedMonthMin;
-  static double? _cachedMonthAvg;
-  static String _cachedMonthHourKey = '';
+  // True when today's readings are already in memory (or restored from
+  // local storage), so the graph can be shown immediately.
+  static bool _todayBufferReady() =>
+      _minuteBufferToday.isNotEmpty &&
+      _minuteBufferDayKey == SensorMemory.todayKey();
 
   String get _tempStatus {
     if (_currentTemp == null) return "";
     final t = _currentTemp!;
-    if (t >= 40.5) return "Critical";
-    if (t >= 38.5) return "Elevated";
-    return "Normal";
+
+    if (t < 38.7) return "Low";
+    if (t <= 39.8) return "Normal";
+    return "High";
   }
 
-  final List<Map<String, double>> _chartData =
-  _tempCacheIsToday() ? List.of(SensorMemory.lastTempChartData) : [];
+  Color _tempStatusColor() {
+    if (_currentTemp == null) return Colors.grey;
+
+    final t = _currentTemp!;
+
+    if (t < 38.7) return Colors.blue;
+    if (t <= 39.8) return Colors.green;
+    return Colors.red;
+  }
+
+  final List<Map<String, double>> _chartData = _tempCacheIsToday()
+      ? List.of(SensorMemory.lastTempChartData)
+      : [];
 
   List<Map<String, double>> get _activeChartData {
-    if (_todayGranularity != 1) return _chartData;
-    if (_selectedTimeRange == 2) return _minuteBufferToday;
+    if (_selectedTimeRange == 2) {
+      final now = DateTime.now();
+      final midnightMs = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).millisecondsSinceEpoch;
+      // After midnight, hide yesterday's points until the next sync clears them.
+      final isStale =
+          _minuteBufferDayKey.isNotEmpty &&
+          _minuteBufferDayKey != SensorMemory.todayKey();
+      final base = isStale ? <Map<String, double>>[] : _minuteBufferToday;
+      final live = _livePoints.where((p) => p['ts']! >= midnightMs).toList();
+      if (live.isEmpty) return base;
+      final lastX = base.isEmpty ? -1.0 : base.last['x']!;
+      final extra = live.where((p) => p['x']! > lastX).toList()
+        ..sort((a, b) => a['x']!.compareTo(b['x']!));
+      if (extra.isEmpty) return base;
+      return [...base, ...extra];
+    }
+    // Week / Month / Custom: ignore data loaded for a previous range
+    // (e.g. last week) until the new range has been fetched.
+    final r = _resolveTimeRange(_selectedTimeRange, _customStart, _customEnd);
+    if (r != null &&
+        _minuteBufferRangeStart != null &&
+        r.start != _minuteBufferRangeStart) {
+      return <Map<String, double>>[];
+    }
     return _minuteBufferCustom; // Month, Week, or Custom
   }
 
-  bool get _isMinuteViewActive => _todayGranularity == 1;
-
-  // Stat cards recompute from the raw minute-level buffer when Minute view
-  // is selected, instead of always showing the hourly rollup — otherwise
-  // switching to Minute only changed the line chart whileest/Lowest/
-  // Average kept showing the coarser hourly-based numbers.
+  // Average/Lowest/Highest now always come from the granular buffer for
+  // every range (Today, Week, Month, Custom), mirroring the Humidity
+  // screen. Today uses the exact unbounded running stats; other ranges
+  // derive from whatever's in _minuteBufferCustom.
   double? get _activeDisplayMax {
-    if (!_isMinuteViewActive) return _displayMax;
-    if (_activeChartData.isEmpty) return null;
-    return _activeChartData
-        .map((p) => p['temp']!)
-        .reduce((a, b) => a > b ? a : b);
+    if (_selectedTimeRange == 2) {
+      return _statCount > 0 ? _statMax : null;
+    }
+
+    return _rangeStatCount > 0 ? _rangeStatMax : null;
   }
 
   double? get _activeDisplayMin {
-    if (!_isMinuteViewActive) return _displayMin;
-    if (_activeChartData.isEmpty) return null;
-    return _activeChartData
-        .map((p) => p['temp']!)
-        .reduce((a, b) => a < b ? a : b);
+    if (_selectedTimeRange == 2) {
+      return _statCount > 0 ? _statMin : null;
+    }
+
+    return _rangeStatCount > 0 ? _rangeStatMin : null;
   }
 
   double? get _activeDisplayAvg {
-    if (!_isMinuteViewActive) return _displayAvg;
-    if (_activeChartData.isEmpty) return null;
-    final values = _activeChartData.map((p) => p['temp']!);
-    return values.reduce((a, b) => a + b) / _activeChartData.length;
+    if (_selectedTimeRange == 2) {
+      return _statCount > 0 ? _statSum / _statCount : null;
+    }
+
+    return _rangeStatCount > 0 ? _rangeStatSum / _rangeStatCount : null;
   }
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -199,20 +430,37 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   DateTime? _customStart;
   DateTime? _customEnd;
   Timer? _hourlyRefreshTimer;
+  Timer? _todaySyncTimer;
 
+  // Today's chart is drawn on a wide canvas so every 10-second reading
+  // gets its own dot. 10800 px/hour = 30 px between readings.
+  static const double _todayChartPxPerHour = 10800;
+  final ScrollController _todayChartScrollController = ScrollController();
+  final ScrollController _customChartScrollController = ScrollController();
+  bool _hasScrolledChartToNow = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _seedLivePointFromLatest(); // show the newest reading right away
     _initData();
     _loadSprinklerState();
     tempMaxTodayNotifier.addListener(_onTempMaxNotifierChanged);
     LiveSensorService.latestData.addListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
-    _hourlyRefreshTimer = Timer.periodic(const Duration(hours: 1), (_) {
-      _loadChartFromFirestore();
-      if (_todayGranularity == 1 && _selectedTimeRange != 2) {
+    // Pull new temperature_second readings into Today's graph every 10s,
+    // matching the ESP32's 10s save interval.
+    _todaySyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!mounted || !_wasTickerEnabled) return;
+      if (_selectedTimeRange == 2) unawaited(_syncToday());
+    });
+    // Every minute: Week/Month check whether a new week/month started or
+    // the hourly refresh is due. The range key makes this a no-op otherwise.
+    _hourlyRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted || _minuteCustomLoading || !_wasTickerEnabled) return;
+      if (_selectedTimeRange == 0 || _selectedTimeRange == 1) {
         _loadMinuteChartForRange(_selectedTimeRange);
       }
     });
@@ -229,127 +477,291 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 
   DateTime? _lastMlFetch;
 
-  void _appendMinuteBufferPoint(double temp, DateTime ts) {
-    final todayKey = SensorMemory.todayKey();
-    if (_minuteBufferDayKey != todayKey) {
-      _minuteBufferToday.clear();
-      _minuteBufferDayKey = todayKey;
-    }
-    final midnight = DateTime(ts.year, ts.month, ts.day);
-    final hoursFromMidnight = ts.difference(midnight).inSeconds / 3600.0;
+  static final List<Map<String, double>> _livePoints = [];
 
-    if (_minuteBufferToday.isNotEmpty) {
-      final lastX = _minuteBufferToday.last['x']!;
-      if ((hoursFromMidnight - lastX) < (1 / 60.0) * 0.9) return; // same minute, skip
-    }
-    _minuteBufferToday.add({'x': hoursFromMidnight, 'temp': temp});
-    if (_minuteBufferToday.length > 1440) {
-      _minuteBufferToday.removeAt(0); // cap at 24h of minute points
-    }
+  // Adds the newest live reading to the graph right away (when the screen
+  // opens or the app comes back), instead of waiting for the next sensor
+  // update.
+  void _seedLivePointFromLatest() {
+    if (LiveSensorService.sensorStatus.value == "Sensor Offline") return;
+    final data = LiveSensorService.latestData.value;
+    if (data == null) return;
+    if ((data['ambientTempValid'] as bool? ?? true) == false) return;
+    final t = (data['ambientTemp'] as num?)?.toDouble();
+    if (t == null || t < 0 || t > 80) return;
+    _currentTemp = t;
+    _addLivePoint(t, data);
   }
 
-  // Loads today's persisted per-minute readings from the ESP32's
-  // temperature_minute collection so the Minute view has real history
-  // instead of only whatever arrived live while this screen happened to
-  // be open. Runs once per day (guarded by _minuteBufferDayKey) — after
-  // that, _appendMinuteBufferPoint keeps it current as live data arrives.
-  Future<void> _loadMinuteChartFromFirestore() async {
-    final todayKey = SensorMemory.todayKey();
-    if (_minuteHistoryLoadedDayKey == todayKey) {
-      return;
+  // When the app comes back from the background while this screen is open,
+  // jump straight to "now" and pull in the readings that were missed.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    if (_selectedTimeRange != 2) return;
+    _seedLivePointFromLatest();
+    setState(() {});
+    _scrollToNowSoon();
+    unawaited(
+      _syncToday().then((_) {
+        if (mounted && _selectedTimeRange == 2) _scrollToNowSoon();
+      }),
+    );
+  }
+
+  void _addLivePoint(double temp, Map? data) {
+    // Prefer the sensor's own timestamp so the dot lands on the same
+    // 10-second slot as its Firestore document. Falls back to phone time.
+    DateTime? ts;
+    final rawTs = data?['timestamp'];
+    if (rawTs is Timestamp) {
+      ts = rawTs.toDate();
+    } else if (rawTs is String) {
+      ts = DateTime.tryParse(rawTs)?.toLocal();
     }
-    if (_minuteChartLoading) return;
-    _minuteChartLoading = true;
+    ts ??= DateTime.now();
 
     final now = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day);
+    final todayMidnight = DateTime(now.year, now.month, now.day);
+
+    // Drop anything from a previous day.
+    _livePoints.removeWhere(
+      (p) => p['ts']! < todayMidnight.millisecondsSinceEpoch,
+    );
+    if (ts.isBefore(todayMidnight)) return;
+
+    // Snap to the 10-second grid (:00, :10, :20 ...).
+    final slotSec = (ts.difference(todayMidnight).inSeconds ~/ 10) * 10;
+    final slotTime = todayMidnight.add(Duration(seconds: slotSec));
+    final slotMs = slotTime.millisecondsSinceEpoch.toDouble();
+
+    // One dot per slot: repeated notifications for the same reading
+    // are ignored.
+    if (_livePoints.any((p) => p['ts'] == slotMs)) return;
+
+    _livePoints.add({
+      'x': slotSec / 3600.0,
+      'temp': temp,
+      'avg': temp,
+      'min': temp,
+      'ts': slotMs,
+    });
+  }
+
+  // Keeps the newest dot in view, but only if the user is already looking
+  // near "now" (so it doesn't yank the view while browsing older data).
+  void _followLiveIfNear() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final c = _todayChartScrollController;
+      if (!mounted || !c.hasClients || _selectedTimeRange != 2) return;
+
+      final data = _activeChartData;
+      if (data.isEmpty) return;
+      final nowX = _todayLatestPx();
+      final viewport = c.position.viewportDimension;
+
+      if (nowX > c.offset + viewport * 0.85 &&
+          nowX < c.offset + viewport + 200) {
+        final target = (nowX - viewport * 0.6).clamp(
+          0.0,
+          c.position.maxScrollExtent,
+        );
+        c.animateTo(
+          target,
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  // Reads every temperature_second document newer than the last one
+  // counted, and adds each one to the graph and to the exact stats. Same
+  // pattern as the Humidity screen's _syncToday.
+  Future<void> _syncToday() async {
+    // Prevent multiple Today sync operations from running at the same time.
+    if (_syncing) return;
+
+    _syncing = true;
 
     try {
-      final snapshot = await _db
-          .collection('temperature_minute')
-          .orderBy('timestamp', descending: false)
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(midnight),
-          )
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-          .limit(1500)
-          .get();
+      final now = DateTime.now();
+      final todayKey = SensorMemory.todayKey();
 
-      if (!mounted) return;
+      final midnight = DateTime(now.year, now.month, now.day);
 
-      debugPrint(
-        '[MinuteChart/temp] query range ${midnight.toIso8601String()} .. '
-        '${now.toIso8601String()}, got ${snapshot.docs.length} docs',
-      );
+      // ─────────────────────────────────────────────────────────────
+      // NEW DAY CHECK
+      // ─────────────────────────────────────────────────────────────
 
-      final points = <Map<String, double>>[];
-      int skippedNoTemp = 0;
-      int skippedNoTs = 0;
-      for (final doc in snapshot.docs) {
-        final d = doc.data();
-        final rawTemp = d['tempMax'];
-        final ts = (d['timestamp'] as Timestamp?)?.toDate();
-        if (rawTemp == null) {
-          skippedNoTemp++;
-          continue;
-        }
-        if (ts == null) {
-          skippedNoTs++;
-          continue;
-        }
-        final hoursFromMidnight = ts.difference(midnight).inSeconds / 3600.0;
-        points.add({
-          'x': hoursFromMidnight,
-          'temp': (rawTemp as num).toDouble(),
-        });
-      }
-      debugPrint(
-        '[MinuteChart/temp] usable points=${points.length}, '
-        'skippedNoTemp=$skippedNoTemp, skippedNoTs=$skippedNoTs',
-      );
+      if (_minuteBufferDayKey != todayKey) {
+        _minuteBufferToday.clear();
+        _livePoints.clear();
 
-      setState(() {
-        // Merge with whatever is already buffered instead of overwriting —
-        // if the ESP32 hasn't written any temperature_minute docs yet today
-        // (not reflashed, or hasn't hit the 60s mark), the Firestore query
-        // legitimately returns nothing. Blowing away the points already
-        // accumulated from live data in that case would leave too few
-        // points to draw a visible line, making the chart look empty.
-        final byMinute = <int, Map<String, double>>{};
-        for (final p in _minuteBufferToday) {
-          byMinute[(p['x']! * 60).round()] = p;
-        }
-        for (final p in points) {
-          byMinute[(p['x']! * 60).round()] = p;
-        }
-        final sortedKeys = byMinute.keys.toList()..sort();
+        _resetStats();
 
-        _minuteBufferToday
-          ..clear()
-          ..addAll([for (final k in sortedKeys) byMinute[k]!]);
+        _lastDocTs = null;
+
         _minuteBufferDayKey = todayKey;
-        _minuteHistoryLoadedDayKey = todayKey;
 
-        // Fold in the most recent live reading too, in case it's newer
-        // than the last persisted minute doc.
-        final live = LiveSensorService.latestData.value;
-        final liveTemp = (live?['tempMax'] as num?)?.toDouble() ??
-            (live?['tempAvg'] as num?)?.toDouble();
-        if (liveTemp != null && liveTemp >= 0) {
-          _appendMinuteBufferPoint(
-            liveTemp,
-            _lastAppliedTimestamp ?? DateTime.now(),
-          );
+        // Complete Firestore history for this new day
+        // has not been fetched yet.
+        _todayHistoryFetchedDayKey = '';
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // CHECK IF COMPLETE TODAY HISTORY IS REQUIRED
+      // ─────────────────────────────────────────────────────────────
+
+      final bool needsFullHistory = _todayHistoryFetchedDayKey != todayKey;
+
+      // ─────────────────────────────────────────────────────────────
+      // IMPORTANT DUPLICATE-PREVENTION FIX
+      //
+      // _restoreToday() may have restored:
+      //
+      //   _minuteBufferToday
+      //   _statMax
+      //   _statMin
+      //   _statSum
+      //   _statCount
+      //   _lastDocTs
+      //
+      // If we are going to perform a COMPLETE Firestore scan from
+      // midnight, those restored values must first be cleared.
+      //
+      // Otherwise the restored readings would be counted once from
+      // SharedPreferences and then counted again from Firestore.
+      // ─────────────────────────────────────────────────────────────
+
+      if (needsFullHistory) {
+        _minuteBufferToday.clear();
+
+        _resetStats();
+
+        _lastDocTs = null;
+      }
+
+      // Full history:
+      // Start immediately before midnight.
+      //
+      // Incremental update:
+      // Start after the last document already counted.
+      var cursor = needsFullHistory
+          ? midnight.subtract(const Duration(milliseconds: 1))
+          : (_lastDocTs ?? midnight.subtract(const Duration(milliseconds: 1)));
+
+      // ─────────────────────────────────────────────────────────────
+      // FIRESTORE PAGINATION
+      // ─────────────────────────────────────────────────────────────
+
+      while (true) {
+        final snap = await _db
+            .collection('temperature_second')
+            .orderBy('timestamp', descending: false)
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
+            .limit(1000)
+            .get();
+
+        for (final doc in snap.docs) {
+          final d = doc.data();
+
+          final ts = (d['timestamp'] as Timestamp?)?.toDate();
+
+          if (ts == null) {
+            continue;
+          }
+
+          cursor = ts;
+
+          final raw = d['ambientTemp'];
+
+          if (raw == null) {
+            continue;
+          }
+
+          final temp = (raw as num).toDouble();
+          if (d['ambientTempValid'] == false || temp < 0 || temp > 80) continue;
+
+          // Exact Today statistics.
+          _addToStats(temp);
+
+          // Today chart point.
+          _minuteBufferToday.add({
+            'x': ts.difference(midnight).inSeconds / 3600.0,
+            'temp': temp,
+            'avg': temp,
+            'min': temp,
+          });
         }
-      });
+
+        // Remember newest document processed.
+        _lastDocTs = cursor;
+
+        // If fewer than 1000 documents were returned,
+        // we reached the end.
+        if (snap.docs.length < 1000) {
+          break;
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // FULL HISTORY COMPLETED SUCCESSFULLY
+      // ─────────────────────────────────────────────────────────────
+
+      if (needsFullHistory) {
+        _todayHistoryFetchedDayKey = todayKey;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // DASHBOARD MAXIMUM
+      // ─────────────────────────────────────────────────────────────
+
+      // Always push the exact max to the Dashboard, even if it is lower
+      // than a stale/spiky stored value.
+      if (_statMax != null && _statMax! != SensorMemory.lastTempMaxToday) {
+        SensorMemory.lastTempMaxDate = todayKey;
+        SensorMemory.setTempMaxToday(_statMax!);
+        SensorMemory.save();
+      }
+
+      // Drop live points that Firestore has now delivered, so no reading is
+      // drawn twice. The 6s margin covers the small gap between the phone's
+      // receive time and the ESP32's document timestamp.
+      if (_lastDocTs != null) {
+        final lastMs = _lastDocTs!.millisecondsSinceEpoch + 6000;
+        _livePoints.removeWhere((p) => p['ts']! <= lastMs);
+      }
+
+      // Refresh screen.
+      if (mounted) {
+        setState(() {});
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // LOCAL PERSISTENCE
+      // ─────────────────────────────────────────────────────────────
+
+      final persistNow = DateTime.now();
+
+      if (persistNow.difference(_lastPersist) > const Duration(seconds: 30)) {
+        _lastPersist = persistNow;
+
+        _persistToday();
+      }
     } catch (e) {
-      // Leave whatever was already buffered in place on failure.
-      debugPrint('[MinuteChart/temp] query failed: $e');
+      debugPrint('[Temp sync] failed: $e');
     } finally {
-      _minuteChartLoading = false;
+      // Always unlock synchronization.
+      _syncing = false;
     }
   }
+
+  // Loads persisted per-minute readings for any non-Today range (Month,
+  // Week, or Custom). Unlike the Today buffer, these ranges are fixed and
+  // never get live updates, so they're simply re-fetched whenever the
+  // range actually changes (guarded by _minuteCustomRangeKey, keyed by
+  // range + hour so Month/Week re-check once per hour as "now" advances).
 
   // Loads persisted per-minute readings for any non-Today range (Month,
   // Week, or Custom). Unlike the Today buffer, these ranges are fixed and
@@ -364,83 +776,350 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   // recent trends are what actually matter for monitoring.
   Future<void> _loadMinuteChartForRange(int rangeIndex) async {
     final range = _resolveTimeRange(rangeIndex, _customStart, _customEnd);
+
     if (range == null) return;
-    final rangeKey = '$rangeIndex-${currentHourKey()}';
-    if (_minuteCustomRangeKey == rangeKey) return;
-    if (_minuteCustomLoading) return;
-    _minuteCustomLoading = true;
 
     final start = range.start;
-    final end = range.end;
+
+    final now = DateTime.now();
+
+    // Never request future sensor readings.
+    final end = range.end.isAfter(now) ? now : range.end;
+
+    // Custom is fixed to its selected timestamps.
+    // Week/Month include the current hour so they refresh as time advances.
+    final rangeKey = rangeIndex == 3
+        ? '$rangeIndex-${start.millisecondsSinceEpoch}-${end.millisecondsSinceEpoch}'
+        : '$rangeIndex-${start.millisecondsSinceEpoch}-${currentHourKey()}';
+
+    if (_minuteCustomRangeKey == rangeKey) {
+      return;
+    }
+
+    // Already loaded this hour: restore from memory, no Firestore reads.
+    final cached = _rangeCache[rangeIndex];
+    if (rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
+      if (!mounted) return;
+      setState(() {
+        _minuteBufferCustom
+          ..clear()
+          ..addAll(List<Map<String, double>>.from(cached['points'] as List));
+        _minuteCustomRangeKey = rangeKey;
+        _minuteBufferRangeStart = start;
+        _rangeStatMax = cached['max'] as double?;
+        _rangeStatMin = cached['min'] as double?;
+        _rangeStatSum = cached['sum'] as double;
+        _rangeStatCount = cached['count'] as int;
+        _minuteCustomLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_customChartScrollController.hasClients) {
+          _customChartScrollController.jumpTo(
+            _customChartScrollController.position.maxScrollExtent,
+          );
+        }
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _minuteCustomLoading = true;
+      });
+    }
+
+    final requestId = ++_rangeRequestId;
+    _rangeLoadFailed = false;
 
     try {
-      final snapshot = await _db
-          .collection('temperature_minute')
-          .orderBy('timestamp', descending: true)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
-          .limit(1500)
-          .get();
+      final points = await _fetchCompleteTempRange(start, end, requestId);
 
-      if (!mounted || _selectedTimeRange != rangeIndex) return;
+      if (!mounted ||
+          requestId != _rangeRequestId ||
+          _selectedTimeRange != rangeIndex) {
+        return;
+      }
 
-      final points = <Map<String, double>>[];
-      for (final doc in snapshot.docs.reversed) {
-        final d = doc.data();
-        final rawTemp = d['tempMax'];
-        final ts = (d['timestamp'] as Timestamp?)?.toDate();
-        if (rawTemp == null || ts == null) continue;
-        final hoursFromStart = ts.difference(start).inSeconds / 3600.0;
-        points.add({'x': hoursFromStart, 'temp': (rawTemp as num).toDouble()});
+      // User may have changed Custom while the query was running.
+      if (rangeIndex == 3 &&
+          (_customStart != start || _customEnd != range.end)) {
+        return;
       }
 
       setState(() {
         _minuteBufferCustom
           ..clear()
           ..addAll(points);
+
         _minuteCustomRangeKey = rangeKey;
+        _minuteBufferRangeStart = start;
+        if (rangeIndex != 3) {
+          _rangeCache[rangeIndex] = {
+            'key': rangeKey,
+            'points': List<Map<String, double>>.from(points),
+            'max': _rangeStatMax,
+            'min': _rangeStatMin,
+            'sum': _rangeStatSum,
+            'count': _rangeStatCount,
+          };
+        }
       });
+
+      if (rangeIndex != 3) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_customChartScrollController.hasClients) {
+            return;
+          }
+
+          _customChartScrollController.jumpTo(
+            _customChartScrollController.position.maxScrollExtent,
+          );
+        });
+      }
     } catch (e) {
       debugPrint('[MinuteChart/temp range] query failed: $e');
+      if (requestId == _rangeRequestId) _rangeLoadFailed = true;
     } finally {
-      _minuteCustomLoading = false;
+      if (requestId == _rangeRequestId) _minuteCustomLoading = false;
+
+      if (mounted) {
+        setState(() {});
+      }
     }
+  }
+
+  Future<List<Map<String, double>>> _fetchCompleteTempRange(
+    DateTime start,
+    DateTime end,
+    int requestId,
+  ) async {
+    if (!end.isAfter(start)) {
+      _resetRangeStats();
+      return [];
+    }
+    double? sMax;
+    double? sMin;
+    double sSum = 0;
+    int sCount = 0;
+
+    // Keep the graph lightweight while statistics remain exact.
+    const int graphBucketCount = 300;
+    const int pageSize = 1000;
+
+    final totalMs = end.difference(start).inMilliseconds;
+
+    final bucketSum = List<double>.filled(graphBucketCount, 0);
+
+    final bucketCount = List<int>.filled(graphBucketCount, 0);
+
+    final bucketMin = List<double?>.filled(graphBucketCount, null);
+
+    final bucketMax = List<double?>.filled(graphBucketCount, null);
+
+    final bucketXSum = List<double>.filled(graphBucketCount, 0);
+
+    DateTime cursor = start.subtract(const Duration(milliseconds: 1));
+
+    while (true) {
+      final snapshot = await _db
+          .collection('temperature_second')
+          .orderBy('timestamp', descending: false)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .limit(pageSize)
+          .get()
+          .timeout(const Duration(seconds: 20));
+
+      if (requestId != _rangeRequestId) return [];
+
+      if (snapshot.docs.isEmpty) {
+        break;
+      }
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+
+        final raw = data['ambientTemp'];
+        final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+
+        if (timestamp == null) {
+          continue;
+        }
+
+        // Always move the cursor forward even if a sensor value
+        // happens to be missing.
+        cursor = timestamp;
+
+        if (raw == null) {
+          continue;
+        }
+
+        if (timestamp.isBefore(start) || timestamp.isAfter(end)) {
+          continue;
+        }
+
+        final value = (raw as num).toDouble();
+        if (data['ambientTempValid'] == false || value < 0 || value > 80)
+          continue;
+
+        // -----------------------------------------------
+        // EXACT RANGE STATISTICS
+        // -----------------------------------------------
+
+        if (sMax == null || value > sMax) sMax = value;
+        if (sMin == null || value < sMin) sMin = value;
+        sSum += value;
+        sCount++;
+
+        // -----------------------------------------------
+        // GRAPH AGGREGATION
+        // -----------------------------------------------
+
+        final elapsedMs = timestamp.difference(start).inMilliseconds;
+
+        int bucketIndex = ((elapsedMs / totalMs) * graphBucketCount).floor();
+
+        if (bucketIndex < 0) {
+          bucketIndex = 0;
+        }
+
+        if (bucketIndex >= graphBucketCount) {
+          bucketIndex = graphBucketCount - 1;
+        }
+
+        final x = timestamp.difference(start).inSeconds / 3600.0;
+
+        bucketSum[bucketIndex] += value;
+        bucketCount[bucketIndex]++;
+        bucketXSum[bucketIndex] += x;
+
+        final currentMin = bucketMin[bucketIndex];
+        final currentMax = bucketMax[bucketIndex];
+
+        if (currentMin == null || value < currentMin) {
+          bucketMin[bucketIndex] = value;
+        }
+
+        if (currentMax == null || value > currentMax) {
+          bucketMax[bucketIndex] = value;
+        }
+      }
+
+      if (snapshot.docs.length < pageSize) {
+        break;
+      }
+    }
+
+    if (requestId != _rangeRequestId) return [];
+    _rangeStatMax = sMax;
+    _rangeStatMin = sMin;
+    _rangeStatSum = sSum;
+    _rangeStatCount = sCount;
+
+    final points = <Map<String, double>>[];
+
+    for (int i = 0; i < graphBucketCount; i++) {
+      final count = bucketCount[i];
+
+      if (count == 0) {
+        continue;
+      }
+
+      final average = bucketSum[i] / count;
+      final x = bucketXSum[i] / count;
+
+      points.add({
+        'x': x,
+
+        // Keep temp as the average because your existing
+        // painter expects this field for the graph.
+        'temp': average,
+
+        'avg': average,
+
+        // Preserve actual bucket extremes.
+        'min': bucketMin[i]!,
+        'max': bucketMax[i]!,
+      });
+    }
+
+    return points;
   }
 
   void _onLiveDataChanged() {
     if (!mounted) return;
-    final data = LiveSensorService.latestData.value;
-    if (data == null) return;
 
-    final tempLive = (data['tempMax'] as num?)?.toDouble() ??
-        (data['tempAvg'] as num?)?.toDouble();
-    if (tempLive == null || tempLive < 0) return;
+    // If sensor is offline, remove the live temperature immediately.
+    // This also prevents stale latestData from putting the old value back.
+    if (LiveSensorService.sensorStatus.value == "Sensor Offline") {
+      if (_currentTemp != null) {
+        setState(() {
+          _currentTemp = null;
+        });
+      }
+      return;
+    }
+
+    final data = LiveSensorService.latestData.value;
+
+    if (data == null) {
+      if (_currentTemp != null) {
+        setState(() {
+          _currentTemp = null;
+        });
+      }
+      return;
+    }
+
+    final tempValid = data['ambientTempValid'] as bool? ?? true;
+
+    if (!tempValid) {
+      debugPrint('[Temperature] Invalid AMG8833 live reading.');
+
+      if (_currentTemp != null) {
+        setState(() {
+          _currentTemp = null;
+        });
+      }
+      return;
+    }
+
+    final tempLive = (data['ambientTemp'] as num?)?.toDouble();
+
+    if (tempLive == null || tempLive < 0 || tempLive > 80) {
+      if (_currentTemp != null) {
+        setState(() {
+          _currentTemp = null;
+        });
+      }
+      return;
+    }
 
     final humLive = (data['humidity'] as num?)?.toDouble();
 
-   final tsField = data['timestamp'];
-    DateTime? ts;
-    if (tsField is String) {
-      ts = DateTime.tryParse(tsField);
-    } else if (tsField is Timestamp) {
-      ts = tsField.toDate();
-    }
-    // Track the newest timestamp seen for the minute buffer, but never
-    // let a stale/unchanged timestamp block the live display from updating.
-    if (ts != null) {
-      _lastAppliedTimestamp = ts;
-    }
-
-    final tsForBuffer = _lastAppliedTimestamp ?? DateTime.now();
     setState(() {
       _currentTemp = tempLive;
       _isLoading = false;
-      _appendMinuteBufferPoint(tempLive, tsForBuffer);
+      _addLivePoint(tempLive, data);
     });
+    _followLiveIfNear();
+
+    SensorMemory.resetIfNewDay();
+
+    if (tempLive > SensorMemory.lastTempMaxToday) {
+      SensorMemory.setTempMaxToday(tempLive);
+      SensorMemory.save();
+    }
+
     final now = DateTime.now();
-    if (_lastMlFetch == null || now.difference(_lastMlFetch!) > const Duration(minutes: 1)) {
+
+    if (_lastMlFetch == null ||
+        now.difference(_lastMlFetch!) > const Duration(minutes: 1)) {
       _lastMlFetch = now;
-      _fetchTemperatureMLInsight(tempLive, humLive!);
+
+      if (humLive != null) {
+        _fetchTemperatureMLInsight(tempLive, humLive);
+      }
     }
   }
 
@@ -448,10 +1127,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     if (!mounted) return;
     final v = tempMaxTodayNotifier.value;
     if (v > 0 && _selectedTimeRange == 2) {
-      // Still propagate to Dashboard / SensorMemory ratchet — that stays live.
       widget.onMaxTempChanged?.call(v);
+      setState(() {}); // rebuild so _activeDisplayMax picks up the new value
     }
   }
+
+  // Keeps "Highest" in sync with the same ratcheted value the Dashboard's
+  // Quick Stats card reads — otherwise this screen shows the stale
+  // hourly-aggregate max until the next temperature_hourly doc lands.
 
   Future<void> _loadSprinklerState() async {
     await SprinklerMemory.load();
@@ -487,7 +1170,25 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   Future<void> _initData() async {
-    await _loadChartFromFirestore();
+    if (_selectedTimeRange != 2) {
+      await _loadMinuteChartForRange(_selectedTimeRange);
+    } else {
+      final restored = await _restoreToday();
+
+      // If today's data is already in memory (previous visit) or was just
+      // restored from local storage, show it immediately and only fetch
+      // what was missed, instead of waiting on a full reload.
+      final todayKey = SensorMemory.todayKey();
+      if (restored) _todayHistoryFetchedDayKey = todayKey;
+      if (_minuteBufferToday.isNotEmpty && _minuteBufferDayKey == todayKey) {
+        _seedLivePointFromLatest();
+        if (mounted) setState(() => _isLoading = false);
+        _scrollToNowSoon();
+      }
+
+      await _syncToday();
+      _scrollToNowSoon(); // data is complete now, go to the latest reading
+    }
     if (!mounted) return;
     setState(() => _isLoading = false);
     if (LiveSensorService.latestData.value != null) {
@@ -495,10 +1196,39 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     }
   }
 
+  bool _wasTickerEnabled = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final enabled = TickerMode.of(context);
+    if (enabled && !_wasTickerEnabled) {
+      // Screen is visible again after navigating away.
+      if (_selectedTimeRange != 2) {
+        setState(() {
+          _selectedTimeRange = 2; // go back to the Today tab
+          _clearStatsForRangeSwitch();
+        });
+      }
+      _seedLivePointFromLatest();
+      _scrollToNowSoon();
+      unawaited(
+        _syncToday().then((_) {
+          if (mounted && _selectedTimeRange == 2) _scrollToNowSoon();
+        }),
+      );
+    }
+    _wasTickerEnabled = enabled;
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _durationTimer?.cancel();
     _hourlyRefreshTimer?.cancel();
+    _todaySyncTimer?.cancel();
+    _todayChartScrollController.dispose();
+    _customChartScrollController.dispose();
     tempMaxTodayNotifier.removeListener(_onTempMaxNotifierChanged);
     LiveSensorService.latestData.removeListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.removeListener(_onSharedStatusChanged);
@@ -510,208 +1240,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   // switches tabs, so old values never show under a new range.
   void _clearStatsForRangeSwitch() {
     _chartData.clear();
-    _displayMax = null;
-    _displayMin = null;
-    _displayAvg = null;
     _minuteBufferCustom.clear();
     _minuteCustomRangeKey = '';
-  }
+    _minuteBufferRangeStart = null;
 
-  Future<void> _loadChartFromFirestore() async {
-    final rangeIndexAtLoad = _selectedTimeRange;
-
-    final range = _resolveTimeRange(rangeIndexAtLoad, _customStart, _customEnd);
-    if (range == null) return;
-
-    final today = SensorMemory.todayKey();
-    final hourKey = currentHourKey();
-
-    // Today: cache hit if we've already loaded for this hour.
-    if (rangeIndexAtLoad == 2 &&
-        SensorMemory.lastTempChartHourKey == hourKey &&
-        SensorMemory.lastTempChartDate == today &&
-        SensorMemory.tempChartLoaded) {
-      // On a Today cache-hit we still need to restore the display stats
-      // (they were cleared by _clearStatsForRangeSwitch).
-      if (mounted) {
-        setState(() {
-          _chartData..clear()..addAll(SensorMemory.lastTempChartData);
-          _displayMax = SensorMemory.lastTempDisplayMax;
-          _displayMin = SensorMemory.lastTempDisplayMin;
-          _displayAvg = SensorMemory.lastTempDisplayAvg;
-        });
-      }
-      return;
-    }
-
-    // Week/Month: cache hit if loaded within this same hour.
-    if (rangeIndexAtLoad == 1 &&
-        _cachedWeekHourKey == hourKey &&
-        _cachedWeekData.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _chartData..clear()..addAll(_cachedWeekData);
-          _displayMax = _cachedWeekMax;
-          _displayMin = _cachedWeekMin;
-          _displayAvg = _cachedWeekAvg;
-        });
-      }
-      return;
-    }
-    if (rangeIndexAtLoad == 0 &&
-        _cachedMonthHourKey == hourKey &&
-        _cachedMonthData.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _chartData..clear()..addAll(_cachedMonthData);
-          _displayMax = _cachedMonthMax;
-          _displayMin = _cachedMonthMin;
-          _displayAvg = _cachedMonthAvg;
-        });
-      }
-      return;
-    }
-
-    try {
-      final snapshot = await _db
-          .collection('temperature_hourly')
-          .orderBy('timestamp', descending: false)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(range.start),
-      )
-          .where(
-        'timestamp',
-        isLessThanOrEqualTo: Timestamp.fromDate(range.end),
-      )
-          .limit(800)
-          .get();
-
-      // Guard against a stale async response arriving after the user
-      // already switched to a different tab.
-      if (!mounted || _selectedTimeRange != rangeIndexAtLoad) return;
-
-      final docs = snapshot.docs;
-      if (docs.isEmpty) {
-        setState(() {
-          _chartData.clear();
-          _displayMax = null;
-          _displayAvg = null;
-          _displayMin = null;
-        });
-        if (rangeIndexAtLoad == 2) {
-          SensorMemory.lastTempChartData = [];
-          SensorMemory.tempChartLoaded = true;
-          SensorMemory.lastTempChartDate = today;
-          SensorMemory.lastTempChartHourKey = hourKey;
-          SensorMemory.lastTempDisplayMax = null;
-          SensorMemory.lastTempDisplayMin = null;
-          SensorMemory.lastTempDisplayAvg = null;
-        }
-        return;
-      }
-
-      // Roll up across EVERY hourly doc gathered in the range:
-      //   Highest = max of all hourly tempMax values
-      //   Lowest  = min of all hourly tempMin values
-      //   Average = simple (equal-weight) mean of all hourly tempAvg values
-      // A doc that is missing tempMin/tempAvg is excluded from that
-      // particular stat instead of being faked from tempMax, so a single
-      // incomplete doc can't silently drag Lowest/Average toward Highest
-      // and create a mismatch with what's actually in temperature_hourly.
-      final allData = <Map<String, double>>[];
-      final allMaxValues = <double>[];
-      final allMinValues = <double>[];
-      final allAvgValues = <double>[];
-
-      for (final doc in docs) {
-        final d = doc.data();
-        final rawMax = d['tempMax'];
-        if (rawMax == null) continue;
-
-        final max = (rawMax as num).toDouble();
-        final rawMin = d['tempMin'];
-        final rawAvg = d['tempAvg'];
-
-        final docTs = (d['timestamp'] as Timestamp?)?.toDate();
-        if (docTs != null) {
-          final x = docTs.difference(range.start).inMinutes / 60.0;
-          allData.add({'x': x, 'temp': max});
-        }
-
-        allMaxValues.add(max);
-        if (rawMin != null) allMinValues.add((rawMin as num).toDouble());
-        if (rawAvg != null) allAvgValues.add((rawAvg as num).toDouble());
-      }
-
-      if (allMaxValues.isEmpty) {
-        setState(() {
-          _chartData.clear();
-          _displayMax = null;
-          _displayAvg = null;
-          _displayMin = null;
-        });
-        return;
-      }
-
-      final historicalMax = allMaxValues.reduce((a, b) => a > b ? a : b);
-      final historicalMin = allMinValues.isNotEmpty
-          ? allMinValues.reduce((a, b) => a < b ? a : b)
-          : null;
-      final historicalAvg = allAvgValues.isNotEmpty
-          ? allAvgValues.reduce((a, b) => a + b) / allAvgValues.length
-          : null;
-
-      // Double-check the tab hasn't changed while we were processing the
-      // docs (CPU-bound loop can yield on large month sets).
-      if (!mounted || _selectedTimeRange != rangeIndexAtLoad) return;
-
-      setState(() {
-        _chartData
-          ..clear()
-          ..addAll(allData);
-        _displayMax = historicalMax;
-        _displayMin = historicalMin;
-        _displayAvg = historicalAvg;
-
-        if (rangeIndexAtLoad == 2) {
-          SensorMemory.resetIfNewDay();
-          if (historicalMax > SensorMemory.lastTempMaxToday) {
-            SensorMemory.setTempMaxToday(historicalMax);
-          }
-          widget.onMaxTempChanged?.call(historicalMax);
-        }
-      });
-
-      // Persist Today cache.
-      if (rangeIndexAtLoad == 2) {
-        SensorMemory.lastTempChartData = List.of(_chartData);
-        SensorMemory.tempChartLoaded = true;
-        SensorMemory.lastTempChartDate = today;
-        SensorMemory.lastTempChartHourKey = hourKey;
-        SensorMemory.lastTempDisplayMax = _displayMax;
-        SensorMemory.lastTempDisplayMin = _displayMin;
-        SensorMemory.lastTempDisplayAvg = _displayAvg;
-        SensorMemory.save();
-      }
-      // Persist Week/Month session cache.
-      if (rangeIndexAtLoad == 1) {
-        _cachedWeekData = List.of(_chartData);
-        _cachedWeekMax = historicalMax;
-        _cachedWeekMin = historicalMin;
-        _cachedWeekAvg = historicalAvg;
-        _cachedWeekHourKey = hourKey;
-      } else if (rangeIndexAtLoad == 0) {
-        _cachedMonthData = List.of(_chartData);
-        _cachedMonthMax = historicalMax;
-        _cachedMonthMin = historicalMin;
-        _cachedMonthAvg = historicalAvg;
-        _cachedMonthHourKey = hourKey;
-      }
-    } catch (e) {
-      debugPrint('Firestore load error: $e');
-      return;
-    }
+    // Clear exact Week/Month/Custom statistics too.
+    _resetRangeStats();
+    _rangeRequestId++;
   }
 
   // ── Sprinkler ───────────────────────────────────────────────────────────────
@@ -719,11 +1254,28 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   Future<void> _toggleSprinkler(bool turnOn) async {
     setState(() => _isSprinklerLoading = true);
     try {
+      // Fire the LAN command first — this is what makes the relay flip
+      // instantly instead of waiting for the ESP32's 2s Firestore poll.
+      unawaited(
+        http
+            .post(
+              Uri.parse('http://$esp32Ip/sprinkler'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
+            )
+            .timeout(const Duration(seconds: 2))
+            .then((_) {})
+            .catchError((e) {
+              debugPrint('[Sprinkler] LAN command failed: $e');
+            }),
+      );
+
       await FirebaseFirestore.instance
           .collection('sprinkler_command')
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
+      sprinklerToggledAt = DateTime.now();
       sprinklerNotifier.value = turnOn;
       final now = DateTime.now();
 
@@ -733,8 +1285,18 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         final period = now.hour < 12 ? 'AM' : 'PM';
         final timeStr = '$hour:$minute $period';
         const months = [
-          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
         ];
         final dateStr =
             '${months[now.month - 1]} ${now.day.toString().padLeft(2, '0')}';
@@ -788,7 +1350,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     borderRadius: BorderRadius.circular(20),
     border: Border.all(
       color:
-      accentColor?.withValues(alpha: 0.2) ??
+          accentColor?.withValues(alpha: 0.2) ??
           (isDark
               ? Colors.white.withValues(alpha: 0.07)
               : Colors.grey.shade200),
@@ -797,7 +1359,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     boxShadow: [
       BoxShadow(
         color:
-        accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
+            accentColor?.withValues(alpha: isDark ? 0.15 : 0.08) ??
             Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
         blurRadius: 16,
         offset: const Offset(0, 6),
@@ -933,18 +1495,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
       builder: (_) => _CustomRangeSheet(
         initialStart: _customStart,
         initialEnd: _customEnd,
-        initialGranularity: _todayGranularity,
-        onApply: (start, end, granularity) {
+        onApply: (start, end) {
           setState(() {
             _customStart = start;
             _customEnd = end;
             _selectedTimeRange = 3;
-            _todayGranularity = granularity;
             // Clear stale stats when custom range is applied.
             _clearStatsForRangeSwitch();
           });
-          _loadChartFromFirestore();
-          if (_todayGranularity == 1) _loadMinuteChartForRange(3);
+          _loadMinuteChartForRange(3);
         },
       ),
     );
@@ -955,13 +1514,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     // without the user ever applying a range, don't leave the UI parked
     // on an empty Custom tab — fall back to Today.
     final wasApplied = applied == true;
+    if (!wasApplied && _customStart != null && _customEnd != null) {
+      _loadMinuteChartForRange(3);
+    }
     if (!wasApplied && _customStart == null) {
       setState(() {
         _selectedTimeRange = 2;
         _clearStatsForRangeSwitch();
       });
-      _loadChartFromFirestore();
-      if (_todayGranularity == 1) _loadMinuteChartFromFirestore();
     }
   }
 
@@ -996,11 +1556,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 _buildStatusCard(isDark),
                 const SizedBox(height: 12),
                 _buildTimeRangeSelector(isDark),
-                if (_selectedTimeRange != 3 ||
-                    (_customStart != null && _customEnd != null)) ...[
-                  const SizedBox(height: 8),
-                  _buildGranularityToggle(isDark),
-                ],
                 if (_selectedTimeRange == 3 &&
                     _customStart != null &&
                     _customEnd != null) ...[
@@ -1096,6 +1651,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     final currentLabel = _currentTemp != null
         ? '${_currentTemp!.toStringAsFixed(1)}°C'
         : '--';
+
+    final statusColor = _tempStatusColor();
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
       decoration: _bentoCard(isDark),
@@ -1108,21 +1666,25 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
             children: [
               Text(
                 _tempStatus,
-                style: TextStyle(color: _textSecondary(isDark), fontSize: 13),
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 4),
               _isLoading
                   ? const CircularProgressIndicator()
                   : Text(
-                currentLabel,
-                style: TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                  color: (_currentTemp ?? 0) >= 40.5
-                      ? Colors.red
-                      : _textPrimary(isDark),
-                ),
-              ),
+                      currentLabel,
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                        color: _currentTemp == null
+                            ? _textPrimary(isDark)
+                            : statusColor,
+                      ),
+                    ),
             ],
           ),
           Column(
@@ -1153,32 +1715,32 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                     ),
                     child: _isSprinklerLoading
                         ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isActive ? Icons.check_circle : Icons.shower,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          isActive ? 'Active' : 'Activate',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isActive ? Icons.check_circle : Icons.shower,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                isActive ? 'Active' : 'Activate',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),
@@ -1206,15 +1768,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               });
               if (isCustom) {
                 await _showCustomRangePicker();
+              } else if (index == 2) {
+                unawaited(_syncToday());
               } else {
-                _loadChartFromFirestore();
-                if (_todayGranularity == 1) {
-                  if (index == 2) {
-                    _loadMinuteChartFromFirestore();
-                  } else {
-                    _loadMinuteChartForRange(index);
-                  }
-                }
+                _loadMinuteChartForRange(index);
               }
             },
             child: AnimatedContainer(
@@ -1235,12 +1792,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: isSelected
                     ? [
-                  BoxShadow(
-                    color: const Color(0xFFE8622A).withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ]
+                        BoxShadow(
+                          color: const Color(0xFFE8622A).withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
                     : [],
               ),
               alignment: Alignment.center,
@@ -1281,58 +1838,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
-  Widget _buildGranularityToggle(bool isDark) {
-    const options = ['Hour', 'Minute'];
-    return Row(
-      children: [
-        Text(
-          'Show:',
-          style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
-        ),
-        const SizedBox(width: 8),
-        ...List.generate(options.length, (index) {
-          final isSelected = _todayGranularity == index;
-          return Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: GestureDetector(
-              onTap: () {
-                setState(() => _todayGranularity = index);
-                if (index == 1) {
-                  if (_selectedTimeRange == 2) {
-                    _loadMinuteChartFromFirestore();
-                  } else {
-                    _loadMinuteChartForRange(_selectedTimeRange);
-                  }
-                }
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFF1B3A4B) : _cardBg(isDark),
-                  border: Border.all(
-                    color: isSelected
-                        ? const Color(0xFF1B3A4B)
-                        : _dividerColor(isDark),
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  options[index],
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? Colors.white : _textSecondary(isDark),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
   Widget _buildCustomRangeBanner() {
     return Container(
       width: double.infinity,
@@ -1364,12 +1869,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
                 _customStart = null;
                 _customEnd = null;
                 _selectedTimeRange = 2;
-                // Clear stale custom-range stats when the banner is
-                // dismissed so Today's values load fresh.
                 _clearStatsForRangeSwitch();
               });
-              _loadChartFromFirestore();
-              if (_todayGranularity == 1) _loadMinuteChartFromFirestore();
             },
             child: const Icon(Icons.close, size: 14, color: Color(0xFFE8622A)),
           ),
@@ -1378,44 +1879,224 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
     );
   }
 
+  void _scrollChartToNow() {
+    if (!mounted) return;
+    final c = _todayChartScrollController;
+    if (!c.hasClients) {
+      // Chart not mounted yet: allow the next build to try again.
+      _hasScrolledChartToNow = false;
+      return;
+    }
+
+    final latestPx = _todayLatestPx();
+    final viewport = c.position.viewportDimension;
+    final target = (latestPx - viewport * 0.6).clamp(
+      0.0,
+      c.position.maxScrollExtent,
+    );
+    c.jumpTo(target);
+  }
+
+  // Jumps to "now" after the next frame has been built.
+  void _scrollToNowSoon() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollChartToNow();
+    });
+  }
+
   Widget _buildChart(bool isDark) {
-    final range = _resolveTimeRange(
+    final bool isTodayTab = _selectedTimeRange == 2;
+    final bool isCustomTab =
+        _selectedTimeRange == 0 ||
+        _selectedTimeRange == 1 ||
+        (_selectedTimeRange == 3 && _customStart != null && _customEnd != null);
+    final DateTimeRange? chartRange = _resolveTimeRange(
       _selectedTimeRange,
       _customStart,
       _customEnd,
     );
-    final now = DateTime.now();
-    return Container(
-      decoration: _bentoCard(isDark, accentColor: Colors.green),
-      padding: const EdgeInsets.all(12),
-      child: SizedBox(
-        height: 210,
-        width: double.infinity,
-        child: (_isLoading || (_selectedTimeRange != 2 && _todayGranularity == 1 && _minuteCustomLoading))
-            ? const Center(child: CircularProgressIndicator())
-            : _activeChartData.isEmpty
-            ? Center(
-          child: Text(
-            _selectedTimeRange == 2 && _todayGranularity == 1
-                ? "Waiting for live readings..."
-                : _todayGranularity == 1
-                ? "No minute data for this range"
-                : "No data for selected range",
-            style: TextStyle(color: _textSecondary(isDark)),
+    // (line removed: Today's width is now computed from the current time)
+
+    final bool isBusy =
+        _isLoading || (_selectedTimeRange != 2 && _minuteCustomLoading);
+
+    // The scroll view is destroyed in these cases, so the next time the Today
+    // chart appears it must jump to the latest reading again.
+    if (!isTodayTab || isBusy || _activeChartData.isEmpty) {
+      _hasScrolledChartToNow = false;
+    }
+
+    Widget chartBody;
+    if (isBusy) {
+      chartBody = const Center(child: CircularProgressIndicator());
+    } else if (_activeChartData.isEmpty) {
+      chartBody = Center(
+        child: Text(
+          _selectedTimeRange == 2
+              ? "Waiting for live readings..."
+              : _rangeLoadFailed
+              ? "Could not load data. Tap the range again to retry."
+              : "No data for selected range",
+          style: TextStyle(color: _textSecondary(isDark)),
+        ),
+      );
+    } else if (isTodayTab) {
+      // Center the view on the current time once per load, so opening
+      // the tab shows "now" instead of midnight — swipe left to page
+      // back through the rest of the day.
+      if (!_hasScrolledChartToNow) {
+        _hasScrolledChartToNow = true;
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _scrollChartToNow(),
+        );
+      }
+      final todayData = _activeChartData;
+      final endHours = _todayEndHours();
+      final todayGaps = _findGaps(
+        todayData,
+        gap: _kTodayGapHours,
+        tailStart: (todayData.length - _kTodayTail).clamp(0, todayData.length),
+      );
+      final endMapped = _compressX(endHours, todayGaps, _kTodayBlankHours);
+      final todayWidth = _todayCanvasWidth(endMapped);
+
+      chartBody = Stack(
+        children: [
+          ClipRect(
+            child: SingleChildScrollView(
+              controller: _todayChartScrollController,
+              scrollDirection: Axis.horizontal,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _TemperatureChartPainter(
+                    data: List.from(todayData),
+                    isDark: isDark,
+                    xDomainMin: 0,
+                    xDomainMax: endHours, // 12:00 AM -> now
+                    showYAxisLabels: false,
+                    rawTailCount: 360, // last hour, every reading
+                    dotTailCount: 360, // a dot on each of them
+                    gapHours: _kTodayGapHours,
+                    gapBlankHours: _kTodayBlankHours,
+                  ),
+                  child: SizedBox(height: 320, width: todayWidth),
+                ),
+              ),
+            ),
           ),
-        )
-            : ClipRect(
+          // Fixed overlay so the °C labels stay visible on the right
+          // edge of the card while the chart itself scrolls.
+          Positioned.fill(child: _buildFixedYAxisLabels(isDark)),
+        ],
+      );
+    } else if (isCustomTab) {
+      final nowCap = DateTime.now();
+      final chartEnd =
+          (_selectedTimeRange != 3 && chartRange!.end.isAfter(nowCap))
+          ? nowCap
+          : chartRange!.end;
+      final spanHours = chartEnd.difference(chartRange.start).inMinutes / 60.0;
+      final pxPerHour = spanHours <= 72
+          ? 60.0
+          : (spanHours <= 336 ? 15.0 : 8.0);
+      final minWidth = MediaQuery.of(context).size.width - 56;
+      final customWidth = (spanHours * pxPerHour)
+          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, 12000.0)
+          .toDouble();
+      chartBody = Stack(
+        children: [
+          ClipRect(
+            child: SingleChildScrollView(
+              controller: _customChartScrollController,
+              scrollDirection: Axis.horizontal,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: _TemperatureChartPainter(
+                    data: List.from(_activeChartData),
+                    isDark: isDark,
+                    xDomainMin: 0,
+                    xDomainMax: spanHours,
+                    rangeStart: chartRange.start,
+                    showYAxisLabels: false,
+
+                    gapHours: spanHours / 300 * 2.5,
+                    gapBlankHours: double.infinity,
+                  ),
+                  child: SizedBox(height: 320, width: customWidth),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(child: _buildFixedYAxisLabels(isDark)),
+        ],
+      );
+    } else {
+      chartBody = ClipRect(
+        child: RepaintBoundary(
           child: CustomPaint(
             painter: _TemperatureChartPainter(
               data: List.from(_activeChartData),
               isDark: isDark,
-              rangeIndex: _selectedTimeRange,
-              rangeStart: range?.start ?? now,
-              rangeEnd: range?.end ?? now,
             ),
-            child: const SizedBox(height: 210, width: double.infinity),
+            child: const SizedBox(height: 320, width: double.infinity),
           ),
         ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: _bentoCard(isDark, accentColor: Colors.green),
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            height: 320,
+            width: double.infinity,
+            child: chartBody,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Renders the °C Y-axis labels as a fixed overlay pinned to the right
+  // edge of the chart card. Used only for the Today tab, whose chart
+  // canvas scrolls horizontally — without this, the labels would scroll
+  // away with the rest of the painted content.
+  Widget _buildFixedYAxisLabels(bool isDark) {
+    const double topPadding = 8;
+    const double bottomPadding = 44;
+    const double chartHeight = 320 - topPadding - bottomPadding;
+    const double yMin = 0.0;
+    const double yMax = 50.0;
+    final labelStyle = TextStyle(
+      color: isDark ? Colors.white54 : Colors.grey.shade500,
+      fontSize: 10,
+      fontWeight: FontWeight.w500,
+    );
+    return IgnorePointer(
+      child: Stack(
+        children: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((v) {
+          final y =
+              topPadding +
+              chartHeight -
+              ((v - yMin) / (yMax - yMin)) * chartHeight;
+          return Positioned(
+            top: v == 0 ? y - 18 : y - 8,
+            left: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: (isDark ? const Color(0xFF1E1E1E) : Colors.white)
+                    .withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text('$v°C', style: labelStyle),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -1484,17 +2165,24 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
               ],
             ),
           ),
+          const SizedBox(height: 10),
+          Text(
+            _selectedTimeRange == 2
+                ? 'Based on $_statCount readings'
+                : 'Based on $_rangeStatCount readings',
+            style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildReviewStat(
-      String label,
-      String value,
-      Color valueColor,
-      bool isDark,
-      ) {
+    String label,
+    String value,
+    Color valueColor,
+    bool isDark,
+  ) {
     return Expanded(
       child: Column(
         children: [
@@ -1662,7 +2350,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
   }
 
   //ml part
-  Future<void> _fetchTemperatureMLInsight(double temperature, double humidity) async {
+  Future<void> _fetchTemperatureMLInsight(
+    double temperature,
+    double humidity,
+  ) async {
     if (temperature <= 0) return;
     setState(() => _mlLoading = true);
     try {
@@ -1677,7 +2368,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
         _mlCondition = result['condition'] as String?;
         _mlInsight = (result['insights'] as List?)?.join(' ');
         _mlRecommendation =
-            (result['recommendations'] as List?)?.first as String?;
+            ((result['recommendations'] as List?)?.isNotEmpty ?? false)
+                ? (result['recommendations'] as List).first as String?
+                : null;
         _mlLoading = false;
       });
     } catch (e) {
@@ -1693,14 +2386,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring> {
 class _CustomRangeSheet extends StatefulWidget {
   final DateTime? initialStart;
   final DateTime? initialEnd;
-  final int initialGranularity;
-  final void Function(DateTime start, DateTime end, int granularity) onApply;
+  final void Function(DateTime start, DateTime end) onApply;
 
   const _CustomRangeSheet({
     required this.onApply,
     this.initialStart,
     this.initialEnd,
-    this.initialGranularity = 0,
   });
 
   @override
@@ -1712,7 +2403,6 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
   late TimeOfDay _startTime;
   late DateTime _endDate;
   late TimeOfDay _endTime;
-  late int _granularity;
 
   @override
   void initState() {
@@ -1722,7 +2412,6 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
     _startTime = TimeOfDay.fromDateTime(widget.initialStart ?? now);
     _endDate = widget.initialEnd ?? now;
     _endTime = TimeOfDay.fromDateTime(widget.initialEnd ?? now);
-    _granularity = widget.initialGranularity;
   }
 
   DateTime get _fullStart => DateTime(
@@ -1892,46 +2581,6 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
               ],
             ),
           ],
-          const SizedBox(height: 20),
-          _rowLabel('Show Data By'),
-          const SizedBox(height: 8),
-          Row(
-            children: List.generate(2, (index) {
-              final label = index == 0 ? 'Hour' : 'Minute';
-              final isSelected = _granularity == index;
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () => setState(() => _granularity = index),
-                  child: Container(
-                    margin: EdgeInsets.only(right: index == 0 ? 8 : 0),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0xFFE8622A)
-                          : const Color(0xFFE8622A).withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: const Color(0xFFE8622A).withValues(
-                          alpha: isSelected ? 1 : 0.3,
-                        ),
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected
-                            ? Colors.white
-                            : const Color(0xFFE8622A),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }),
-          ),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
@@ -1939,11 +2588,11 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
             child: ElevatedButton(
               onPressed: _isValid
                   ? () {
-                // Returning `true` tells the caller a range was
-                // actually applied, so it should NOT snap back to Today.
-                Navigator.pop(context, true);
-                widget.onApply(_fullStart, _fullEnd, _granularity);
-              }
+                      // Returning `true` tells the caller a range was
+                      // actually applied, so it should NOT snap back to Today.
+                      Navigator.pop(context, true);
+                      widget.onApply(_fullStart, _fullEnd);
+                    }
                   : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE8622A),
@@ -2033,23 +2682,98 @@ class _DateTimeChip extends StatelessWidget {
 class _TemperatureChartPainter extends CustomPainter {
   final List<Map<String, double>> data;
   final bool isDark;
-  final int rangeIndex;
-  final DateTime rangeStart;
-  final DateTime rangeEnd;
+  // When set, the chart uses this fixed x-axis range (0–24 for a full
+  // day) instead of stretching whatever data exists to fill the canvas.
+  final double? xDomainMin;
+  final double? xDomainMax;
+  // When the chart is drawn on a wide, horizontally-scrollable canvas
+  // (Today tab), the Y-axis labels would scroll off-screen along with
+  // the rest of the canvas. In that case we skip drawing them here and
+  // render them separately as a fixed overlay instead.
+  final bool showYAxisLabels;
+  // When set, x-axis labels show real date + time counted from this
+  // start, instead of plain hour-of-day labels (Custom tab).
+  final DateTime? rangeStart;
+  // The newest N points are drawn as-is (no averaging).
+  final int rawTailCount;
+  // How many of the newest points get their own dot.
+  final int dotTailCount;
+  // Neighbouring points further apart than this (hours) break the line.
+  final double? gapHours;
+  // A broken stretch is drawn only this wide (hours), however long it lasted.
+  final double? gapBlankHours;
 
   _TemperatureChartPainter({
     required this.data,
     this.isDark = false,
-    required this.rangeIndex,
-    required this.rangeStart,
-    required this.rangeEnd,
+    this.xDomainMin,
+    this.xDomainMax,
+    this.showYAxisLabels = true,
+    this.rangeStart,
+    this.rawTailCount = 0,
+    this.dotTailCount = 0,
+    this.gapHours,
+    this.gapBlankHours,
   });
 
+  String _rangeLabel(DateTime dt, bool withTime) {
+    final d =
+        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
+    if (!withTime) return d;
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$d $h:$m${dt.hour < 12 ? 'AM' : 'PM'}';
+  }
+
+  // Label with minutes, e.g. "2PM" or "2:10PM" (Today chart, 10-min ticks).
+  String _timeLabel(double h) {
+    final totalMin = (h * 60).round();
+    final hour = (totalMin ~/ 60) % 24;
+    final min = totalMin % 60;
+    final period = hour < 12 ? 'AM' : 'PM';
+    final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+    return min == 0
+        ? '$displayHour$period'
+        : '$displayHour:${min.toString().padLeft(2, '0')}$period';
+  }
+
+  // Label with seconds, e.g. "4:44:30PM" (fine ticks on the Today chart).
+  String _timeLabelSec(double h) {
+    final totalSec = (h * 3600).round();
+    final hour = (totalSec ~/ 3600) % 24;
+    final min = (totalSec % 3600) ~/ 60;
+    final sec = totalSec % 60;
+    final period = hour < 12 ? 'AM' : 'PM';
+    final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+    return '$displayHour:${min.toString().padLeft(2, '0')}:'
+        '${sec.toString().padLeft(2, '0')}$period';
+  }
+
+  // Draws a label slanted about -35 degrees, with its right end at [x],
+  // so many close-together labels never overlap.
+  void _drawSlantedLabel(
+    Canvas canvas,
+    String text,
+    double x,
+    double y,
+    TextStyle style,
+  ) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    canvas.save();
+    canvas.translate(x, y);
+    canvas.rotate(-0.61);
+    tp.paint(canvas, Offset(-tp.width, 0));
+    canvas.restore();
+  }
+
   List<Map<String, double>> _sampleData(
-      List<Map<String, double>> src,
-      int maxPts,
-      String key,
-      ) {
+    List<Map<String, double>> src,
+    int maxPts,
+    String key,
+  ) {
     if (src.length <= maxPts) return src;
     final result = <Map<String, double>>[];
     final step = src.length / maxPts;
@@ -2067,194 +2791,414 @@ class _TemperatureChartPainter extends CustomPainter {
     return result;
   }
 
-  List<(double, String)> _getXLabels() {
-    switch (rangeIndex) {
-      case 2: // Today — every 6 hours from midnight
-        return const [
-          (0.0, '12AM'),
-          (6.0, '6AM'),
-          (12.0, '12PM'),
-          (18.0, '6PM'),
-          (24.0, '12AM'),
-        ];
-      case 1: // This Week — one label per day
-        return List.generate(7, (i) {
-          const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-          final d = rangeStart.add(Duration(days: i));
-          return (i * 24.0, days[d.weekday - 1]);
-        });
-      case 0: // This Month — every 7 days
-        final labels = <(double, String)>[];
-        for (var i = 0; ; i += 7) {
-          final d = rangeStart.add(Duration(days: i));
-          if (d.isAfter(rangeEnd)) break;
-          labels.add((i * 24.0, '${d.day}/${d.month}'));
-        }
-        return labels;
-      case 3: // Custom range — auto-scale
-        final totalH = rangeEnd.difference(rangeStart).inHours.toDouble();
-        if (totalH <= 0) return const [];
-        if (totalH <= 48) {
-          final step = (totalH / 4).roundToDouble().clamp(1.0, 12.0);
-          final labels = <(double, String)>[];
-          for (var h = 0.0; h <= totalH + 0.01; h += step) {
-            final dt = rangeStart.add(Duration(hours: h.toInt()));
-            final hh = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-            final ampm = dt.hour < 12 ? 'AM' : 'PM';
-            labels.add((h, '$hh$ampm'));
-          }
-          return labels;
-        } else {
-          final totalDays = (totalH / 24).ceil();
-          final step = totalDays > 14 ? 7 : 1;
-          final labels = <(double, String)>[];
-          for (var d = 0; d < totalDays; d += step) {
-            final dt = rangeStart.add(Duration(days: d));
-            if (dt.isAfter(rangeEnd)) break;
-            labels.add((d * 24.0, '${dt.day}/${dt.month}'));
-          }
-          return labels;
-        }
-      default:
-        return const [];
-    }
-  }
-
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
 
-    const double leftPadding = 48;
-    const double bottomPadding = 36;
+    const double leftPadding = 40;
+    const double bottomPadding = 44;
     const double topPadding = 8;
-    final double chartWidth = size.width - leftPadding;
+    const double rightPadding = 8;
+
+    final double chartWidth = size.width - leftPadding - rightPadding;
     final double chartHeight = size.height - bottomPadding - topPadding;
     if (chartWidth <= 0 || chartHeight <= 0) return;
 
-    const double yMin = 20.0;
-    const double yMax = 45.0;
+    const double yMin = 0.0;
+    const double yMax = 50.0;
 
-    // X maps "hours since rangeStart" → pixel. Both data points and X-axis
-    // labels use this same unit, so they always stay aligned.
-    final double totalHours =
-        rangeEnd.difference(rangeStart).inMinutes / 60.0;
-    if (totalHours <= 0) return;
+    // Gaps (connection lost) found in the raw data.
+    final gapTailStart = data.length - rawTailCount.clamp(0, data.length);
+    final gaps = gapHours == null
+        ? <_Gap>[]
+        : _findGaps(data, gap: gapHours!, tailStart: gapTailStart);
+    final blank = gapBlankHours ?? gapHours ?? 0.0;
+    double mapH(double h) => _compressX(h, gaps, blank);
+    bool inGap(double h) =>
+        gaps.any((g) => g.end - g.start > blank && h > g.start && h < g.end);
+    final double? mappedDomainMax = xDomainMax == null
+        ? null
+        : mapH(xDomainMax!);
 
-    double getX(double hoursFromStart) =>
-        leftPadding + (hoursFromStart / totalHours) * chartWidth;
+    var sampled = <Map<String, double>>[];
+    double getX(double index, int totalPoints) {
+      final minX = xDomainMin ?? sampled.first['x']!;
+      final span = (mappedDomainMax ?? sampled.last['x']!) - minX;
+      if (span <= 0) {
+        return leftPadding +
+            (index / (totalPoints > 1 ? totalPoints - 1 : 1)) * chartWidth;
+      }
+      return leftPadding +
+          ((mapH(sampled[index.round()]['x']!) - minX) / span) * chartWidth;
+    }
 
     double getY(double temp) =>
         topPadding +
-            chartHeight -
-            ((temp.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
+        chartHeight -
+        ((temp.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
 
     final gridPaint = Paint()
       ..color = isDark
-          ? Colors.white.withValues(alpha: 0.07)
-          : Colors.grey.shade200
-      ..strokeWidth = 1;
-    final axisPaint = Paint()
-      ..color = isDark
-          ? Colors.white.withValues(alpha: 0.12)
-          : Colors.grey.shade300
-      ..strokeWidth = 1;
-    final labelStyle = TextStyle(
-      color: isDark ? Colors.white38 : Colors.grey.shade500,
-      fontSize: 9,
-    );
+          ? Colors.white.withValues(alpha: 0.04)
+          : Colors.grey.shade100
+      ..strokeWidth = 0.8;
 
-    for (final step in [20, 25, 30, 35, 40, 45]) {
+    for (final step in [5, 10, 15, 20, 25, 30, 35, 40, 45]) {
       final y = getY(step.toDouble());
-      canvas.drawLine(Offset(leftPadding, y), Offset(size.width, y), gridPaint);
-      final tp = TextPainter(
-        text: TextSpan(
-          text: '$step°C',
-          style: TextStyle(
-            color: isDark ? Colors.white54 : Colors.grey.shade500,
-            fontSize: 10,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(0, y - tp.height / 2));
-    }
-
-    canvas.drawLine(
-      Offset(leftPadding, topPadding),
-      Offset(leftPadding, topPadding + chartHeight),
-      axisPaint,
-    );
-    canvas.drawLine(
-      Offset(leftPadding, topPadding + chartHeight),
-      Offset(size.width, topPadding + chartHeight),
-      axisPaint,
-    );
-
-    if (data.length < 2) return;
-
-    final sampled = _sampleData(data, 80, 'temp');
-
-    for (final (xHours, label) in _getXLabels()) {
-      final xCanvas = getX(xHours);
-      if (xCanvas < leftPadding - 4 || xCanvas > size.width + 4) continue;
-      final tp = TextPainter(
-        text: TextSpan(text: label, style: labelStyle),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(
-        canvas,
-        Offset(xCanvas - tp.width / 2, topPadding + chartHeight + 6),
+      canvas.drawLine(
+        Offset(leftPadding, y),
+        Offset(size.width - rightPadding, y),
+        gridPaint,
       );
     }
 
-    final fillPath = Path();
-    final linePath = Path();
-    final firstX = getX(sampled.first['x']!);
-    final firstY = getY(sampled.first['temp']!);
+    final baselinePaint = Paint()
+      ..color = isDark
+          ? Colors.white.withValues(alpha: 0.08)
+          : Colors.grey.shade300
+      ..strokeWidth = 1;
+    canvas.drawLine(
+      Offset(leftPadding, topPadding + chartHeight),
+      Offset(size.width - rightPadding, topPadding + chartHeight),
+      baselinePaint,
+    );
 
-    fillPath.moveTo(firstX, topPadding + chartHeight);
-    fillPath.lineTo(firstX, firstY);
-    linePath.moveTo(firstX, firstY);
-
-    for (int i = 0; i < sampled.length - 1; i++) {
-      final x0 = getX(sampled[i]['x']!);
-      final y0 = getY(sampled[i]['temp']!);
-      final x1 = getX(sampled[i + 1]['x']!);
-      final y1 = getY(sampled[i + 1]['temp']!);
-      if (x0.isNaN || y0.isNaN || x1.isNaN || y1.isNaN) continue;
-      final cpX1 = x0 + (x1 - x0) * 0.5;
-      final cpX2 = x1 - (x1 - x0) * 0.5;
-      fillPath.cubicTo(cpX1, y0, cpX2, y1, x1, y1);
-      linePath.cubicTo(cpX1, y0, cpX2, y1, x1, y1);
+    if (showYAxisLabels) {
+      final labelStyle = TextStyle(
+        color: isDark ? Colors.white54 : Colors.grey.shade500,
+        fontSize: 10,
+      );
+      for (final v in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]) {
+        final tp = TextPainter(
+          text: TextSpan(text: '$v°C', style: labelStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(
+          canvas,
+          Offset(
+            leftPadding - 6 - tp.width,
+            getY(v.toDouble()) - tp.height / 2,
+          ),
+        );
+      }
     }
 
-    final lastX = getX(sampled.last['x']!);
-    fillPath.lineTo(lastX, topPadding + chartHeight);
-    fillPath.close();
+    if (xDomainMin != null && xDomainMax != null) {
+      final double domainMin = xDomainMin!;
+      final double domainMax = xDomainMax!;
+      final double domainSpan = mapH(domainMax) - domainMin;
+      if (domainSpan > 0) {
+        final vGridPaint = Paint()
+          ..color = isDark
+              ? Colors.white.withValues(alpha: 0.05)
+              : Colors.grey.shade100
+          ..strokeWidth = 0.8;
+        final hourLabelStyle = TextStyle(
+          color: isDark ? Colors.white38 : Colors.grey.shade400,
+          fontSize: 9,
+        );
+        if (rangeStart == null) {
+          final pxPerHourToday = chartWidth / domainSpan;
+          final bool liveMode = pxPerHourToday >= 8000;
+
+          // Whole-day grid: hourly when the canvas is very wide.
+          final double stepH = liveMode
+              ? 1.0
+              : (pxPerHourToday >= 400 ? 1.0 : 3.0);
+          for (double h = domainMin; h <= domainMax + 1e-9; h += stepH) {
+            if (inGap(h)) continue;
+            final x =
+                leftPadding + ((mapH(h) - domainMin) / domainSpan) * chartWidth;
+            canvas.drawLine(
+              Offset(x, topPadding),
+              Offset(x, topPadding + chartHeight),
+              vGridPaint,
+            );
+            if (liveMode) {
+              // Slanted like the per-reading labels. Skipped inside the
+              // last hour, where the 10-second labels take over.
+              final hasTail = rawTailCount > 0 && data.isNotEmpty;
+              final tailFromX = hasTail
+                  ? data[(data.length - rawTailCount).clamp(
+                      0,
+                      data.length - 1,
+                    )]['x']!
+                  : 0.0;
+              final tailToX = hasTail ? data.last['x']! : -1.0;
+              final insideTail =
+                  hasTail && h >= tailFromX - 0.002 && h <= tailToX + 0.002;
+              if (!insideTail) {
+                _drawSlantedLabel(
+                  canvas,
+                  _timeLabel(h),
+                  x,
+                  topPadding + chartHeight + 3,
+                  hourLabelStyle,
+                );
+              }
+            } else {
+              final tp = TextPainter(
+                text: TextSpan(text: _timeLabel(h), style: hourLabelStyle),
+                textDirection: TextDirection.ltr,
+              )..layout();
+              final labelX = (x - tp.width / 2).clamp(
+                0.0,
+                size.width - tp.width,
+              );
+              tp.paint(canvas, Offset(labelX, topPadding + chartHeight + 2));
+            }
+          }
+        } else {
+          // Custom / Week / Month: unchanged behavior.
+          int hourStep = 3;
+          final pxPerHour = chartWidth / domainSpan;
+          const steps = [1, 2, 3, 6, 12, 24, 48, 72, 168];
+          hourStep = steps.firstWhere(
+            (s) => s * pxPerHour >= 90,
+            orElse: () => 336,
+          );
+          for (
+            int h = domainMin.round();
+            h <= domainMax.floor();
+            h += hourStep
+          ) {
+            if (inGap(h.toDouble())) continue;
+            final x =
+                leftPadding +
+                ((mapH(h.toDouble()) - domainMin) / domainSpan) * chartWidth;
+            canvas.drawLine(
+              Offset(x, topPadding),
+              Offset(x, topPadding + chartHeight),
+              vGridPaint,
+            );
+            final label = _rangeLabel(
+              rangeStart!.add(Duration(hours: h)),
+              hourStep < 24,
+            );
+            final tp = TextPainter(
+              text: TextSpan(text: label, style: hourLabelStyle),
+              textDirection: TextDirection.ltr,
+            )..layout();
+            double labelX = (x - tp.width / 2).clamp(
+              0.0,
+              size.width - tp.width,
+            );
+            tp.paint(canvas, Offset(labelX, topPadding + chartHeight + 2));
+          }
+        }
+      }
+    }
+
+    if (data.length < 2) return;
+
+    // Roughly one point per 4px of chart width keeps the line smooth.
+    final targetPoints = rangeStart != null
+        ? 1200 // Week/Month/Custom already hold at most 300 points
+        : (chartWidth / 4).clamp(20, 1200).toInt();
+    final tail = rawTailCount.clamp(0, data.length);
+    final tailStart = data.length - tail;
+
+    // Split the data into segments wherever there is a gap.
+    final gapNew = gapHours ?? double.infinity;
+    final gapOld = gapHours == null
+        ? double.infinity
+        : (gapNew > 45 / 3600.0 ? gapNew : 45 / 3600.0);
+    final segments = <List<Map<String, double>>>[];
+    var currentSeg = <Map<String, double>>[data.first];
+    for (int i = 1; i < data.length; i++) {
+      final limit = i >= tailStart ? gapNew : gapOld;
+      if (data[i]['x']! - data[i - 1]['x']! > limit) {
+        segments.add(currentSeg);
+        currentSeg = <Map<String, double>>[];
+      }
+      currentSeg.add(data[i]);
+    }
+    segments.add(currentSeg);
+
+    // Sample each segment on its own and remember where each one starts.
+    sampled = <Map<String, double>>[];
+    final segmentStarts = <int>{};
+    int offset = 0;
+    for (final seg in segments) {
+      final tailFrom = (tailStart - offset).clamp(0, seg.length);
+      final segHead = seg.sublist(0, tailFrom);
+      final segTail = seg.sublist(tailFrom);
+      final t = (targetPoints * seg.length / data.length).round();
+      final segTarget = t < 2 ? 2 : t;
+
+      segmentStarts.add(sampled.length);
+      sampled.addAll([..._sampleData(segHead, segTarget, 'temp'), ...segTail]);
+      offset += seg.length;
+    }
+    final totalPoints = sampled.length;
+
+    final fillPath = Path();
+    final linePath = Path();
+    final baseY = topPadding + chartHeight;
+
+    void closeFill(int lastIndex) {
+      fillPath.lineTo(getX(lastIndex.toDouble(), totalPoints), baseY);
+      fillPath.close();
+    }
+
+    for (int i = 0; i < sampled.length; i++) {
+      final x = getX(i.toDouble(), totalPoints);
+      final y = getY(sampled[i]['temp']!);
+      if (x.isNaN || y.isNaN) continue;
+
+      if (segmentStarts.contains(i)) {
+        // New segment: close the previous area and start fresh, so
+        // nothing is drawn across the gap.
+        if (i > 0) closeFill(i - 1);
+        fillPath.moveTo(x, baseY);
+        fillPath.lineTo(x, y);
+        linePath.moveTo(x, y);
+      } else {
+        fillPath.lineTo(x, y);
+        linePath.lineTo(x, y);
+      }
+    }
+    closeFill(sampled.length - 1);
 
     canvas.drawPath(
       fillPath,
       Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF4CAF50).withValues(alpha: 0.85),
-            const Color(0xFF4CAF50).withValues(alpha: 0.15),
-          ],
-        ).createShader(Rect.fromLTWH(0, topPadding, size.width, chartHeight))
+        ..shader =
+            LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                const Color(0xFF4CAF50).withValues(alpha: 0.85),
+                const Color(0xFF4CAF50).withValues(alpha: 0.15),
+              ],
+            ).createShader(
+              Rect.fromLTWH(leftPadding, topPadding, chartWidth, chartHeight),
+            )
         ..style = PaintingStyle.fill,
     );
+
+    final lineColor = isDark
+        ? const Color(0xFF66BB6A)
+        : const Color(0xFF2E7D32);
+
+    if (rangeStart != null && sampled.isNotEmpty) {
+      final bandPaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.2)
+        ..style = PaintingStyle.fill;
+      int s = 0;
+      while (s < sampled.length) {
+        int e = s + 1;
+        while (e < sampled.length && !segmentStarts.contains(e)) {
+          e++;
+        }
+        final band = Path();
+        for (int i = s; i < e; i++) {
+          final bx = getX(i.toDouble(), totalPoints);
+          final by = getY(sampled[i]['max'] ?? sampled[i]['temp']!);
+          if (i == s) {
+            band.moveTo(bx, by);
+          } else {
+            band.lineTo(bx, by);
+          }
+        }
+        for (int i = e - 1; i >= s; i--) {
+          band.lineTo(
+            getX(i.toDouble(), totalPoints),
+            getY(sampled[i]['min'] ?? sampled[i]['temp']!),
+          );
+        }
+        band.close();
+        canvas.drawPath(band, bandPaint);
+        s = e;
+      }
+    }
 
     canvas.drawPath(
       linePath,
       Paint()
-        ..color = isDark ? const Color(0xFF66BB6A) : const Color(0xFF2E7D32)
-        ..strokeWidth = 2.0
+        ..color = lineColor
+        ..strokeWidth = 2.4
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round,
     );
+
+    // Dots: show every point when there are few of them; otherwise show
+    // only a single highlighted "latest reading" marker to avoid clutter.
+    final dotOuterPaint = Paint()..color = lineColor;
+    final dotInnerPaint = Paint()..color = Colors.white;
+
+    // Recent raw readings shown on the Today graph.
+    final dots = dotTailCount.clamp(0, tail);
+
+    // Draw a time label below EVERY recent 10-second reading.
+    final readingLabelStyle = TextStyle(
+      color: isDark ? Colors.white54 : Colors.grey.shade500,
+      fontSize: 9,
+    );
+
+    if (dots > 0) {
+      for (int i = sampled.length - dots; i < sampled.length; i++) {
+        final tx = getX(i.toDouble(), totalPoints);
+        if (tx.isNaN) continue;
+
+        canvas.drawLine(
+          Offset(tx, topPadding + chartHeight),
+          Offset(tx, topPadding + chartHeight + 3),
+          baselinePaint,
+        );
+
+        _drawSlantedLabel(
+          canvas,
+          _timeLabelSec(sampled[i]['x']!),
+          tx,
+          topPadding + chartHeight + 3,
+          readingLabelStyle,
+        );
+      }
+    }
+
+    // Draw the dots.
+    if (sampled.length <= 20) {
+      for (int i = 0; i < sampled.length; i++) {
+        final dx = getX(i.toDouble(), totalPoints);
+        final dy = getY(sampled[i]['temp']!);
+
+        if (dx.isNaN || dy.isNaN) continue;
+
+        canvas.drawCircle(Offset(dx, dy), 3.0, dotOuterPaint);
+
+        canvas.drawCircle(Offset(dx, dy), 1.4, dotInnerPaint);
+      }
+    } else {
+      for (int i = sampled.length - dots; i < sampled.length - 1; i++) {
+        final ddx = getX(i.toDouble(), totalPoints);
+        final ddy = getY(sampled[i]['temp']!);
+
+        if (ddx.isNaN || ddy.isNaN) continue;
+
+        canvas.drawCircle(Offset(ddx, ddy), 4.0, dotOuterPaint);
+
+        canvas.drawCircle(Offset(ddx, ddy), 1.9, dotInnerPaint);
+      }
+
+      // Highlight newest reading.
+      final lastIdx = sampled.length - 1;
+      final dx = getX(lastIdx.toDouble(), totalPoints);
+      final dy = getY(sampled[lastIdx]['temp']!);
+
+      if (!dx.isNaN && !dy.isNaN) {
+        canvas.drawCircle(
+          Offset(dx, dy),
+          11.0,
+          Paint()..color = lineColor.withValues(alpha: 0.2),
+        );
+
+        canvas.drawCircle(Offset(dx, dy), 6.5, dotOuterPaint);
+
+        canvas.drawCircle(Offset(dx, dy), 3.0, dotInnerPaint);
+      }
+    }
   }
 
   @override
