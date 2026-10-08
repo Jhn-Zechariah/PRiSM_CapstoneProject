@@ -17,10 +17,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -36,10 +33,7 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -52,12 +46,30 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDLYSz028qrQIC85Z5h42mksJC9lvE5f2I',
-    appId: '1:927396793814:android:9241ada58b4a5b4dcb6877',
-    messagingSenderId: '927396793814',
-    projectId: 'prism-capstone-svncte',
-    storageBucket: 'prism-capstone-svncte.firebasestorage.app',
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBDu6tAG0VauEOmpp9xrZ4Ct9AlPE2qd24',
+    appId: '1:666163168561:web:f4c9acc296f7ff7db29c10',
+    messagingSenderId: '666163168561',
+    projectId: 'prism-3cd2c',
+    authDomain: 'prism-3cd2c.firebaseapp.com',
+    storageBucket: 'prism-3cd2c.firebasestorage.app',
+    measurementId: 'G-ZT20M4HJ83',
   );
 
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyC5vjNWD5eHZOSD9-GdcW9yCJqqcg6e0Wo',
+    appId: '1:666163168561:android:c4d84b253610721eb29c10',
+    messagingSenderId: '666163168561',
+    projectId: 'prism-3cd2c',
+    storageBucket: 'prism-3cd2c.firebasestorage.app',
+  );
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyBDu6tAG0VauEOmpp9xrZ4Ct9AlPE2qd24',
+    appId: '1:666163168561:web:4a3d315576664fb9b29c10',
+    messagingSenderId: '666163168561',
+    projectId: 'prism-3cd2c',
+    authDomain: 'prism-3cd2c.firebaseapp.com',
+    storageBucket: 'prism-3cd2c.firebasestorage.app',
+    measurementId: 'G-65RJYKNPZQ',
+  );
 }

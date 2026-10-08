@@ -1,28 +1,20 @@
 {
   "project_info": {
-    "project_number": "927396793814",
-    "project_id": "prism-capstone-svncte",
-    "storage_bucket": "prism-capstone-svncte.firebasestorage.app"
+    "project_number": "666163168561",
+    "project_id": "prism-3cd2c",
+    "storage_bucket": "prism-3cd2c.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:927396793814:android:9241ada58b4a5b4dcb6877",
+        "mobilesdk_app_id": "1:666163168561:android:c4d84b253610721eb29c10",
         "android_client_info": {
           "package_name": "com.codeVibers.prism_app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "927396793814-26fefkcj878p61ahnauvtl7578gl1bms.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.codeVibers.prism_app",
-            "certificate_hash": "16626e9388ff7575acb8b4b06b11d90ebbad6ce1"
-          }
-        },
-        {
-          "client_id": "927396793814-iontadevhtpfs98ucokag05hr4tdmgmt.apps.googleusercontent.com",
+          "client_id": "666163168561-psph9dp5p7k9ckaqg7vqpj24k82jv5ca.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.codeVibers.prism_app",
@@ -30,29 +22,28 @@
           }
         },
         {
-          "client_id": "927396793814-thf5fhcggq53in3v9qk3udvehf4lear3.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.codeVibers.prism_app",
-            "certificate_hash": "c960c2c52f9191cbbf90bb8719f8c2d0a2e82046"
-          }
-        },
-        {
-          "client_id": "927396793814-lk8afrpcps26anskvdor11dlccnl4sfi.apps.googleusercontent.com",
+          "client_id": "666163168561-gugikgqvg7mhrruqj0clqmrlchrg45qn.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDLYSz028qrQIC85Z5h42mksJC9lvE5f2I"
+          "current_key": "AIzaSyC5vjNWD5eHZOSD9-GdcW9yCJqqcg6e0Wo"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "927396793814-lk8afrpcps26anskvdor11dlccnl4sfi.apps.googleusercontent.com",
+              "client_id": "666163168561-gugikgqvg7mhrruqj0clqmrlchrg45qn.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "666163168561-o1i2j5gkm0p6i5ocm6nck1ekd0d53f0u.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.prismApp"
+              }
             }
           ]
         }
