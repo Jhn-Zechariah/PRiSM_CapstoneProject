@@ -1,0 +1,224 @@
+INRAE ML TASK AUDIT
+
+Input file: C:\src\PRiSM_CapstoneProject\prism-ml\data\processed\inrae\inrae_processed.csv
+
+Rows: 1,478,205
+
+Columns: 14
+
+
+==============================================================================
+1. DATASET OVERVIEW
+==============================================================================
+
+Rows: 1,478,205
+Columns: 14
+Unique pigs: 195
+Unique challenges: 202
+
+
+==============================================================================
+2. EXPERIMENTAL TARGET
+==============================================================================
+
+The genuine experimental variable is 'periode'.
+
+
+periode
+Thermoneutralité      1070222
+Stress thermique       393434
+Montée température      14549
+
+
+==============================================================================
+3. NUMERICAL FEATURE AUDIT
+==============================================================================
+
+T_IM
+  count   : 1,478,205
+  missing : 0
+  mean    : 38.943752
+  std     : 0.574414
+  min     : 30.040000
+  median  : 38.900000
+  max     : 41.750000
+
+T
+  count   : 1,473,773
+  missing : 4,432
+  mean    : 25.529499
+  std     : 4.292735
+  min     : 22.000000
+  median  : 24.000000
+  max     : 32.000000
+
+age
+  count   : 1,173,508
+  missing : 304,697
+  mean    : 112.903017
+  std     : 17.581149
+  min     : 71.000000
+  median  : 114.000000
+  max     : 155.000000
+
+temps_relatif_jour
+  count   : 1,325,144
+  missing : 153,061
+  mean    : -4.510320
+  std     : 6.749840
+  min     : -32.000000
+  median  : -3.000000
+  max     : 4.000000
+
+ADFI
+  count   : 1,334,730
+  missing : 143,475
+  mean    : 2567.573676
+  std     : 597.005713
+  min     : 417.000000
+  median  : 2577.000000
+  max     : 4257.200000
+
+
+==============================================================================
+4. CATEGORICAL FEATURE AUDIT
+==============================================================================
+
+stage
+stage
+ 3.0     117975
+ 2.0     117440
+ 1.0     115230
+ 0.0     106847
+-2.0     103346
+-1.0     103226
+-3.0     102586
+-4.0      94167
+ 4.0      85680
+-5.0      82798
+-6.0      82624
+-7.0      81726
+-8.0      56141
+ NaN      43200
+-11.0     33079
+-9.0      30697
+-10.0     30688
+-12.0     20772
+-13.0     15865
+-14.0     10947
+-16.0     10193
+-15.0     10189
+-17.0      9436
+-18.0      8654
+-19.0      4699
+
+
+==============================================================================
+5. PIG / REPEATED-MEASUREMENT STRUCTURE
+==============================================================================
+
+Unique periods per pig:
+
+periode
+1      9
+3    186
+
+
+==============================================================================
+6. CHALLENGE STRUCTURE
+==============================================================================
+
+Unique challenge IDs: 202
+
+
+Challenge order distribution:
+
+ordre_challenge
+1.0    1232911
+2.0      46582
+3.0      45651
+NaN     153061
+
+
+==============================================================================
+7. PERIOD VS NUMERIC VARIABLES
+==============================================================================
+
+                       T_IM                                           T                                      age                                        ADFI                                        
+                      count       mean       std    min    max    count       mean       std   min   max   count        mean        std   min    max   count         mean         std    min     max
+periode                                                                                                                                                                                             
+Montée température    14549  38.901355  0.465496  36.90  40.80    14549  32.000000  0.000000  32.0  32.0   11722  112.673776  15.202791  82.0  141.0   14451  2293.594453  490.451529  417.0  3550.0
+Stress thermique     393434  39.431875  0.535728  36.20  41.75   393434  32.000000  0.000000  32.0  32.0  329507  115.068779  14.956536  82.0  145.0  389146  2255.015107  451.557512  417.0  3810.0
+Thermoneutralité    1070222  38.764885  0.477149  30.04  41.40  1065790  23.052599  1.822031  22.0  32.0  832279  112.048801  18.477508  71.0  155.0  931133  2702.452571  601.471193  417.0  4257.2
+
+
+==============================================================================
+8. NUMERIC CORRELATIONS
+==============================================================================
+
+                        T_IM         T       age  temps_relatif_jour      ADFI
+T_IM                1.000000  0.451251 -0.164812            0.292871 -0.314878
+T                   0.451251  1.000000  0.193095            0.625920 -0.270048
+age                -0.164812  0.193095  1.000000            0.126417  0.622705
+temps_relatif_jour  0.292871  0.625920  0.126417            1.000000 -0.262746
+ADFI               -0.314878 -0.270048  0.622705           -0.262746  1.000000
+
+
+==============================================================================
+9. VARIABLES THAT SHOULD NOT BE USED AS DIRECT ML PREDICTORS
+==============================================================================
+
+periode
+  Reason: this is the experimental target.
+
+
+porc
+  Reason: animal identity can cause memorization and does not represent a transferable physiological signal.
+
+
+id_challenge
+  Reason: experimental challenge identifier.
+
+
+ordre_challenge
+  Reason: experimental sequence information and potential schedule leakage.
+
+
+datetime
+  Reason: experimental schedule/time can reveal the experimental condition rather than physiological response.
+
+
+date_stress
+  Reason: directly encodes stress timing.
+
+
+jour_debut_stress
+  Reason: directly encodes stress timing.
+
+
+temps_relatif_jour
+  Reason: relative experimental timing may encode the experimental schedule and must be treated cautiously.
+
+
+
+==============================================================================
+10. CANDIDATE ML TASK
+==============================================================================
+
+Candidate genuine experimental task:
+
+Predict the experimental physiological period using physiological/environmental measurements.
+
+Candidate predictors to investigate:
+  - T_IM
+  - T
+  - age
+  - ADFI
+  - stage
+
+
+Important caution:
+T may make experimental-period classification nearly trivial because environmental temperature is directly related to the heat-stress manipulation. Therefore, a separate physiological-response task using T_IM should also be considered rather than relying only on period classification.
+
+
+This audit does NOT establish a final PRISM risk-label mapping. The INRAE experimental periods must not be renamed as GOOD, NEEDS_ATTENTION, or HIGH_RISK.

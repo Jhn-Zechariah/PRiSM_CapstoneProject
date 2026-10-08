@@ -1,0 +1,124 @@
+INRAE STAGE LEAKAGE AUDIT
+
+Input file: C:\src\PRiSM_CapstoneProject\prism-ml\data\processed\inrae\inrae_ml_features_30min.csv
+Rows: 165,589
+Unique pigs: 195
+
+
+==============================================================================
+1. STAGE DISTRIBUTION
+==============================================================================
+
+count    161233.000000
+mean         -3.047676
+std           4.832235
+min         -19.000000
+25%          -6.000000
+50%          -2.000000
+75%           1.000000
+max           4.000000
+
+
+==============================================================================
+2. STAGE BY EXPERIMENTAL PERIOD
+==============================================================================
+
+                     count      mean       std   min  median  max
+periode                                                          
+Montée température    1613  0.000000  0.000000   0.0     0.0  0.0
+Stress thermique     40048  2.110742  1.252957   0.0     2.0  4.0
+Thermoneutralité    119572 -4.816487  4.335229 -19.0    -4.0  4.0
+
+
+==============================================================================
+3. AGE BY EXPERIMENTAL PERIOD
+==============================================================================
+
+                     count        mean        std   min  median    max
+periode                                                               
+Montée température    1325  110.481509  16.879366  82.0   110.0  141.0
+Stress thermique     33512  112.638726  17.343263  82.0   113.0  145.0
+Thermoneutralité    101562  109.039985  19.302656  71.0   111.0  155.0
+
+
+==============================================================================
+4. CORRELATION MATRIX
+==============================================================================
+
+            stage_mean  age_mean  ADFI_mean
+stage_mean    1.000000  0.368720   0.058375
+age_mean      0.368720  1.000000   0.650227
+ADFI_mean     0.058375  0.650227   1.000000
+
+
+==============================================================================
+5. STAGE DISTRIBUTION ACROSS PIGS
+==============================================================================
+
+             count        mean         std         min         max
+count   195.000000  195.000000  195.000000  195.000000  195.000000
+mean    826.835897   -2.964559    4.120228   -9.923077    3.912821
+std     342.813050    2.130673    1.044169    3.830054    1.147651
+min      80.000000  -14.000000    1.423136  -19.000000  -12.000000
+25%     575.000000   -4.531756    3.418795  -13.000000    4.000000
+50%     768.000000   -1.823529    3.616705   -8.000000    4.000000
+75%     991.000000   -1.500000    4.841770   -7.000000    4.000000
+max    1675.000000    0.500000    6.651999   -3.000000    4.000000
+
+
+==============================================================================
+6. STAGE / TARGET ASSOCIATION
+==============================================================================
+
+periode     Montée température  Stress thermique  Thermoneutralité
+stage_mean                                                        
+-19.0                 0.000000          0.000000          1.000000
+-18.0                 0.000000          0.000000          1.000000
+-17.0                 0.000000          0.000000          1.000000
+-16.0                 0.000000          0.000000          1.000000
+-15.0                 0.000000          0.000000          1.000000
+-14.0                 0.000000          0.000000          1.000000
+-13.0                 0.000000          0.000000          1.000000
+-12.0                 0.000000          0.000000          1.000000
+-11.0                 0.000000          0.000000          1.000000
+-10.0                 0.000000          0.000000          1.000000
+-9.0                  0.000000          0.000000          1.000000
+-8.0                  0.000000          0.000000          1.000000
+-7.0                  0.000000          0.000000          1.000000
+-6.0                  0.000000          0.000000          1.000000
+-5.0                  0.000000          0.000000          1.000000
+-4.0                  0.000000          0.000000          1.000000
+-3.0                  0.000000          0.000000          1.000000
+-2.0                  0.000000          0.000000          1.000000
+-1.0                  0.000000          0.000000          1.000000
+ 0.0                  0.135786          0.368886          0.495328
+ 1.0                  0.000000          0.810431          0.189569
+ 2.0                  0.000000          0.810499          0.189501
+ 3.0                  0.000000          0.805222          0.194778
+ 4.0                  0.000000          0.741766          0.258234
+
+
+==============================================================================
+7. INTERPRETATION GUIDANCE
+==============================================================================
+
+
+The stage variable must not automatically be considered a valid
+physiological predictor.
+
+If stage_mean closely separates the experimental periods, it may
+encode experimental progression, animal development, or another
+structured variable associated with the experimental protocol.
+
+A high Random Forest importance for stage_mean therefore does not
+automatically demonstrate that stage is a transferable physiological
+signal.
+
+The purpose of this audit is to determine whether stage should remain
+in the public experimental benchmark.
+
+The final PRISM farm model must only use variables that will actually
+be available from the real PRISM farm sensing and data-collection
+system.
+
+No PRISM risk labels are created by this audit.

@@ -26,7 +26,6 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
-
     return BlocConsumer<AuthCubit, AuthState>(
       listener: (context, state) {
         if (state is Authenticated) {
@@ -36,11 +35,10 @@ class _AuthPageState extends State<AuthPage> {
               builder: (context) => AppNav(onThemeToggle: widget.onThemeToggle),
             ),
           );
-        }
-        else if (state is AuthError) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(state.message)),
-          );
+        } else if (state is AuthError) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(state.message)));
         }
       },
       builder: (context, state) {
@@ -52,7 +50,7 @@ class _AuthPageState extends State<AuthPage> {
         if (showLoginPage) {
           return LoginScreen(
             // 🔹 FIXED: Wrapped in an anonymous function to defer execution until clicked
-            onThemeToggle:  widget.onThemeToggle,
+            onThemeToggle: widget.onThemeToggle,
             togglePages: togglePages,
           );
         } else {

@@ -212,8 +212,12 @@ class LiveSensorService {
           .timeout(const Duration(seconds: 3));
       final d = doc.data();
       final ageSeconds = _dataAgeSeconds(d);
-      if (d != null && ageSeconds != null && ageSeconds <= _oneShotGetFreshnessLimitSeconds) {
-        debugPrint('[LiveSensorService] Firestore one-shot GET OK (age ${ageSeconds}s)');
+      if (d != null &&
+          ageSeconds != null &&
+          ageSeconds <= _oneShotGetFreshnessLimitSeconds) {
+        debugPrint(
+          '[LiveSensorService] Firestore one-shot GET OK (age ${ageSeconds}s)',
+        );
         _attachFirestoreFallbackIfNeeded(); // keep it warm in case it does work
         _markOnline(d);
         return;
@@ -256,13 +260,16 @@ class LiveSensorService {
             // reattach right after the ESP32 gets unplugged would still
             // flash "Online" once using the stale last-known reading.
             final ageSeconds = _dataAgeSeconds(data);
-            if (ageSeconds == null || ageSeconds > _oneShotGetFreshnessLimitSeconds) {
+            if (ageSeconds == null ||
+                ageSeconds > _oneShotGetFreshnessLimitSeconds) {
               debugPrint(
                 '[LiveSensorService] Firestore snapshot stale (age ${ageSeconds}s) — ignoring',
               );
               return;
             }
-            debugPrint('[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)');
+            debugPrint(
+              '[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)',
+            );
             _markOnline(data);
           },
           onError: (e) {
@@ -605,7 +612,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   String _vaxMedName = VaxScheduleMemory.medName;
   String _vaxDateLabel = VaxScheduleMemory.dateLabel;
-
 
   // _tempMax and _humidityLive intentionally start at 0 and are NEVER
   // restored from cache — they must come from a live ESP32 response.
@@ -991,7 +997,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           if (t > firestoreTempMax) firestoreTempMax = t;
         }
       }
-     QuerySnapshot? humiditySnapshot;
+      QuerySnapshot? humiditySnapshot;
       try {
         humiditySnapshot = await FirebaseFirestore.instance
             .collection('humidity_hourly')
@@ -1043,7 +1049,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         SensorMemory.save();
         if (mounted) setState(() => _humidityMaxToday = firestoreHumidityMax);
       }
-
     } catch (e) {
       debugPrint('Error syncing today max from Firestore: $e');
     }
@@ -1093,7 +1098,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ── Graph ────────────────────────────────────
-
 
   Future<void> _loadGraphData() async {
     final hourKey = currentHourKey();
@@ -1651,7 +1655,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     : const Color(0xFFD32F2F),
                 borderRadius: BorderRadius.circular(10),
               ),
-             child: _isSprinklerLoading
+              child: _isSprinklerLoading
                   ? const SizedBox(
                       width: 18,
                       height: 18,
@@ -1685,6 +1689,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
   }
+
+  //THERMAL HEATMAP LOCATION
 
   Widget _buildDot({required bool isActive, required Color color}) {
     return AnimatedContainer(
@@ -2009,10 +2015,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             isDark,
             Symbols.calendar_month,
             "Vax Schedule",
-            [
-              "Vax name: $_vaxMedName",
-              "Date: $_vaxDateLabel",
-            ],
+            ["Vax name: $_vaxMedName", "Date: $_vaxDateLabel"],
             const Color(0xFFFB8C00),
           ),
         ),
