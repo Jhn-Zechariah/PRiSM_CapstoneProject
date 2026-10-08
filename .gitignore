@@ -62,3 +62,36 @@ firebase_credentials.json
 
 venv/
 __pycache__/
+
+# =========================================================
+# PRISM ML DATA
+# =========================================================
+
+# Raw/public datasets
+prism-ml/data/raw/
+
+# Generated/processed datasets
+prism-ml/data/processed/
+prism-ml/data/interim/
+prism-ml/data/output/
+
+# Trained ML models
+prism-ml/models/
+*.pkl
+*.pickle
+*.joblib
+*.onnx
+
+# ML logs and experiment outputs
+prism-ml/logs/
+prism-ml/outputs/
+prism-ml/runs/
+prism-ml/experiments/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
