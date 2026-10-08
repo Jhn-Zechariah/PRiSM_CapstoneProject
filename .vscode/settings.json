@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/Users/Zechariah Parado/PRiSM_CapstoneProject/linux"
+    "cmake.sourceDirectory": "C:/Users/Zechariah Parado/PRiSM_CapstoneProject/linux",
+    "python-envs.defaultEnvManager": "ms-python.python:system"
 }
