@@ -9,7 +9,7 @@ import '../components/social_logins.dart';
 
 class SignupScreen extends StatefulWidget {
   final void Function()? togglePages;
-  final VoidCallback onThemeToggle;
+  final Function(ThemeMode) onThemeToggle;
 
   const SignupScreen({
     super.key,
@@ -223,22 +223,16 @@ class _SignupScreenState extends State<SignupScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Social login buttons row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SocialLoginButton(
-                        asset: 'assets/google.svg',
-                        label: "Sign up with Google",
-
-                        isDarkMode: isDarkMode,
-                        onTap: () async {
-                          //Google Sign-In function here
-                          authCubit.googleSignIn();
-                        },
-                      ),
-                    ],
+                  //Social log in
+                  SocialLoginButton(
+                    asset: 'assets/google.svg',
+                    label: "Sign up with Google",
+                    isDarkMode: isDarkMode,
+                    onTap: () async {
+                      authCubit.googleSignIn();
+                    },
                   ),
+
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
