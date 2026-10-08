@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // 🔹 Imported shared_preferences
 
 import 'package:prism_app/features/auth/data/firebase_auth_repo.dart';
@@ -25,6 +26,11 @@ void main() async {
 
   print("🔥 INITIALIZING FIREBASE...");
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Initialize Google Sign-In once
+  await GoogleSignIn.instance.initialize(
+    serverClientId: '666163168561-gugikgqvg7mhrruqj0clqmrlchrg45qn.apps.googleusercontent.com',
+  );
 
   // Disable Firestore cache so sensor offline is always detected correctly
   // Enable persistence so cached data survives hot restart and offline opens

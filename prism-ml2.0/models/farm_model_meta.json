@@ -1,0 +1,32 @@
+{
+  "features": [
+    "body_temp",
+    "ambient_temp",
+    "humidity",
+    "thi"
+  ],
+  "classes": [
+    "Good",
+    "High Risk",
+    "Needs Attention"
+  ],
+  "metrics": {
+    "accuracy": 0.9988,
+    "macro_f1": 0.9989,
+    "ablation_accuracy": 0.9844,
+    "ablation_macro_f1": 0.9849,
+    "ablation_dropped": [
+      "thi"
+    ]
+  },
+  "best_params": {
+    "max_depth": 4,
+    "min_samples_leaf": 5
+  },
+  "versions": {
+    "scikit-learn": "1.8.0",
+    "numpy": "2.4.4",
+    "pandas": "3.0.2",
+    "joblib": "1.5.3"
+  }
+}

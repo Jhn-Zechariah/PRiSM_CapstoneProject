@@ -5,6 +5,7 @@ FIREBASE AS A BACKEND - replace backend here
  */
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:prism_app/features/auth/domain/model/app_user.dart';
@@ -172,40 +173,31 @@ class FirebaseAuthRepo implements AuthRepo {
   @override
   Future<AppUser?> googleSignIn() async {
     try {
-      await GoogleSignIn.instance.initialize();
+      final gUser = await GoogleSignIn.instance.authenticate();
+      final gAuth = gUser.authentication;
 
-      //begin sign-in process
-      final GoogleSignInAccount gUser = await GoogleSignIn.instance
-          .authenticate();
-
-      //obtain details from req
-      final GoogleSignInAuthentication gAuth = gUser.authentication;
-
-      //create credential for user
       final credential = GoogleAuthProvider.credential(idToken: gAuth.idToken);
+      final userCredential = await firebaseAuth.signInWithCredential(credential);
 
-      //sign in with credential
-      UserCredential userCredential = await firebaseAuth.signInWithCredential(
-        credential,
-      );
-
-      //firebase user
       final firebaseUser = userCredential.user;
       if (firebaseUser == null) return null;
 
-      AppUser user = AppUser(
+      final user = AppUser(
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
         username: firebaseUser.displayName ?? '',
       );
 
-      //create/update firestore document
-      await createUserDocument(user);
+      try {
+        await createUserDocument(user);
+      } catch (e) {
+        debugPrint('Firestore write failed: $e');
+      }
 
       return user;
-    } catch (e) {
-      // Ensure we return null if the try block fails!
-      return null;
+    } catch (e, st) {
+      debugPrint('Google sign-in failed: $e\n$st');
+      rethrow; // lets the cubit emit AuthError so you can show a message
     }
   }
 }

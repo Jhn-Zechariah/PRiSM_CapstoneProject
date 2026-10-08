@@ -1,0 +1,38 @@
+{
+  "features": [
+    "age_days",
+    "stage",
+    "current_weight",
+    "previous_weight",
+    "days_between",
+    "weight_gain",
+    "adg_g",
+    "reference_weight",
+    "growth_ratio"
+  ],
+  "classes": [
+    "Above Expected",
+    "Below Expected",
+    "Within Expected"
+  ],
+  "metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "ablation_accuracy": 0.7238,
+    "ablation_macro_f1": 0.7205,
+    "ablation_dropped": [
+      "growth_ratio",
+      "reference_weight"
+    ]
+  },
+  "best_params": {
+    "max_depth": 2,
+    "min_samples_leaf": 5
+  },
+  "versions": {
+    "scikit-learn": "1.8.0",
+    "numpy": "2.4.4",
+    "pandas": "3.0.2",
+    "joblib": "1.5.3"
+  }
+}
