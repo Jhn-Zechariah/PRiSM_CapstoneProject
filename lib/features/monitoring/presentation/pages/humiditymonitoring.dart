@@ -157,10 +157,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
   double? _currentHumidity;
 
-  // Granularity toggle for the Today AND Custom tabs: 0 = Hour (existing
-  // hourly docs), 1 = Minute (live buffer for Today, a one-off range query
-  // for Custom).
-  int _todayGranularity = 0;
   // static: keeps today's collected data across navigating away from and
   // back to this screen. These used to be per-instance fields, so leaving
   // and returning threw away everything collected so far and started
@@ -244,16 +240,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     }
   }
 
-  static Future<void> _restoreToday() async {
-    if (_minuteBufferToday.isNotEmpty) return;
+  static Future<bool> _restoreToday() async {
+    if (_minuteBufferToday.isNotEmpty || _syncing) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
-      if (raw == null) return;
+      if (raw == null) return false;
       final m = jsonDecode(raw) as Map<String, dynamic>;
-      if (m['day'] != SensorMemory.todayKey()) return;
+      if (m['day'] != SensorMemory.todayKey()) return false;
       final lastTs = (m['lastTs'] as num?)?.toInt();
-      if (lastTs == null) return;
+      if (lastTs == null) return false;
+      if (_minuteBufferToday.isNotEmpty || _syncing) return false;
       for (final p in (m['pts'] as List)) {
         _minuteBufferToday.add({
           'x': (p[0] as num).toDouble(),
@@ -266,18 +263,23 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       _statCount = (m['count'] as num?)?.toInt() ?? 0;
       _lastDocTs = DateTime.fromMillisecondsSinceEpoch(lastTs);
       _minuteBufferDayKey = m['day'] as String;
+      return true;
     } catch (e) {
       debugPrint('[Hum restore] failed: $e');
+      return false;
     }
   }
-
   // Minute-level data for the Custom range tab — kept separate from
   // _minuteBufferToday since it covers an arbitrary user-picked range
   // instead of "today", and isn't fed by live readings.
   final List<Map<String, double>> _minuteBufferCustom = [];
   String _minuteCustomRangeKey = '';
   bool _minuteCustomLoading = false;
+  bool _rangeLoadFailed = false;
   int _rangeRequestId = 0;
+
+  // Keeps the loaded Week/Month so re-tapping a tab costs no Firestore reads.
+  static final Map<int, Map<String, dynamic>> _rangeCache = {};
 
   // Start of the range that _minuteBufferCustom was loaded for. Used to
   // ignore stale data when a new week/month begins.
@@ -332,19 +334,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     _rangeStatMin = null;
     _rangeStatSum = 0;
     _rangeStatCount = 0;
-  }
-
-  void _addToRangeStats(double value) {
-    if (_rangeStatMax == null || value > _rangeStatMax!) {
-      _rangeStatMax = value;
-    }
-
-    if (_rangeStatMin == null || value < _rangeStatMin!) {
-      _rangeStatMin = value;
-    }
-
-    _rangeStatSum += value;
-    _rangeStatCount++;
   }
 
   static bool _humidityCacheIsToday() =>
@@ -447,13 +436,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     // Pull new humidity_second readings into Today's graph every 10s,
     // matching the ESP32's 10s save interval.
     _todaySyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (!mounted) return;
+      if (!mounted || !_wasTickerEnabled) return;
       if (_selectedTimeRange == 2) unawaited(_syncToday());
     });
     // Every minute: Week/Month check whether a new week/month started or
     // the hourly refresh is due. The range key makes this a no-op otherwise.
     _hourlyRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (!mounted || _minuteCustomLoading) return;
+      if (!mounted || _minuteCustomLoading || !_wasTickerEnabled) return;
       if (_selectedTimeRange == 0 || _selectedTimeRange == 1) {
         _loadMinuteChartForRange(_selectedTimeRange);
       }
@@ -472,8 +461,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     if (LiveSensorService.sensorStatus.value == "Sensor Offline") return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
+    if ((data['humidityValid'] as bool? ?? true) == false) return;
     final h = (data['humidity'] as num?)?.toDouble();
-    if (h == null || h < 0) return;
+    if (h == null || h <= 0 || h > 100) return;
     _currentHumidity = h;
     _addLivePoint(h, data);
   }
@@ -627,6 +617,32 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       return;
     }
 
+    // Already loaded this hour: restore from memory, no Firestore reads.
+    final cached = _rangeCache[rangeIndex];
+    if (rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
+      if (!mounted) return;
+      setState(() {
+        _minuteBufferCustom
+          ..clear()
+          ..addAll(List<Map<String, double>>.from(cached['points'] as List));
+        _minuteCustomRangeKey = rangeKey;
+        _minuteBufferRangeStart = start;
+        _rangeStatMax = cached['max'] as double?;
+        _rangeStatMin = cached['min'] as double?;
+        _rangeStatSum = cached['sum'] as double;
+        _rangeStatCount = cached['count'] as int;
+        _minuteCustomLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_customChartScrollController.hasClients) {
+          _customChartScrollController.jumpTo(
+            _customChartScrollController.position.maxScrollExtent,
+          );
+        }
+      });
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _minuteCustomLoading = true;
@@ -634,6 +650,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     }
 
     final requestId = ++_rangeRequestId;
+    _rangeLoadFailed = false;
 
     try {
       final points = await _fetchCompleteHumRange(start, end, requestId);
@@ -656,6 +673,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
         _minuteCustomRangeKey = rangeKey;
         _minuteBufferRangeStart = start;
+        if (rangeIndex != 3) {
+          _rangeCache[rangeIndex] = {
+            'key': rangeKey,
+            'points': List<Map<String, double>>.from(points),
+            'max': _rangeStatMax,
+            'min': _rangeStatMin,
+            'sum': _rangeStatSum,
+            'count': _rangeStatCount,
+          };
+        }
       });
 
       if (rangeIndex != 3) {
@@ -671,6 +698,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       }
     } catch (e) {
       debugPrint('[MinuteChart/humidity range] query failed: $e');
+      if (requestId == _rangeRequestId) _rangeLoadFailed = true;
     } finally {
       if (requestId == _rangeRequestId) _minuteCustomLoading = false;
 
@@ -685,11 +713,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     DateTime end,
     int requestId,
   ) async {
-    _resetRangeStats();
-
     if (!end.isAfter(start)) {
+      _resetRangeStats();
       return [];
     }
+    double? sMax;
+    double? sMin;
+    double sSum = 0;
+    int sCount = 0;
 
     const int graphBucketCount = 300;
     const int pageSize = 1000;
@@ -715,7 +746,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
           .limit(pageSize)
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 20));
 
       if (requestId != _rangeRequestId) return [];
 
@@ -744,13 +776,18 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         }
 
         final value = (raw as num).toDouble();
-        if (value < 0 || value > 100) continue;
+        if (data['humidityValid'] == false || value <= 0 || value > 100) {
+          continue;
+        }
 
         // -----------------------------------------------
         // EXACT RANGE STATISTICS
         // -----------------------------------------------
 
-        _addToRangeStats(value);
+        if (sMax == null || value > sMax) sMax = value;
+        if (sMin == null || value < sMin) sMin = value;
+        sSum += value;
+        sCount++;
 
         // -----------------------------------------------
         // GRAPH AGGREGATION
@@ -790,6 +827,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         break;
       }
     }
+
+    if (requestId != _rangeRequestId) return [];
+    _rangeStatMax = sMax;
+    _rangeStatMin = sMin;
+    _rangeStatSum = sSum;
+    _rangeStatCount = sCount;
 
     final points = <Map<String, double>>[];
 
@@ -911,7 +954,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           }
 
           final humidity = (raw as num).toDouble();
-          if (humidity < 0 || humidity > 100) continue;
+          if (d['humidityValid'] == false || humidity <= 0 || humidity > 100) {
+            continue;
+          }
 
           // Exact Today statistics.
           _addToStats(humidity);
@@ -945,9 +990,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       // DASHBOARD MAXIMUM
       // ─────────────────────────────────────────────────────────────
 
-      if (_statMax != null && _statMax! > SensorMemory.lastHumidityMaxToday) {
+      // Always push the exact max to the Dashboard, even if it is lower
+      // than a stale/spiky stored value.
+      if (_statMax != null && _statMax! != SensorMemory.lastHumidityMaxToday) {
+        SensorMemory.lastHumidityMaxDate = todayKey;
         SensorMemory.setHumidityMaxToday(_statMax!);
-
         SensorMemory.save();
       }
 
@@ -1008,9 +1055,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       return;
     }
 
-    final humLive = (data['humidity'] as num?)?.toDouble();
-
-    if (humLive == null || humLive < 0) {
+    if ((data['humidityValid'] as bool? ?? true) == false) {
       if (_currentHumidity != null) {
         setState(() {
           _currentHumidity = null;
@@ -1019,9 +1064,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       return;
     }
 
-    final tempLive =
-        (data['temperature'] as num?)?.toDouble() ??
-        (data['tempAvg'] as num?)?.toDouble();
+    final humLive = (data['humidity'] as num?)?.toDouble();
+
+    if (humLive == null || humLive <= 0 || humLive > 100) {
+      if (_currentHumidity != null) {
+        setState(() {
+          _currentHumidity = null;
+        });
+      }
+      return;
+    }
+
+    final tempOk = data['ambientTempValid'] as bool? ?? true;
+    final tempLive = tempOk ? (data['ambientTemp'] as num?)?.toDouble() : null;
 
     setState(() {
       _currentHumidity = humLive;
@@ -1036,8 +1091,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       SensorMemory.setHumidityMaxToday(humLive);
       SensorMemory.save();
     }
-
-    unawaited(_syncToday());
 
     final now = DateTime.now();
 
@@ -1101,14 +1154,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       // reading until the (slower) history fetch caught up. On repeat
       // visits the same day, this returns almost instantly thanks to the
       // _todayHistoryFetchedDayKey guard above.
-      await _restoreToday();
+      final restored = await _restoreToday();
 
       // If today's data is already in memory (previous visit) or was just
       // restored from local storage, show it immediately and only fetch
       // what was missed, instead of waiting on a full reload.
       final todayKey = SensorMemory.todayKey();
+      if (restored) _todayHistoryFetchedDayKey = todayKey;
       if (_minuteBufferToday.isNotEmpty && _minuteBufferDayKey == todayKey) {
-        _todayHistoryFetchedDayKey = todayKey;
         _seedLivePointFromLatest();
         if (mounted) setState(() => _isLoading = false);
         _scrollToNowSoon();
@@ -1176,6 +1229,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
+      sprinklerToggledAt = DateTime.now();
       sprinklerNotifier.value = turnOn;
       final now = DateTime.now();
 
@@ -1400,7 +1454,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
             _customStart = start;
             _customEnd = end;
             _selectedTimeRange = 3;
-            _todayGranularity = 0;
             _clearStatsForRangeSwitch();
           });
           _loadMinuteChartForRange(3);
@@ -1662,11 +1715,6 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               setState(() {
                 _selectedTimeRange = index;
                 _clearStatsForRangeSwitch();
-                if (!isCustom && index != 2) {
-                  // Week/Month no longer offer a Minute view — always
-                  // show the hourly rollup, same as Today's single view.
-                  _todayGranularity = 0;
-                }
               });
               if (isCustom) {
                 await _showCustomRangePicker();
@@ -1837,8 +1885,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         child: Text(
           _selectedTimeRange == 2
               ? "Waiting for live readings..."
-              : _todayGranularity == 1
-              ? "No minute data for this range"
+              : _rangeLoadFailed
+              ? "Could not load data. Tap the range again to retry."
               : "No data for selected range",
           style: TextStyle(color: _textSecondary(isDark)),
         ),
@@ -1904,7 +1952,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           : (spanHours <= 336 ? 15.0 : 8.0);
       final minWidth = MediaQuery.of(context).size.width - 56;
       final customWidth = (spanHours * pxPerHour)
-          .clamp(minWidth, 12000.0)
+          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, 12000.0)
           .toDouble();
       chartBody = Stack(
         children: [
@@ -1922,7 +1970,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                     rangeStart: chartRange.start,
                     showYAxisLabels: false,
                     gapHours: spanHours / 300 * 2.5,
-                    gapBlankHours: spanHours / 300 * 2.5,
+                    gapBlankHours: double.infinity,
                   ),
                   child: SizedBox(height: 320, width: customWidth),
                 ),
@@ -2005,11 +2053,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     double? minLabel;
     double? maxLabel;
 
-    if (_selectedTimeRange == 2 && _statCount > 0) {
-      // TODAY — exact full-day statistics
-      maxLabel = _statMax;
-      minLabel = _statMin;
-      avgLabel = _statSum / _statCount;
+    if (_selectedTimeRange == 2) {
+      if (_statCount > 0) {
+        maxLabel = _statMax;
+        minLabel = _statMin;
+        avgLabel = _statSum / _statCount;
+      }
     } else if (_rangeStatCount > 0) {
       // THIS MONTH / THIS WEEK / CUSTOM
       // Exact statistics from every Firestore reading.
@@ -2080,6 +2129,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                 _buildReviewStat('Highest', maxDisplay, Colors.red, isDark),
               ],
             ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _selectedTimeRange == 2
+                ? 'Based on $_statCount readings'
+                : 'Based on $_rangeStatCount readings',
+            style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
           ),
         ],
       ),
@@ -2275,7 +2331,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         _mlCondition = result['condition'] as String?;
         _mlInsight = (result['insights'] as List?)?.join(' ');
         _mlRecommendation =
-            (result['recommendations'] as List?)?.first as String?;
+            ((result['recommendations'] as List?)?.isNotEmpty ?? false)
+                ? (result['recommendations'] as List).first as String?
+                : null;
         _mlInsightLoading = false;
       });
     } catch (e) {
@@ -2896,7 +2954,9 @@ class _HumidityChartPainter extends CustomPainter {
     if (data.length < 2) return;
 
     // Roughly one point per 4px of chart width keeps the line smooth.
-    final targetPoints = (chartWidth / 4).clamp(20, 1200).toInt();
+    final targetPoints = rangeStart != null
+        ? 1200 // Week/Month/Custom already hold at most 300 points
+        : (chartWidth / 4).clamp(20, 1200).toInt();
     final tail = rawTailCount.clamp(0, data.length);
     final tailStart = data.length - tail;
 
@@ -2987,6 +3047,39 @@ class _HumidityChartPainter extends CustomPainter {
     final lineColor = isDark
         ? const Color(0xFFEF9A9A)
         : const Color(0xFFC62828);
+
+    if (rangeStart != null && sampled.isNotEmpty) {
+      final bandPaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.2)
+        ..style = PaintingStyle.fill;
+      int s = 0;
+      while (s < sampled.length) {
+        int e = s + 1;
+        while (e < sampled.length && !segmentStarts.contains(e)) {
+          e++;
+        }
+        final band = Path();
+        for (int i = s; i < e; i++) {
+          final bx = getX(i.toDouble(), totalPoints);
+          final by = getY(sampled[i]['max'] ?? sampled[i]['humidity']!);
+          if (i == s) {
+            band.moveTo(bx, by);
+          } else {
+            band.lineTo(bx, by);
+          }
+        }
+        for (int i = e - 1; i >= s; i--) {
+          band.lineTo(
+            getX(i.toDouble(), totalPoints),
+            getY(sampled[i]['min'] ?? sampled[i]['humidity']!),
+          );
+        }
+        band.close();
+        canvas.drawPath(band, bandPaint);
+        s = e;
+      }
+    }
+
     canvas.drawPath(
       linePath,
       Paint()

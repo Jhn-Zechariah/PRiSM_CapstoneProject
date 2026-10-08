@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -26,6 +27,9 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   @override
   void initState() {
     super.initState();
+    _durationController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadPreferences();
   }
 
@@ -41,29 +45,155 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   // Load preferences from SharedPreferences
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // Start with the local values
+    bool iot = prefs.getBool('isIotEnabled') ?? true;
+    bool auto = prefs.getBool('isSprinklerAuto') ?? true;
+    String schedule = prefs.getString('iotSchedule') ?? '';
+    String duration = prefs.getString('iotDuration') ?? '';
+
+    // Firestore wins if it has saved settings
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('sprinkler_settings')
+          .doc('config')
+          .get();
+      final data = snap.data();
+      if (data != null) {
+        iot = data['isIotEnabled'] ?? iot;
+        auto = data['isSprinklerAuto'] ?? auto;
+        schedule = (data['schedule'] ?? schedule).toString();
+        final d = data['durationMins'];
+        if (d != null) duration = d.toString();
+      }
+    } catch (_) {
+      // offline: keep the local values
+    }
+
+    if (!mounted) return;
     setState(() {
-      isIotEnabled = prefs.getBool('isIotEnabled') ?? true;
-      isSprinklerAuto = prefs.getBool('isSprinklerAuto') ?? true;
+      isIotEnabled = iot;
+      isSprinklerAuto = auto;
       _tempController.text = prefs.getString('iotMaxTemp') ?? '';
       _humidityController.text = prefs.getString('iotMaxHumidity') ?? '';
-      _scheduleController.text = prefs.getString('iotSchedule') ?? '';
-      _durationController.text = prefs.getString('iotDuration') ?? '';
+      _scheduleController.text = schedule;
+      _durationController.text = duration;
       _isLoading = false;
     });
   }
 
+    // Opens a clock picker and writes the time like "6:00 PM"
+  Future<void> _pickScheduleTime() async {
+    TimeOfDay initial = TimeOfDay.now();
+
+    final m = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$')
+        .firstMatch(_scheduleController.text.trim().toUpperCase());
+    if (m != null) {
+      int h = int.parse(m.group(1)!);
+      final min = int.parse(m.group(2)!);
+      final pm = m.group(3) == 'PM';
+      if (h == 12) {
+        h = pm ? 12 : 0;
+      } else if (pm) {
+        h += 12;
+      }
+      initial = TimeOfDay(hour: h, minute: min);
+    }
+
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked != null) {
+      final h12 = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
+      final mm = picked.minute.toString().padLeft(2, '0');
+      final ap = picked.period == DayPeriod.am ? 'AM' : 'PM';
+      setState(() => _scheduleController.text = '$h12:$mm $ap');
+    }
+  }
+
+    // Shows the current schedule at the top of the sprinkler section
+  Widget _buildScheduleSummary(ThemeData theme) {
+    final schedule = _scheduleController.text.trim();
+    final duration = _durationController.text.trim();
+    final active = isIotEnabled && isSprinklerAuto && schedule.isNotEmpty;
+
+    final text = schedule.isEmpty
+        ? 'No schedule set'
+        : 'Daily at $schedule • ${duration.isEmpty ? '5' : duration} mins • '
+            '${active ? 'Active' : 'Paused'}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: (active ? Colors.green : Colors.grey).withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.schedule,
+            size: 18,
+            color: active ? Colors.green[600] : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: theme.textTheme.bodyLarge?.color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // Save preferences to SharedPreferences AND sync to Firestore
   Future<void> _savePreferences() async {
+    // Validate schedule: format like 6:00 PM or 11:30 AM
+    final scheduleRaw = _scheduleController.text.trim().toUpperCase();
+    final match = RegExp(r'^(0?[1-9]|1[0-2]):([0-5]\d)\s*(AM|PM)$')
+        .firstMatch(scheduleRaw);
+
+    if (scheduleRaw.isNotEmpty && match == null) {
+      if (mounted) {
+        CustomSnackbar.show(
+          context: context,
+          message: "Schedule must look like 6:00 PM",
+        );
+      }
+      return;
+    }
+
+    // Clean version, e.g. "06:00pm" becomes "6:00 PM"
+    final scheduleText = match == null
+        ? ''
+        : '${int.parse(match.group(1)!)}:${match.group(2)} ${match.group(3)}';
+    _scheduleController.text = scheduleText;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isIotEnabled', isIotEnabled);
     await prefs.setBool('isSprinklerAuto', isSprinklerAuto);
     await prefs.setString('iotMaxTemp', _tempController.text);
     await prefs.setString('iotMaxHumidity', _humidityController.text);
-    await prefs.setString('iotSchedule', _scheduleController.text);
+    await prefs.setString('iotSchedule', scheduleText);
     await prefs.setString('iotDuration', _durationController.text);
 
     final maxTemp = double.tryParse(_tempController.text);
     final maxHumidity = double.tryParse(_humidityController.text);
+
+    // Settings document the ESP32 reads (fixed path, no user id needed)
+    await FirebaseFirestore.instance
+        .collection('sprinkler_settings')
+        .doc('config')
+        .set({
+      'isIotEnabled': isIotEnabled,
+      'isSprinklerAuto': isSprinklerAuto,
+      'schedule': scheduleText,
+      'durationMins': int.tryParse(_durationController.text.trim()) ?? 5,
+    }, SetOptions(merge: true));
 
     // 🔹 Synchronize thresholds to Firestore so the backend (Cloud
     // Functions) can compare incoming live sensor readings against them.
@@ -76,7 +206,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
           'isSprinklerAuto': isSprinklerAuto,
           'maxTemp': maxTemp,
           'maxHumidity': maxHumidity,
-          'schedule': _scheduleController.text,
+          'schedule': scheduleText,
           'durationMins': int.tryParse(_durationController.text),
         });
       }
@@ -140,9 +270,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               onChanged: (val) {
                 setState(() {
                   isIotEnabled = val;
-                  if (!val) {
-                    isSprinklerAuto = false;
-                  }
+                  isSprinklerAuto = val;
                 });
               },
             ),
@@ -170,6 +298,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
             _buildDivider(isDark),
 
             _buildSectionHeader('Sprinkler control', textColor),
+            const SizedBox(height: 8),
+            _buildScheduleSummary(theme),
             const SizedBox(height: 12),
             _buildSwitchRow(
               context: context,
@@ -185,8 +315,10 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               dotColor: Colors.red[600]!,
               label: 'Activation schedule',
               controller: _scheduleController,
-              hintText: '00:00',
+              hintText: 'Tap to set',
               enabled: isIotEnabled,
+              readOnly: true,
+              onTap: _pickScheduleTime,
             ),
             const SizedBox(height: 12),
             _buildInputRow(
@@ -211,8 +343,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 const SizedBox(width: 8),
                 _buildActionButton(
                   'Save',
-                  isIotEnabled ? textColor : theme.disabledColor,
-                  isIotEnabled ? _savePreferences : () {},
+                  textColor,
+                  _savePreferences,
                 ),
               ],
             ),
@@ -295,6 +427,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     required TextEditingController controller,
     required bool enabled,
     String? hintText,
+    bool readOnly = false,
+    VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -347,6 +481,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               child: TextField(
                 controller: controller,
                 enabled: enabled,
+                readOnly: readOnly,
+                onTap: onTap,
                 style: TextStyle(
                   color: theme.textTheme.bodyLarge?.color,
                   fontSize: 13,
@@ -361,7 +497,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                   ),
                 ),
                 keyboardType: label.contains("schedule")
-                    ? TextInputType.datetime
+                    ? TextInputType.text
                     : TextInputType.number,
               ),
             ),

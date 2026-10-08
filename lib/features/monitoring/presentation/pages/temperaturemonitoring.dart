@@ -231,16 +231,17 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     }
   }
 
-  static Future<void> _restoreToday() async {
-    if (_minuteBufferToday.isNotEmpty) return;
+   static Future<bool> _restoreToday() async {
+    if (_minuteBufferToday.isNotEmpty || _syncing) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
-      if (raw == null) return;
+      if (raw == null) return false;
       final m = jsonDecode(raw) as Map<String, dynamic>;
-      if (m['day'] != SensorMemory.todayKey()) return;
+      if (m['day'] != SensorMemory.todayKey()) return false;
       final lastTs = (m['lastTs'] as num?)?.toInt();
-      if (lastTs == null) return;
+      if (lastTs == null) return false;
+      if (_minuteBufferToday.isNotEmpty || _syncing) return false;
       for (final p in (m['pts'] as List)) {
         _minuteBufferToday.add({
           'x': (p[0] as num).toDouble(),
@@ -255,8 +256,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       _statCount = (m['count'] as num?)?.toInt() ?? 0;
       _lastDocTs = DateTime.fromMillisecondsSinceEpoch(lastTs);
       _minuteBufferDayKey = m['day'] as String;
+      return true;
     } catch (e) {
       debugPrint('[Temp restore] failed: $e');
+      return false;
     }
   }
 
@@ -268,7 +271,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   final List<Map<String, double>> _minuteBufferCustom = [];
   String _minuteCustomRangeKey = '';
   bool _minuteCustomLoading = false;
+  bool _rangeLoadFailed = false;
   int _rangeRequestId = 0;
+
+  // Keeps the loaded Week/Month so re-tapping a tab costs no Firestore reads.
+  static final Map<int, Map<String, dynamic>> _rangeCache = {};
 
   // Start of the range that _minuteBufferCustom was loaded for. Used to
   // ignore stale data when a new week/month begins.
@@ -324,19 +331,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     _rangeStatMin = null;
     _rangeStatSum = 0;
     _rangeStatCount = 0;
-  }
-
-  void _addToRangeStats(double value) {
-    if (_rangeStatMax == null || value > _rangeStatMax!) {
-      _rangeStatMax = value;
-    }
-
-    if (_rangeStatMin == null || value < _rangeStatMin!) {
-      _rangeStatMin = value;
-    }
-
-    _rangeStatSum += value;
-    _rangeStatCount++;
   }
 
   static bool _tempCacheIsToday() =>
@@ -459,13 +453,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     // Pull new temperature_second readings into Today's graph every 10s,
     // matching the ESP32's 10s save interval.
     _todaySyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (!mounted) return;
+      if (!mounted || !_wasTickerEnabled) return;
       if (_selectedTimeRange == 2) unawaited(_syncToday());
     });
     // Every minute: Week/Month check whether a new week/month started or
     // the hourly refresh is due. The range key makes this a no-op otherwise.
     _hourlyRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (!mounted || _minuteCustomLoading) return;
+      if (!mounted || _minuteCustomLoading || !_wasTickerEnabled) return;
       if (_selectedTimeRange == 0 || _selectedTimeRange == 1) {
         _loadMinuteChartForRange(_selectedTimeRange);
       }
@@ -483,11 +477,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   DateTime? _lastMlFetch;
 
-  // Live readings straight from LiveSensorService (every ~10s). Drawn after
-  // the Firestore history and dropped once Firestore has caught up.
-  // static: live points survive leaving and re-entering this screen.
   static final List<Map<String, double>> _livePoints = [];
-  DateTime? _lastLiveAdded;
 
   // Adds the newest live reading to the graph right away (when the screen
   // opens or the app comes back), instead of waiting for the next sensor
@@ -498,7 +488,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     if (data == null) return;
     if ((data['ambientTempValid'] as bool? ?? true) == false) return;
     final t = (data['ambientTemp'] as num?)?.toDouble();
-    if (t == null || t < 0) return;
+    if (t == null || t < 0 || t > 80) return;
     _currentTemp = t;
     _addLivePoint(t, data);
   }
@@ -727,9 +717,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       // DASHBOARD MAXIMUM
       // ─────────────────────────────────────────────────────────────
 
-      if (_statMax != null && _statMax! > SensorMemory.lastTempMaxToday) {
+      // Always push the exact max to the Dashboard, even if it is lower
+      // than a stale/spiky stored value.
+      if (_statMax != null && _statMax! != SensorMemory.lastTempMaxToday) {
+        SensorMemory.lastTempMaxDate = todayKey;
         SensorMemory.setTempMaxToday(_statMax!);
-
         SensorMemory.save();
       }
 
@@ -804,6 +796,32 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       return;
     }
 
+    // Already loaded this hour: restore from memory, no Firestore reads.
+    final cached = _rangeCache[rangeIndex];
+    if (rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
+      if (!mounted) return;
+      setState(() {
+        _minuteBufferCustom
+          ..clear()
+          ..addAll(List<Map<String, double>>.from(cached['points'] as List));
+        _minuteCustomRangeKey = rangeKey;
+        _minuteBufferRangeStart = start;
+        _rangeStatMax = cached['max'] as double?;
+        _rangeStatMin = cached['min'] as double?;
+        _rangeStatSum = cached['sum'] as double;
+        _rangeStatCount = cached['count'] as int;
+        _minuteCustomLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_customChartScrollController.hasClients) {
+          _customChartScrollController.jumpTo(
+            _customChartScrollController.position.maxScrollExtent,
+          );
+        }
+      });
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _minuteCustomLoading = true;
@@ -811,6 +829,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     }
 
     final requestId = ++_rangeRequestId;
+    _rangeLoadFailed = false;
 
     try {
       final points = await _fetchCompleteTempRange(start, end, requestId);
@@ -834,6 +853,16 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
         _minuteCustomRangeKey = rangeKey;
         _minuteBufferRangeStart = start;
+        if (rangeIndex != 3) {
+          _rangeCache[rangeIndex] = {
+            'key': rangeKey,
+            'points': List<Map<String, double>>.from(points),
+            'max': _rangeStatMax,
+            'min': _rangeStatMin,
+            'sum': _rangeStatSum,
+            'count': _rangeStatCount,
+          };
+        }
       });
 
       if (rangeIndex != 3) {
@@ -849,6 +878,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       }
     } catch (e) {
       debugPrint('[MinuteChart/temp range] query failed: $e');
+      if (requestId == _rangeRequestId) _rangeLoadFailed = true;
     } finally {
       if (requestId == _rangeRequestId) _minuteCustomLoading = false;
 
@@ -863,11 +893,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     DateTime end,
     int requestId,
   ) async {
-    _resetRangeStats();
-
     if (!end.isAfter(start)) {
+      _resetRangeStats();
       return [];
     }
+    double? sMax;
+    double? sMin;
+    double sSum = 0;
+    int sCount = 0;
 
     // Keep the graph lightweight while statistics remain exact.
     const int graphBucketCount = 300;
@@ -894,7 +927,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
           .limit(pageSize)
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 20));
 
       if (requestId != _rangeRequestId) return [];
 
@@ -932,7 +966,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         // EXACT RANGE STATISTICS
         // -----------------------------------------------
 
-        _addToRangeStats(value);
+        if (sMax == null || value > sMax) sMax = value;
+        if (sMin == null || value < sMin) sMin = value;
+        sSum += value;
+        sCount++;
 
         // -----------------------------------------------
         // GRAPH AGGREGATION
@@ -972,6 +1009,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         break;
       }
     }
+
+    if (requestId != _rangeRequestId) return [];
+    _rangeStatMax = sMax;
+    _rangeStatMin = sMin;
+    _rangeStatSum = sSum;
+    _rangeStatCount = sCount;
 
     final points = <Map<String, double>>[];
 
@@ -1031,7 +1074,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     final tempValid = data['ambientTempValid'] as bool? ?? true;
 
     if (!tempValid) {
-      debugPrint('[Temperature] Invalid DHT22 live reading.');
+      debugPrint('[Temperature] Invalid AMG8833 live reading.');
 
       if (_currentTemp != null) {
         setState(() {
@@ -1043,7 +1086,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     final tempLive = (data['ambientTemp'] as num?)?.toDouble();
 
-    if (tempLive == null || tempLive < 0) {
+    if (tempLive == null || tempLive < 0 || tempLive > 80) {
       if (_currentTemp != null) {
         setState(() {
           _currentTemp = null;
@@ -1067,8 +1110,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       SensorMemory.setTempMaxToday(tempLive);
       SensorMemory.save();
     }
-
-    unawaited(_syncToday());
 
     final now = DateTime.now();
 
@@ -1132,14 +1173,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     if (_selectedTimeRange != 2) {
       await _loadMinuteChartForRange(_selectedTimeRange);
     } else {
-      await _restoreToday();
+      final restored = await _restoreToday();
 
       // If today's data is already in memory (previous visit) or was just
       // restored from local storage, show it immediately and only fetch
       // what was missed, instead of waiting on a full reload.
       final todayKey = SensorMemory.todayKey();
+      if (restored) _todayHistoryFetchedDayKey = todayKey;
       if (_minuteBufferToday.isNotEmpty && _minuteBufferDayKey == todayKey) {
-        _todayHistoryFetchedDayKey = todayKey;
         _seedLivePointFromLatest();
         if (mounted) setState(() => _isLoading = false);
         _scrollToNowSoon();
@@ -1234,6 +1275,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           .doc('pending')
           .set({'state': turnOn ? 'on' : 'off'});
 
+      sprinklerToggledAt = DateTime.now();
       sprinklerNotifier.value = turnOn;
       final now = DateTime.now();
 
@@ -1893,6 +1935,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         child: Text(
           _selectedTimeRange == 2
               ? "Waiting for live readings..."
+              : _rangeLoadFailed
+              ? "Could not load data. Tap the range again to retry."
               : "No data for selected range",
           style: TextStyle(color: _textSecondary(isDark)),
         ),
@@ -1958,7 +2002,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           : (spanHours <= 336 ? 15.0 : 8.0);
       final minWidth = MediaQuery.of(context).size.width - 56;
       final customWidth = (spanHours * pxPerHour)
-          .clamp(minWidth, 12000.0)
+          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, 12000.0)
           .toDouble();
       chartBody = Stack(
         children: [
@@ -1976,9 +2020,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                     rangeStart: chartRange.start,
                     showYAxisLabels: false,
 
-                    // Same gap handling as Humidity
                     gapHours: spanHours / 300 * 2.5,
-                    gapBlankHours: spanHours / 300 * 2.5,
+                    gapBlankHours: double.infinity,
                   ),
                   child: SizedBox(height: 320, width: customWidth),
                 ),
@@ -2121,6 +2164,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                 _buildReviewStat('Highest', maxLabel, Colors.red, isDark),
               ],
             ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _selectedTimeRange == 2
+                ? 'Based on $_statCount readings'
+                : 'Based on $_rangeStatCount readings',
+            style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
           ),
         ],
       ),
@@ -2318,7 +2368,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         _mlCondition = result['condition'] as String?;
         _mlInsight = (result['insights'] as List?)?.join(' ');
         _mlRecommendation =
-            (result['recommendations'] as List?)?.first as String?;
+            ((result['recommendations'] as List?)?.isNotEmpty ?? false)
+                ? (result['recommendations'] as List).first as String?
+                : null;
         _mlLoading = false;
       });
     } catch (e) {
@@ -2673,12 +2725,6 @@ class _TemperatureChartPainter extends CustomPainter {
     return '$d $h:$m${dt.hour < 12 ? 'AM' : 'PM'}';
   }
 
-  String _hourLabel(int hour) {
-    final period = hour < 12 ? 'AM' : 'PM';
-    final displayHour = hour % 12 == 0 ? 12 : hour % 12;
-    return '$displayHour$period';
-  }
-
   // Label with minutes, e.g. "2PM" or "2:10PM" (Today chart, 10-min ticks).
   String _timeLabel(double h) {
     final totalMin = (h * 60).round();
@@ -2946,7 +2992,9 @@ class _TemperatureChartPainter extends CustomPainter {
     if (data.length < 2) return;
 
     // Roughly one point per 4px of chart width keeps the line smooth.
-    final targetPoints = (chartWidth / 4).clamp(20, 1200).toInt();
+    final targetPoints = rangeStart != null
+        ? 1200 // Week/Month/Custom already hold at most 300 points
+        : (chartWidth / 4).clamp(20, 1200).toInt();
     final tail = rawTailCount.clamp(0, data.length);
     final tailStart = data.length - tail;
 
@@ -3032,6 +3080,39 @@ class _TemperatureChartPainter extends CustomPainter {
     final lineColor = isDark
         ? const Color(0xFF66BB6A)
         : const Color(0xFF2E7D32);
+
+    if (rangeStart != null && sampled.isNotEmpty) {
+      final bandPaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.2)
+        ..style = PaintingStyle.fill;
+      int s = 0;
+      while (s < sampled.length) {
+        int e = s + 1;
+        while (e < sampled.length && !segmentStarts.contains(e)) {
+          e++;
+        }
+        final band = Path();
+        for (int i = s; i < e; i++) {
+          final bx = getX(i.toDouble(), totalPoints);
+          final by = getY(sampled[i]['max'] ?? sampled[i]['temp']!);
+          if (i == s) {
+            band.moveTo(bx, by);
+          } else {
+            band.lineTo(bx, by);
+          }
+        }
+        for (int i = e - 1; i >= s; i--) {
+          band.lineTo(
+            getX(i.toDouble(), totalPoints),
+            getY(sampled[i]['min'] ?? sampled[i]['temp']!),
+          );
+        }
+        band.close();
+        canvas.drawPath(band, bandPaint);
+        s = e;
+      }
+    }
+
     canvas.drawPath(
       linePath,
       Paint()
