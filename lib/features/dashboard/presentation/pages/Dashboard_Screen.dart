@@ -118,12 +118,12 @@ class LiveSensorService {
     _started = true;
 
     sensorStatus.addListener(
-      () => debugPrint(
+          () => debugPrint(
         '[LiveSensorService] >>> BADGE sensor = ${sensorStatus.value}',
       ),
     );
     connectionStatus.addListener(
-      () => debugPrint(
+          () => debugPrint(
         '[LiveSensorService] >>> BADGE connection = ${connectionStatus.value}',
       ),
     );
@@ -179,7 +179,7 @@ class LiveSensorService {
     if (t == null || t.year < 2020) {
       debugPrint(
         '[LiveSensorService] timestamp unusable: raw=$ts parsed=$t '
-        '(null = missing/unparseable, year<2020 = ESP32 NTP failed)',
+            '(null = missing/unparseable, year<2020 = ESP32 NTP failed)',
       );
       return null;
     }
@@ -205,9 +205,9 @@ class LiveSensorService {
     final sw = Stopwatch()..start();
     debugPrint(
       '[LiveSensorService] ── poll start ── '
-      '${DateTime.now().toIso8601String()} | '
-      'fails=$_consecutiveFailures/$_maxConsecutiveFailures | '
-      'lastReading=${_lastUpdateReceivedAt == null ? "never" : "${DateTime.now().difference(_lastUpdateReceivedAt!).inSeconds}s ago"}',
+          '${DateTime.now().toIso8601String()} | '
+          'fails=$_consecutiveFailures/$_maxConsecutiveFailures | '
+          'lastReading=${_lastUpdateReceivedAt == null ? "never" : "${DateTime.now().difference(_lastUpdateReceivedAt!).inSeconds}s ago"}',
     );
 
     Map<String, dynamic>? data;
@@ -272,9 +272,9 @@ class LiveSensorService {
       final ageSeconds = _dataAgeSeconds(d);
       debugPrint(
         '[LiveSensorService] Firestore GET returned after ${sw.elapsedMilliseconds} ms | '
-        'fromCache=${doc.metadata.isFromCache} | '
-        'raw timestamp=${d?['timestamp']} (${d?['timestamp'].runtimeType}) | '
-        'age=${ageSeconds}s | limit=${_oneShotGetFreshnessLimitSeconds}s',
+            'fromCache=${doc.metadata.isFromCache} | '
+            'raw timestamp=${d?['timestamp']} (${d?['timestamp'].runtimeType}) | '
+            'age=${ageSeconds}s | limit=${_oneShotGetFreshnessLimitSeconds}s',
       );
       if (d != null &&
           ageSeconds != null &&
@@ -291,7 +291,7 @@ class LiveSensorService {
         // waiting for the failure counter.
         debugPrint(
           '[LiveSensorService] stale doc (age ${ageSeconds}s) — '
-          'ESP32 not pushing, marking Offline',
+              'ESP32 not pushing, marking Offline',
         );
         _attachFirestoreFallbackIfNeeded();
         final hasNet = await _hasRealInternet();
@@ -327,49 +327,49 @@ class LiveSensorService {
         .snapshots()
         .listen(
           (snap) {
-            if (!snap.exists) {
-              debugPrint('[LiveSensorService] Firestore snapshot: doc missing');
-              return;
-            }
-            final data = snap.data();
-            if (data == null) return;
-            // The FIRST snapshot delivered right after (re)subscribing is
-            // just "whatever is currently stored," not proof of a fresh
-            // write — same trap as the one-shot GET above. Only trust it
-            // if the doc's own timestamp is actually recent, otherwise a
-            // reattach right after the ESP32 gets unplugged would still
-            // flash "Online" once using the stale last-known reading.
-            final ageSeconds = _dataAgeSeconds(data);
-            if (ageSeconds == null ||
-                ageSeconds > _oneShotGetFreshnessLimitSeconds) {
-              debugPrint(
-                '[LiveSensorService] Firestore snapshot stale (age ${ageSeconds}s) — ignoring',
-              );
-              return;
-            }
-            debugPrint(
-              '[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)',
-            );
-            _markOnline(data);
-          },
-          onError: (e) {
-            // A Firestore stream that hits an error (auth token refresh,
-            // transient network blip, etc.) terminates for good — it will
-            // never deliver another snapshot. Previously this left
-            // _firestoreSub pointing at that dead subscription forever,
-            // so the fallback was never re-attached. If LAN also wasn't
-            // reachable at that moment, no data source was left at all
-            // and the app got stuck "offline" permanently after the
-            // first hiccup. Clearing it here lets the next _poll() tick
-            // (every 5s) resubscribe automatically.
-            debugPrint('[LiveSensorService] Firestore listener error: $e');
-            _firestoreSub = null;
-          },
-          onDone: () {
-            debugPrint('[LiveSensorService] Firestore listener closed');
-            _firestoreSub = null;
-          },
+        if (!snap.exists) {
+          debugPrint('[LiveSensorService] Firestore snapshot: doc missing');
+          return;
+        }
+        final data = snap.data();
+        if (data == null) return;
+        // The FIRST snapshot delivered right after (re)subscribing is
+        // just "whatever is currently stored," not proof of a fresh
+        // write — same trap as the one-shot GET above. Only trust it
+        // if the doc's own timestamp is actually recent, otherwise a
+        // reattach right after the ESP32 gets unplugged would still
+        // flash "Online" once using the stale last-known reading.
+        final ageSeconds = _dataAgeSeconds(data);
+        if (ageSeconds == null ||
+            ageSeconds > _oneShotGetFreshnessLimitSeconds) {
+          debugPrint(
+            '[LiveSensorService] Firestore snapshot stale (age ${ageSeconds}s) — ignoring',
+          );
+          return;
+        }
+        debugPrint(
+          '[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)',
         );
+        _markOnline(data);
+      },
+      onError: (e) {
+        // A Firestore stream that hits an error (auth token refresh,
+        // transient network blip, etc.) terminates for good — it will
+        // never deliver another snapshot. Previously this left
+        // _firestoreSub pointing at that dead subscription forever,
+        // so the fallback was never re-attached. If LAN also wasn't
+        // reachable at that moment, no data source was left at all
+        // and the app got stuck "offline" permanently after the
+        // first hiccup. Clearing it here lets the next _poll() tick
+        // (every 5s) resubscribe automatically.
+        debugPrint('[LiveSensorService] Firestore listener error: $e');
+        _firestoreSub = null;
+      },
+      onDone: () {
+        debugPrint('[LiveSensorService] Firestore listener closed');
+        _firestoreSub = null;
+      },
+    );
   }
 
   /// Only call this once a reading is already known to be live: a LAN
@@ -405,7 +405,7 @@ class LiveSensorService {
 
     debugPrint(
       '[LiveSensorService] Failed sensor check: '
-      '$_consecutiveFailures/$_maxConsecutiveFailures',
+          '$_consecutiveFailures/$_maxConsecutiveFailures',
     );
 
     // Do not immediately mark the sensor offline.
@@ -418,7 +418,7 @@ class LiveSensorService {
 
     debugPrint(
       '[LiveSensorService] Sensor Offline after '
-      '$_consecutiveFailures consecutive failed checks',
+          '$_consecutiveFailures consecutive failed checks',
     );
 
     // Allow Firestore listener to reconnect on the next poll.
@@ -442,34 +442,34 @@ class LiveSensorService {
         .snapshots()
         .listen(
           (snap) {
-            // First event is only the stored value, not a new change.
-            if (_sprinklerCmdFirstEvent) {
-              _sprinklerCmdFirstEvent = false;
-              return;
-            }
-            // Our own button tap: the screens already update themselves.
-            if (snap.metadata.hasPendingWrites) return;
+        // First event is only the stored value, not a new change.
+        if (_sprinklerCmdFirstEvent) {
+          _sprinklerCmdFirstEvent = false;
+          return;
+        }
+        // Our own button tap: the screens already update themselves.
+        if (snap.metadata.hasPendingWrites) return;
 
-            final state = snap.data()?['state'] as String?;
-            if (state == null) return;
-            final isOn = state == 'on';
-            if (isOn == sprinklerNotifier.value) return;
+        final state = snap.data()?['state'] as String?;
+        if (state == null) return;
+        final isOn = state == 'on';
+        if (isOn == sprinklerNotifier.value) return;
 
-            debugPrint(
-              '[LiveSensorService] sprinkler changed by ESP32 -> $state',
-            );
-            // Stops stale sensor readings from flipping the button back.
-            sprinklerToggledAt = DateTime.now();
-            sprinklerChangeIsRemote = true;
-            sprinklerNotifier.value = isOn; // listeners run right here
-            sprinklerChangeIsRemote = false;
-          },
-          onError: (e) {
-            debugPrint('[LiveSensorService] sprinkler listener error: $e');
-            _sprinklerCmdSub = null; // re-attached on the next poll
-          },
-          onDone: () => _sprinklerCmdSub = null,
+        debugPrint(
+          '[LiveSensorService] sprinkler changed by ESP32 -> $state',
         );
+        // Stops stale sensor readings from flipping the button back.
+        sprinklerToggledAt = DateTime.now();
+        sprinklerChangeIsRemote = true;
+        sprinklerNotifier.value = isOn; // listeners run right here
+        sprinklerChangeIsRemote = false;
+      },
+      onError: (e) {
+        debugPrint('[LiveSensorService] sprinkler listener error: $e');
+        _sprinklerCmdSub = null; // re-attached on the next poll
+      },
+      onDone: () => _sprinklerCmdSub = null,
+    );
   }
 
   static Future<bool> _hasRealInternet() async {
@@ -523,14 +523,14 @@ class SprinklerMemory {
           .collection('sprinkler_state')
           .doc('latest')
           .set({
-            'lastActivated': lastActivated,
-            'date': date,
-            'duration': duration,
-            'status': status,
-            'activatedAt': activatedAt != null
-                ? Timestamp.fromDate(activatedAt!)
-                : null,
-          });
+        'lastActivated': lastActivated,
+        'date': date,
+        'duration': duration,
+        'status': status,
+        'activatedAt': activatedAt != null
+            ? Timestamp.fromDate(activatedAt!)
+            : null,
+      });
     } catch (e) {
       debugPrint('Error saving sprinkler state: $e');
     }
@@ -665,14 +665,14 @@ class SensorMemory {
           .collection('sensor_memory')
           .doc('latest')
           .set({
-            'lastTemp': lastTemp,
-            'lastHumidity': lastHumidity,
-            'tempMaxToday': lastTempMaxToday,
-            'tempMaxDate': lastTempMaxDate,
-            'humidityMaxToday': lastHumidityMaxToday,
-            'humidityMaxDate': lastHumidityMaxDate,
-            'lastPigStatus': lastPigStatus,
-          });
+        'lastTemp': lastTemp,
+        'lastHumidity': lastHumidity,
+        'tempMaxToday': lastTempMaxToday,
+        'tempMaxDate': lastTempMaxDate,
+        'humidityMaxToday': lastHumidityMaxToday,
+        'humidityMaxDate': lastHumidityMaxDate,
+        'lastPigStatus': lastPigStatus,
+      });
     } catch (e) {
       debugPrint('Error saving sensor memory: $e');
     }
@@ -979,7 +979,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _onConnectionStatusChanged() {
     if (!mounted) return;
     setState(
-      () {},
+          () {},
     ); // _buildHeader reads LiveSensorService.connectionStatus.value directly
   }
 
@@ -995,15 +995,15 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     debugPrint(
       '[Dashboard] new reading -> hum=${data['humidity']} | '
-      'temp=${data['ambientTemp']} | water=${data['waterPct']}% '
-      '(${data['waterStatus']}) | sprinkler=${data['sprinkler']}',
+          'temp=${data['ambientTemp']} | water=${data['waterPct']}% '
+          '(${data['waterStatus']}) | sprinkler=${data['sprinkler']}',
     );
 
     final espSprinkler = data['sprinkler'] as bool?;
     final recentlyToggled =
         sprinklerToggledAt != null &&
-        DateTime.now().difference(sprinklerToggledAt!) <
-            const Duration(seconds: 25);
+            DateTime.now().difference(sprinklerToggledAt!) <
+                const Duration(seconds: 25);
     if (espSprinkler != null &&
         !recentlyToggled &&
         !_sprinklerJustToggled &&
@@ -1264,7 +1264,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _toggleTimer?.cancel();
     _toggleTimer = Timer.periodic(
       const Duration(seconds: 4),
-      (_) => _crossfadeToggle(),
+          (_) => _crossfadeToggle(),
     );
 
     // Temperature sensor disabled — no graph to refresh hourly.
@@ -1435,9 +1435,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           .collection('temperature_hourly')
           .orderBy('timestamp', descending: false)
           .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
-          )
+        'timestamp',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
+      )
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
           .limit(30) // at most ~24-25 docs expected in a rolling 24h window
           .get();
@@ -1448,8 +1448,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         final ts = (data['timestamp'] as Timestamp?)?.toDate();
         final temp =
             (data['tempAvg'] as num?)?.toDouble() ??
-            (data['temperature'] as num?)?.toDouble() ??
-            (data['tempMax'] as num?)?.toDouble();
+                (data['temperature'] as num?)?.toDouble() ??
+                (data['tempMax'] as num?)?.toDouble();
         if (ts == null || temp == null) continue;
         // x = hours-ago, so the window always reads left (24h ago) to
         // right (now), sliding forward by one tick each time a new
@@ -1610,15 +1610,15 @@ class _DashboardScreenState extends State<DashboardScreen>
       unawaited(
         http
             .post(
-              Uri.parse('http://$esp32Ip/sprinkler'),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
-            )
+          Uri.parse('http://$esp32Ip/sprinkler'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
+        )
             .timeout(const Duration(seconds: 2))
             .then<void>((_) {})
             .catchError((e) {
-              debugPrint('[Sprinkler] LAN command failed: $e');
-            }),
+          debugPrint('[Sprinkler] LAN command failed: $e');
+        }),
       );
 
       await FirebaseFirestore.instance
@@ -1718,7 +1718,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       borderRadius: BorderRadius.circular(20),
       border: Border.all(
         color:
-            accentColor?.withValues(alpha: 0.25) ??
+        accentColor?.withValues(alpha: 0.25) ??
             (isDark
                 ? Colors.white.withValues(alpha: 0.07)
                 : Colors.black.withValues(alpha: 0.06)),
@@ -1727,7 +1727,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       boxShadow: [
         BoxShadow(
           color:
-              accentColor?.withValues(alpha: 0.10) ??
+          accentColor?.withValues(alpha: 0.10) ??
               (isDark
                   ? Colors.black.withValues(alpha: 0.4)
                   : Colors.black.withValues(alpha: 0.08)),
@@ -1897,8 +1897,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         : showTemp
         ? (displayTemp > 0 ? "${displayTemp.toStringAsFixed(1)}°" : "--")
         : (displayHumidity > 0
-              ? "${displayHumidity.toStringAsFixed(1)}%"
-              : "--");
+        ? "${displayHumidity.toStringAsFixed(1)}%"
+        : "--");
 
     final icon = showTemp
         ? Icons.thermostat_outlined
@@ -1934,36 +1934,36 @@ class _DashboardScreenState extends State<DashboardScreen>
                 const SizedBox(height: 4),
                 _isLoading
                     ? const SizedBox(
-                        height: 40,
-                        width: 40,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                  height: 40,
+                  width: 40,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
                     : FadeTransition(
-                        opacity: _fadeAnimation,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          transitionBuilder: (child, animation) =>
-                              SlideTransition(
-                                position: Tween<Offset>(
-                                  begin: const Offset(0, 0.2),
-                                  end: Offset.zero,
-                                ).animate(animation),
-                                child: FadeTransition(
-                                  opacity: animation,
-                                  child: child,
-                                ),
-                              ),
-                          child: Text(
-                            value,
-                            key: ValueKey(value),
-                            style: TextStyle(
-                              fontSize: 36,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
+                  opacity: _fadeAnimation,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    transitionBuilder: (child, animation) =>
+                        SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0, 0.2),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
                           ),
                         ),
+                    child: Text(
+                      value,
+                      key: ValueKey(value),
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
                       ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -1990,32 +1990,32 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               child: _isSprinklerLoading
                   ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
                   : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _localIsActivated ? Icons.check_circle : Icons.shower,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _localIsActivated ? 'Active' : 'Activate',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _localIsActivated ? Icons.check_circle : Icons.shower,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _localIsActivated ? 'Active' : 'Activate',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
                     ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -2027,7 +2027,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildThermalHeatmap(bool isDark) {
     final sensorOffline =
         LiveSensorService.sensorStatus.value == "Sensor Offline" ||
-        LiveSensorService.connectionStatus.value == "No Connection";
+            LiveSensorService.connectionStatus.value == "No Connection";
 
     final validPixels = _thermalPixels
         .where((t) => t.isFinite && t > 0 && t < 80)
@@ -2285,12 +2285,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildInfoCard(
-    bool isDark,
-    IconData icon,
-    String title,
-    List<String> items,
-    Color iconColor,
-  ) {
+      bool isDark,
+      IconData icon,
+      String title,
+      List<String> items,
+      Color iconColor,
+      ) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: _bentoDecoration(isDark, accentColor: iconColor),
@@ -2322,7 +2322,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           const SizedBox(height: 10),
           ...items.map(
-            (e) => Padding(
+                (e) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Text(
                 e,
@@ -2395,156 +2395,156 @@ class _DashboardScreenState extends State<DashboardScreen>
             height: 220,
             child: _graphLoading
                 ? Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.green,
-                    ),
-                  )
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.green,
+              ),
+            )
                 : !hasData
                 ? Center(
-                    child: Text(
-                      "No temperature data available",
-                      style: TextStyle(color: labelColor, fontSize: 12),
-                    ),
-                  )
+              child: Text(
+                "No temperature data available",
+                style: TextStyle(color: labelColor, fontSize: 12),
+              ),
+            )
                 : LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: xMax,
-                      minY: 18,
-                      maxY: 47,
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: true,
-                          curveSmoothness: 0.6,
-                          color: lineColor,
-                          barWidth: 2.5,
-                          dotData: FlDotData(
-                            show: true,
-                            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
-                              radius: 2,
-                              color: Colors.green,
-                              strokeWidth: 0,
-                              strokeColor: Colors.transparent,
-                            ),
-                          ),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.green.withValues(alpha: 0.35),
-                                Colors.green.withValues(alpha: 0.10),
-                              ],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                          ),
-                        ),
-                      ],
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        horizontalInterval: 5,
-                        getDrawingHorizontalLine: (_) => FlLine(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.08)
-                              : Colors.black.withValues(alpha: 0.06),
-                          strokeWidth: 1,
-                        ),
+              LineChartData(
+                minX: 0,
+                maxX: xMax,
+                minY: 18,
+                maxY: 47,
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    curveSmoothness: 0.6,
+                    color: lineColor,
+                    barWidth: 2.5,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (s, p, b, i) => FlDotCirclePainter(
+                        radius: 2,
+                        color: Colors.green,
+                        strokeWidth: 0,
+                        strokeColor: Colors.transparent,
                       ),
-                      borderData: FlBorderData(
-                        show: true,
-                        border: Border(
-                          bottom: BorderSide(color: axisColor, width: 1.5),
-                          left: BorderSide(color: axisColor, width: 1.5),
-                        ),
-                      ),
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 22,
-                            interval: 1,
-                            getTitlesWidget: (value, meta) {
-                              // x is "hours-ago", 0 = 24h ago, 24 = now.
-                              const labels = {
-                                0: '24h ago',
-                                6: '18h ago',
-                                12: '12h ago',
-                                18: '6h ago',
-                                24: 'Now',
-                              };
-                              final h = value.toInt();
-                              if (!labels.containsKey(h))
-                                return const SizedBox.shrink();
-                              return SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  labels[h]!,
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: labelColor,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 36,
-                            interval: 5,
-                            getTitlesWidget: (value, meta) {
-                              const allowed = [20, 25, 30, 35, 40, 45];
-                              if (!allowed.contains(value.toInt()) ||
-                                  value != value.roundToDouble())
-                                return const SizedBox.shrink();
-                              return SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  '${value.toInt()}°',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: labelColor,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      lineTouchData: LineTouchData(
-                        touchTooltipData: LineTouchTooltipData(
-                          getTooltipColor: (_) =>
-                              isDark ? const Color(0xFF2A2A2A) : Colors.white,
-                          getTooltipItems: (touchedSpots) {
-                            return touchedSpots.map((spot) {
-                              final hoursAgo = (24 - spot.x).round();
-                              final label = hoursAgo <= 0
-                                  ? 'Now'
-                                  : '${hoursAgo}h ago';
-                              return LineTooltipItem(
-                                '$label\n${spot.y.toStringAsFixed(1)}°C',
-                                TextStyle(
-                                  color: lineColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              );
-                            }).toList();
-                          },
-                        ),
+                    ),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.green.withValues(alpha: 0.35),
+                          Colors.green.withValues(alpha: 0.10),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
                       ),
                     ),
                   ),
+                ],
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 5,
+                  getDrawingHorizontalLine: (_) => FlLine(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.06),
+                    strokeWidth: 1,
+                  ),
+                ),
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border(
+                    bottom: BorderSide(color: axisColor, width: 1.5),
+                    left: BorderSide(color: axisColor, width: 1.5),
+                  ),
+                ),
+                titlesData: FlTitlesData(
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 22,
+                      interval: 1,
+                      getTitlesWidget: (value, meta) {
+                        // x is "hours-ago", 0 = 24h ago, 24 = now.
+                        const labels = {
+                          0: '24h ago',
+                          6: '18h ago',
+                          12: '12h ago',
+                          18: '6h ago',
+                          24: 'Now',
+                        };
+                        final h = value.toInt();
+                        if (!labels.containsKey(h))
+                          return const SizedBox.shrink();
+                        return SideTitleWidget(
+                          meta: meta,
+                          child: Text(
+                            labels[h]!,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: labelColor,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 36,
+                      interval: 5,
+                      getTitlesWidget: (value, meta) {
+                        const allowed = [20, 25, 30, 35, 40, 45];
+                        if (!allowed.contains(value.toInt()) ||
+                            value != value.roundToDouble())
+                          return const SizedBox.shrink();
+                        return SideTitleWidget(
+                          meta: meta,
+                          child: Text(
+                            '${value.toInt()}°',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: labelColor,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (_) =>
+                    isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                    getTooltipItems: (touchedSpots) {
+                      return touchedSpots.map((spot) {
+                        final hoursAgo = (24 - spot.x).round();
+                        final label = hoursAgo <= 0
+                            ? 'Now'
+                            : '${hoursAgo}h ago';
+                        return LineTooltipItem(
+                          '$label\n${spot.y.toStringAsFixed(1)}°C',
+                          TextStyle(
+                            color: lineColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        );
+                      }).toList();
+                    },
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -2754,7 +2754,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             )
           else
             ..._mlRecommendations.map(
-              (r) => Padding(
+                  (r) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 3),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
