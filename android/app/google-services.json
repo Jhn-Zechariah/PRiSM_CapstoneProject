@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "666163168561-d4a8la1qga6278c043p6ptd9qcm77fgt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.codeVibers.prism_app",
+            "certificate_hash": "ad0428b2d5d8e21228776ca57ce878347dd0192c"
+          }
+        },
+        {
           "client_id": "666163168561-psph9dp5p7k9ckaqg7vqpj24k82jv5ca.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
