@@ -86,9 +86,9 @@ class LiveSensorService {
   // badge back online, no reading is arriving at all (check the
   // [LiveSensorService] debugPrint logs to see whether the LAN poll or the
   // Firestore fallback is the one failing).
- // Require 2 consecutive failed checks before showing Sensor Offline.
-static const int _maxConsecutiveFailures = 2;
-static int _consecutiveFailures = 0;
+  // Require 2 consecutive failed checks before showing Sensor Offline.
+  static const int _maxConsecutiveFailures = 2;
+  static int _consecutiveFailures = 0;
 
   /// How old the 'timestamp' field on a one-shot Firestore GET is allowed
   /// to be before it's trusted as proof the sensor is currently live. A
@@ -161,22 +161,22 @@ static int _consecutiveFailures = 0;
   /// just whatever was last stored," which a plain .get() or the first
   /// event after a listener (re)subscribe can both hand back even when the
   /// ESP32 has been unplugged for hours.
- static int? _dataAgeSeconds(Map<String, dynamic>? data) {
-  final ts = data?['timestamp'];
-  DateTime? t;
-  if (ts is Timestamp) {
-    t = ts.toDate();
-  } else if (ts is String) {
-    t = DateTime.tryParse(ts);
+  static int? _dataAgeSeconds(Map<String, dynamic>? data) {
+    final ts = data?['timestamp'];
+    DateTime? t;
+    if (ts is Timestamp) {
+      t = ts.toDate();
+    } else if (ts is String) {
+      t = DateTime.tryParse(ts);
+    }
+    // Missing, unparseable, or NTP-failed (1970) timestamp = unknown age.
+    if (t == null || t.year < 2020) {
+      debugPrint('[LiveSensorService] timestamp unusable: raw=$ts parsed=$t '
+          '(null = missing/unparseable, year<2020 = ESP32 NTP failed)');
+      return null;
+    }
+    return DateTime.now().toUtc().difference(t.toUtc()).inSeconds;
   }
-  // Missing, unparseable, or NTP-failed (1970) timestamp = unknown age.
-  if (t == null || t.year < 2020) {
-    debugPrint('[LiveSensorService] timestamp unusable: raw=$ts parsed=$t '
-        '(null = missing/unparseable, year<2020 = ESP32 NTP failed)');
-    return null;
-  }
-  return DateTime.now().toUtc().difference(t.toUtc()).inSeconds;
-}
 
   static Future<void> _poll() async {
     _attachSprinklerCommandListener();
@@ -189,7 +189,7 @@ static int _consecutiveFailures = 0;
     }
   }
 
-    static Future<void> _pollOnce() async {
+  static Future<void> _pollOnce() async {
     // Check real internet reachability IN PARALLEL with the LAN attempt,
     // instead of only after LAN + Firestore both fail. Updates the badge
     // almost immediately instead of waiting behind ~8s of other timeouts.
@@ -271,7 +271,7 @@ static int _consecutiveFailures = 0;
         // waiting for the failure counter.
         debugPrint(
           '[LiveSensorService] stale doc (age ${ageSeconds}s) — '
-          'ESP32 not pushing, marking Offline',
+              'ESP32 not pushing, marking Offline',
         );
         _attachFirestoreFallbackIfNeeded();
         final hasNet = await _hasRealInternet();
@@ -307,46 +307,49 @@ static int _consecutiveFailures = 0;
         .snapshots()
         .listen(
           (snap) {
-            if (!snap.exists) {
-              debugPrint('[LiveSensorService] Firestore snapshot: doc missing');
-              return;
-            }
-            final data = snap.data();
-            if (data == null) return;
-            // The FIRST snapshot delivered right after (re)subscribing is
-            // just "whatever is currently stored," not proof of a fresh
-            // write — same trap as the one-shot GET above. Only trust it
-            // if the doc's own timestamp is actually recent, otherwise a
-            // reattach right after the ESP32 gets unplugged would still
-            // flash "Online" once using the stale last-known reading.
-            final ageSeconds = _dataAgeSeconds(data);
-            if (ageSeconds == null || ageSeconds > _oneShotGetFreshnessLimitSeconds) {
-              debugPrint(
-                '[LiveSensorService] Firestore snapshot stale (age ${ageSeconds}s) — ignoring',
-              );
-              return;
-            }
-            debugPrint('[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)');
-            _markOnline(data);
-          },
-          onError: (e) {
-            // A Firestore stream that hits an error (auth token refresh,
-            // transient network blip, etc.) terminates for good — it will
-            // never deliver another snapshot. Previously this left
-            // _firestoreSub pointing at that dead subscription forever,
-            // so the fallback was never re-attached. If LAN also wasn't
-            // reachable at that moment, no data source was left at all
-            // and the app got stuck "offline" permanently after the
-            // first hiccup. Clearing it here lets the next _poll() tick
-            // (every 5s) resubscribe automatically.
-            debugPrint('[LiveSensorService] Firestore listener error: $e');
-            _firestoreSub = null;
-          },
-          onDone: () {
-            debugPrint('[LiveSensorService] Firestore listener closed');
-            _firestoreSub = null;
-          },
+        if (!snap.exists) {
+          debugPrint('[LiveSensorService] Firestore snapshot: doc missing');
+          return;
+        }
+        final data = snap.data();
+        if (data == null) return;
+        // The FIRST snapshot delivered right after (re)subscribing is
+        // just "whatever is currently stored," not proof of a fresh
+        // write — same trap as the one-shot GET above. Only trust it
+        // if the doc's own timestamp is actually recent, otherwise a
+        // reattach right after the ESP32 gets unplugged would still
+        // flash "Online" once using the stale last-known reading.
+        final ageSeconds = _dataAgeSeconds(data);
+        if (ageSeconds == null ||
+            ageSeconds > _oneShotGetFreshnessLimitSeconds) {
+          debugPrint(
+            '[LiveSensorService] Firestore snapshot stale (age ${ageSeconds}s) — ignoring',
+          );
+          return;
+        }
+        debugPrint(
+          '[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)',
         );
+        _markOnline(data);
+      },
+      onError: (e) {
+        // A Firestore stream that hits an error (auth token refresh,
+        // transient network blip, etc.) terminates for good — it will
+        // never deliver another snapshot. Previously this left
+        // _firestoreSub pointing at that dead subscription forever,
+        // so the fallback was never re-attached. If LAN also wasn't
+        // reachable at that moment, no data source was left at all
+        // and the app got stuck "offline" permanently after the
+        // first hiccup. Clearing it here lets the next _poll() tick
+        // (every 5s) resubscribe automatically.
+        debugPrint('[LiveSensorService] Firestore listener error: $e');
+        _firestoreSub = null;
+      },
+      onDone: () {
+        debugPrint('[LiveSensorService] Firestore listener closed');
+        _firestoreSub = null;
+      },
+    );
   }
 
   /// Only call this once a reading is already known to be live: a LAN
@@ -354,62 +357,62 @@ static int _consecutiveFailures = 0;
   /// all), while Firestore-sourced data must first pass the
   /// [_dataAgeSeconds] freshness check at the call site.
   static void _markOnline(Map<String, dynamic> data) {
-  debugPrint('[LiveSensorService] _markOnline data=$data');
+    debugPrint('[LiveSensorService] _markOnline data=$data');
 
-  // Any successful reading immediately resets failed attempts.
-  _consecutiveFailures = 0;
+    // Any successful reading immediately resets failed attempts.
+    _consecutiveFailures = 0;
 
-  _lastUpdateReceivedAt = DateTime.now();
-  connectionStatus.value = "Live";
-  sensorStatus.value = "Sensor Online";
-  latestData.value = data; // must be LAST so listeners see "Online"
+    _lastUpdateReceivedAt = DateTime.now();
+    connectionStatus.value = "Live";
+    sensorStatus.value = "Sensor Online";
+    latestData.value = data; // must be LAST so listeners see "Online"
 
-  SensorMemory.lastConnectionStatus = "Live";
-  SensorMemory.lastSensorStatus = "Sensor Online";
+    SensorMemory.lastConnectionStatus = "Live";
+    SensorMemory.lastSensorStatus = "Sensor Online";
 
-  debugPrint(
-    '[LiveSensorService] Sensor Online — failure counter reset',
-  );
-}
+    debugPrint(
+      '[LiveSensorService] Sensor Online — failure counter reset',
+    );
+  }
 
   /// Handles a failed sensor check.
-/// The sensor is marked Offline only after 3 consecutive failed checks.
-static Future<void> _checkStaleness() async {
-  final hasNet = await _hasRealInternet();
+  /// The sensor is marked Offline only after 3 consecutive failed checks.
+  static Future<void> _checkStaleness() async {
+    final hasNet = await _hasRealInternet();
 
-  connectionStatus.value = hasNet ? "Live" : "No Connection";
-  SensorMemory.lastConnectionStatus = connectionStatus.value;
+    connectionStatus.value = hasNet ? "Live" : "No Connection";
+    SensorMemory.lastConnectionStatus = connectionStatus.value;
 
-  _consecutiveFailures++;
+    _consecutiveFailures++;
 
-  debugPrint(
-    '[LiveSensorService] Failed sensor check: '
-    '$_consecutiveFailures/$_maxConsecutiveFailures',
-  );
+    debugPrint(
+      '[LiveSensorService] Failed sensor check: '
+          '$_consecutiveFailures/$_maxConsecutiveFailures',
+    );
 
-  // Do not immediately mark the sensor offline.
-  if (_consecutiveFailures < _maxConsecutiveFailures) {
-    return;
+    // Do not immediately mark the sensor offline.
+    if (_consecutiveFailures < _maxConsecutiveFailures) {
+      return;
+    }
+
+    sensorStatus.value = "Sensor Offline";
+    SensorMemory.lastSensorStatus = "Sensor Offline";
+
+    debugPrint(
+      '[LiveSensorService] Sensor Offline after '
+          '$_consecutiveFailures consecutive failed checks',
+    );
+
+    // Allow Firestore listener to reconnect on the next poll.
+    if (hasNet) {
+      await _firestoreSub?.cancel();
+      _firestoreSub = null;
+    }
   }
-
-  sensorStatus.value = "Sensor Offline";
-  SensorMemory.lastSensorStatus = "Sensor Offline";
-
-  debugPrint(
-    '[LiveSensorService] Sensor Offline after '
-    '$_consecutiveFailures consecutive failed checks',
-  );
-
-  // Allow Firestore listener to reconnect on the next poll.
-  if (hasNet) {
-    await _firestoreSub?.cancel();
-    _firestoreSub = null;
-  }
-}
 
   // ── Real-time sprinkler ON/OFF from the ESP32 ──
   static StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
-      _sprinklerCmdSub;
+  _sprinklerCmdSub;
   static bool _sprinklerCmdFirstEvent = true;
 
   static void _attachSprinklerCommandListener() {
@@ -420,7 +423,7 @@ static Future<void> _checkStaleness() async {
         .doc('pending')
         .snapshots()
         .listen(
-      (snap) {
+          (snap) {
         // First event is only the stored value, not a new change.
         if (_sprinklerCmdFirstEvent) {
           _sprinklerCmdFirstEvent = false;
@@ -449,7 +452,7 @@ static Future<void> _checkStaleness() async {
     );
   }
 
-static Future<bool> _hasRealInternet() async {
+  static Future<bool> _hasRealInternet() async {
     try {
       final results = await Connectivity().checkConnectivity();
       if (results.every((r) => r == ConnectivityResult.none)) return false;
@@ -500,14 +503,14 @@ class SprinklerMemory {
           .collection('sprinkler_state')
           .doc('latest')
           .set({
-            'lastActivated': lastActivated,
-            'date': date,
-            'duration': duration,
-            'status': status,
-            'activatedAt': activatedAt != null
-                ? Timestamp.fromDate(activatedAt!)
-                : null,
-          });
+        'lastActivated': lastActivated,
+        'date': date,
+        'duration': duration,
+        'status': status,
+        'activatedAt': activatedAt != null
+            ? Timestamp.fromDate(activatedAt!)
+            : null,
+      });
     } catch (e) {
       debugPrint('Error saving sprinkler state: $e');
     }
@@ -642,14 +645,14 @@ class SensorMemory {
           .collection('sensor_memory')
           .doc('latest')
           .set({
-            'lastTemp': lastTemp,
-            'lastHumidity': lastHumidity,
-            'tempMaxToday': lastTempMaxToday,
-            'tempMaxDate': lastTempMaxDate,
-            'humidityMaxToday': lastHumidityMaxToday,
-            'humidityMaxDate': lastHumidityMaxDate,
-            'lastPigStatus': lastPigStatus,
-          });
+        'lastTemp': lastTemp,
+        'lastHumidity': lastHumidity,
+        'tempMaxToday': lastTempMaxToday,
+        'tempMaxDate': lastTempMaxDate,
+        'humidityMaxToday': lastHumidityMaxToday,
+        'humidityMaxDate': lastHumidityMaxDate,
+        'lastPigStatus': lastPigStatus,
+      });
     } catch (e) {
       debugPrint('Error saving sensor memory: $e');
     }
@@ -709,7 +712,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _vaxMedName = VaxScheduleMemory.medName;
   String _vaxDateLabel = VaxScheduleMemory.dateLabel;
 
-
   // _tempMax and _humidityLive intentionally start at 0 and are NEVER
   // restored from cache — they must come from a live ESP32 response.
   double _tempMax = 0;
@@ -722,6 +724,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
   double _humidityLive = 0;
+
+  // AMG8833 thermal heatmap — 64 pixels (8x8)
+  List<double> _thermalPixels = List.filled(64, 0.0);
 
   String _sprinklerStatus = "OFF";
   String _lastActivated = "--";
@@ -816,7 +821,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   void _onConnectionStatusChanged() {
     if (!mounted) return;
     setState(
-      () {},
+          () {},
     ); // _buildHeader reads LiveSensorService.connectionStatus.value directly
   }
 
@@ -912,6 +917,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       final newWaterPct = (data['waterPct'] as num?)?.toDouble();
       if (newWaterPct != null) _waterPct = newWaterPct;
       _waterStatus = data['waterStatus'] as String? ?? _waterStatus;
+
+      // AMG8833 thermal pixels are supplied by the ESP32 /sensor endpoint.
+      // They are displayed locally and are NOT stored in Firestore.
+      final rawThermalPixels = data['thermalPixels'];
+      if (rawThermalPixels is List && rawThermalPixels.length == 64) {
+        _thermalPixels = rawThermalPixels
+            .map((e) => (e as num?)?.toDouble() ?? 0.0)
+            .toList();
+      }
+
       _isLoading = false;
     });
 
@@ -1086,7 +1101,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _toggleTimer?.cancel();
     _toggleTimer = Timer.periodic(
       const Duration(seconds: 4),
-      (_) => _crossfadeToggle(),
+          (_) => _crossfadeToggle(),
     );
 
     // Temperature sensor disabled — no graph to refresh hourly.
@@ -1104,7 +1119,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── Firestore: sync today's historical max on startup ───────────────
 
-   Future<void> _scanTodayHumidityMax() async {
+  Future<void> _scanTodayHumidityMax() async {
     try {
       final now = DateTime.now();
       var cursor = DateTime(now.year, now.month, now.day)
@@ -1233,7 +1248,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── Graph ────────────────────────────────────
 
-
   Future<void> _loadGraphData() async {
     final hourKey = currentHourKey();
     if (SensorMemory.graphLoaded && SensorMemory.lastGraphHourKey == hourKey) {
@@ -1257,9 +1271,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           .collection('temperature_hourly')
           .orderBy('timestamp', descending: false)
           .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
-          )
+        'timestamp',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart),
+      )
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
           .limit(30) // at most ~24-25 docs expected in a rolling 24h window
           .get();
@@ -1270,8 +1284,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         final ts = (data['timestamp'] as Timestamp?)?.toDate();
         final temp =
             (data['tempAvg'] as num?)?.toDouble() ??
-            (data['temperature'] as num?)?.toDouble() ??
-            (data['tempMax'] as num?)?.toDouble();
+                (data['temperature'] as num?)?.toDouble() ??
+                (data['tempMax'] as num?)?.toDouble();
         if (ts == null || temp == null) continue;
         // x = hours-ago, so the window always reads left (24h ago) to
         // right (now), sliding forward by one tick each time a new
@@ -1432,15 +1446,15 @@ class _DashboardScreenState extends State<DashboardScreen>
       unawaited(
         http
             .post(
-              Uri.parse('http://$esp32Ip/sprinkler'),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
-            )
+          Uri.parse('http://$esp32Ip/sprinkler'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
+        )
             .timeout(const Duration(seconds: 2))
             .then<void>((_) {})
             .catchError((e) {
-              debugPrint('[Sprinkler] LAN command failed: $e');
-            }),
+          debugPrint('[Sprinkler] LAN command failed: $e');
+        }),
       );
 
       await FirebaseFirestore.instance
@@ -1540,7 +1554,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       borderRadius: BorderRadius.circular(20),
       border: Border.all(
         color:
-            accentColor?.withValues(alpha: 0.25) ??
+        accentColor?.withValues(alpha: 0.25) ??
             (isDark
                 ? Colors.white.withValues(alpha: 0.07)
                 : Colors.black.withValues(alpha: 0.06)),
@@ -1549,7 +1563,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       boxShadow: [
         BoxShadow(
           color:
-              accentColor?.withValues(alpha: 0.10) ??
+          accentColor?.withValues(alpha: 0.10) ??
               (isDark
                   ? Colors.black.withValues(alpha: 0.4)
                   : Colors.black.withValues(alpha: 0.08)),
@@ -1587,6 +1601,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             _buildHeader(isDarkMode),
             const SizedBox(height: 16),
             _buildWeatherCard(isDarkMode),
+            const SizedBox(height: 16),
+            _buildThermalHeatmap(isDarkMode),
             const SizedBox(height: 16),
             _buildQuickStatsRow(isDarkMode),
             const SizedBox(height: 16),
@@ -1717,8 +1733,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         : showTemp
         ? (displayTemp > 0 ? "${displayTemp.toStringAsFixed(1)}°" : "--")
         : (displayHumidity > 0
-              ? "${displayHumidity.toStringAsFixed(1)}%"
-              : "--");
+        ? "${displayHumidity.toStringAsFixed(1)}%"
+        : "--");
 
     final icon = showTemp
         ? Icons.thermostat_outlined
@@ -1754,36 +1770,36 @@ class _DashboardScreenState extends State<DashboardScreen>
                 const SizedBox(height: 4),
                 _isLoading
                     ? const SizedBox(
-                        height: 40,
-                        width: 40,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
+                  height: 40,
+                  width: 40,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
                     : FadeTransition(
-                        opacity: _fadeAnimation,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 300),
-                          transitionBuilder: (child, animation) =>
-                              SlideTransition(
-                                position: Tween<Offset>(
-                                  begin: const Offset(0, 0.2),
-                                  end: Offset.zero,
-                                ).animate(animation),
-                                child: FadeTransition(
-                                  opacity: animation,
-                                  child: child,
-                                ),
-                              ),
-                          child: Text(
-                            value,
-                            key: ValueKey(value),
-                            style: TextStyle(
-                              fontSize: 36,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
+                  opacity: _fadeAnimation,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    transitionBuilder: (child, animation) =>
+                        SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0, 0.2),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
                           ),
                         ),
+                    child: Text(
+                      value,
+                      key: ValueKey(value),
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
                       ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
@@ -1808,35 +1824,253 @@ class _DashboardScreenState extends State<DashboardScreen>
                     : const Color(0xFFD32F2F),
                 borderRadius: BorderRadius.circular(10),
               ),
-             child: _isSprinklerLoading
+              child: _isSprinklerLoading
                   ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
                   : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _localIsActivated ? Icons.check_circle : Icons.shower,
-                          color: Colors.white,
-                          size: 18,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _localIsActivated ? Icons.check_circle : Icons.shower,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    _localIsActivated ? 'Active' : 'Activate',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  //THERMAL HEATMAP LOCATION
+
+  Widget _buildThermalHeatmap(bool isDark) {
+    final sensorOffline =
+        LiveSensorService.sensorStatus.value == "Sensor Offline" ||
+            LiveSensorService.connectionStatus.value == "No Connection";
+
+    final validPixels = _thermalPixels
+        .where((t) => t.isFinite && t > 0 && t < 80)
+        .toList();
+
+    final hasThermalData = validPixels.length == 64;
+    final minTemp = hasThermalData
+        ? validPixels.reduce((a, b) => a < b ? a : b)
+        : 0.0;
+    final maxTemp = hasThermalData
+        ? validPixels.reduce((a, b) => a > b ? a : b)
+        : 0.0;
+
+    Color thermalColor(double temp) {
+      if (!temp.isFinite || temp <= 0) {
+        return isDark ? Colors.grey.shade800 : Colors.grey.shade300;
+      }
+
+      final range = maxTemp - minTemp;
+      final normalized = range <= 0
+          ? 0.5
+          : ((temp - minTemp) / range).clamp(0.0, 1.0);
+
+      // Blue -> cyan -> green -> yellow -> red.
+      final stops = <Color>[
+        Colors.blue,
+        Colors.cyan,
+        Colors.green,
+        Colors.yellow,
+        Colors.red,
+      ];
+      final scaled = normalized * (stops.length - 1);
+      final index = scaled.floor().clamp(0, stops.length - 2);
+      final localT = scaled - index;
+      return Color.lerp(stops[index], stops[index + 1], localT) ?? stops[index];
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _bentoDecoration(isDark, accentColor: Colors.red),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.thermostat,
+                  size: 20,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Thermal Heatmap",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "AMG8833 • 8 × 8 thermal sensor",
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white60 : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasThermalData && !sensorOffline)
+                Text(
+                  "MAX ${maxTemp.toStringAsFixed(1)}°C",
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (sensorOffline || !hasThermalData)
+            Container(
+              height: 260,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    sensorOffline ? Icons.cloud_off : Icons.thermostat_outlined,
+                    size: 34,
+                    color: isDark ? Colors.white38 : Colors.grey,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    sensorOffline ? "Sensor Offline" : "Waiting for thermal data…",
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white70 : Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "64 AMG8833 pixels",
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white38 : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            AspectRatio(
+              aspectRatio: 1,
+              child: GridView.builder(
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: 64,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 8,
+                  crossAxisSpacing: 2,
+                  mainAxisSpacing: 2,
+                ),
+                itemBuilder: (context, index) {
+                  final temp = _thermalPixels[index];
+                  final cellColor = thermalColor(temp);
+
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: cellColor,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    alignment: Alignment.center,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        "${temp.toStringAsFixed(1)}°",
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: temp >= (minTemp + maxTemp) / 2
+                              ? Colors.white
+                              : Colors.black,
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _localIsActivated ? 'Active' : 'Activate',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Text(
+                hasThermalData ? "${minTemp.toStringAsFixed(1)}°C" : "--",
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white60 : Colors.grey,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Colors.blue,
+                        Colors.cyan,
+                        Colors.green,
+                        Colors.yellow,
+                        Colors.red,
                       ],
                     ),
-            ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                hasThermalData ? "${maxTemp.toStringAsFixed(1)}°C" : "--",
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white60 : Colors.grey,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1888,12 +2122,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildInfoCard(
-    bool isDark,
-    IconData icon,
-    String title,
-    List<String> items,
-    Color iconColor,
-  ) {
+      bool isDark,
+      IconData icon,
+      String title,
+      List<String> items,
+      Color iconColor,
+      ) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: _bentoDecoration(isDark, accentColor: iconColor),
@@ -1925,7 +2159,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           const SizedBox(height: 10),
           ...items.map(
-            (e) => Padding(
+                (e) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Text(
                 e,
@@ -1998,156 +2232,156 @@ class _DashboardScreenState extends State<DashboardScreen>
             height: 220,
             child: _graphLoading
                 ? Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.green,
-                    ),
-                  )
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.green,
+              ),
+            )
                 : !hasData
                 ? Center(
-                    child: Text(
-                      "No temperature data available",
-                      style: TextStyle(color: labelColor, fontSize: 12),
-                    ),
-                  )
+              child: Text(
+                "No temperature data available",
+                style: TextStyle(color: labelColor, fontSize: 12),
+              ),
+            )
                 : LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: xMax,
-                      minY: 18,
-                      maxY: 47,
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: true,
-                          curveSmoothness: 0.6,
-                          color: lineColor,
-                          barWidth: 2.5,
-                          dotData: FlDotData(
-                            show: true,
-                            getDotPainter: (s, p, b, i) => FlDotCirclePainter(
-                              radius: 2,
-                              color: Colors.green,
-                              strokeWidth: 0,
-                              strokeColor: Colors.transparent,
-                            ),
-                          ),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.green.withValues(alpha: 0.35),
-                                Colors.green.withValues(alpha: 0.10),
-                              ],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                          ),
-                        ),
-                      ],
-                      gridData: FlGridData(
-                        show: true,
-                        drawVerticalLine: false,
-                        horizontalInterval: 5,
-                        getDrawingHorizontalLine: (_) => FlLine(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.08)
-                              : Colors.black.withValues(alpha: 0.06),
-                          strokeWidth: 1,
-                        ),
+              LineChartData(
+                minX: 0,
+                maxX: xMax,
+                minY: 18,
+                maxY: 47,
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    curveSmoothness: 0.6,
+                    color: lineColor,
+                    barWidth: 2.5,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (s, p, b, i) => FlDotCirclePainter(
+                        radius: 2,
+                        color: Colors.green,
+                        strokeWidth: 0,
+                        strokeColor: Colors.transparent,
                       ),
-                      borderData: FlBorderData(
-                        show: true,
-                        border: Border(
-                          bottom: BorderSide(color: axisColor, width: 1.5),
-                          left: BorderSide(color: axisColor, width: 1.5),
-                        ),
-                      ),
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 22,
-                            interval: 1,
-                            getTitlesWidget: (value, meta) {
-                              // x is "hours-ago", 0 = 24h ago, 24 = now.
-                              const labels = {
-                                0: '24h ago',
-                                6: '18h ago',
-                                12: '12h ago',
-                                18: '6h ago',
-                                24: 'Now',
-                              };
-                              final h = value.toInt();
-                              if (!labels.containsKey(h))
-                                return const SizedBox.shrink();
-                              return SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  labels[h]!,
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: labelColor,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 36,
-                            interval: 5,
-                            getTitlesWidget: (value, meta) {
-                              const allowed = [20, 25, 30, 35, 40, 45];
-                              if (!allowed.contains(value.toInt()) ||
-                                  value != value.roundToDouble())
-                                return const SizedBox.shrink();
-                              return SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  '${value.toInt()}°',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: labelColor,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      lineTouchData: LineTouchData(
-                        touchTooltipData: LineTouchTooltipData(
-                          getTooltipColor: (_) =>
-                              isDark ? const Color(0xFF2A2A2A) : Colors.white,
-                          getTooltipItems: (touchedSpots) {
-                            return touchedSpots.map((spot) {
-                              final hoursAgo = (24 - spot.x).round();
-                              final label = hoursAgo <= 0
-                                  ? 'Now'
-                                  : '${hoursAgo}h ago';
-                              return LineTooltipItem(
-                                '$label\n${spot.y.toStringAsFixed(1)}°C',
-                                TextStyle(
-                                  color: lineColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              );
-                            }).toList();
-                          },
-                        ),
+                    ),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.green.withValues(alpha: 0.35),
+                          Colors.green.withValues(alpha: 0.10),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
                       ),
                     ),
                   ),
+                ],
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: 5,
+                  getDrawingHorizontalLine: (_) => FlLine(
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.08)
+                        : Colors.black.withValues(alpha: 0.06),
+                    strokeWidth: 1,
+                  ),
+                ),
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border(
+                    bottom: BorderSide(color: axisColor, width: 1.5),
+                    left: BorderSide(color: axisColor, width: 1.5),
+                  ),
+                ),
+                titlesData: FlTitlesData(
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 22,
+                      interval: 1,
+                      getTitlesWidget: (value, meta) {
+                        // x is "hours-ago", 0 = 24h ago, 24 = now.
+                        const labels = {
+                          0: '24h ago',
+                          6: '18h ago',
+                          12: '12h ago',
+                          18: '6h ago',
+                          24: 'Now',
+                        };
+                        final h = value.toInt();
+                        if (!labels.containsKey(h))
+                          return const SizedBox.shrink();
+                        return SideTitleWidget(
+                          meta: meta,
+                          child: Text(
+                            labels[h]!,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: labelColor,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 36,
+                      interval: 5,
+                      getTitlesWidget: (value, meta) {
+                        const allowed = [20, 25, 30, 35, 40, 45];
+                        if (!allowed.contains(value.toInt()) ||
+                            value != value.roundToDouble())
+                          return const SizedBox.shrink();
+                        return SideTitleWidget(
+                          meta: meta,
+                          child: Text(
+                            '${value.toInt()}°',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: labelColor,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (_) =>
+                    isDark ? const Color(0xFF2A2A2A) : Colors.white,
+                    getTooltipItems: (touchedSpots) {
+                      return touchedSpots.map((spot) {
+                        final hoursAgo = (24 - spot.x).round();
+                        final label = hoursAgo <= 0
+                            ? 'Now'
+                            : '${hoursAgo}h ago';
+                        return LineTooltipItem(
+                          '$label\n${spot.y.toStringAsFixed(1)}°C',
+                          TextStyle(
+                            color: lineColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        );
+                      }).toList();
+                    },
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -2162,10 +2396,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             isDark,
             Symbols.calendar_month,
             "Vax Schedule",
-            [
-              "Vax name: $_vaxMedName",
-              "Date: $_vaxDateLabel",
-            ],
+            ["Vax name: $_vaxMedName", "Date: $_vaxDateLabel"],
             const Color(0xFFFB8C00),
           ),
         ),
@@ -2175,101 +2406,101 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
- Widget _buildWaterLevelCard(bool isDark) {
-  // Same offline rule used by the weather card: sensor offline OR no internet
-  final sensStatus = LiveSensorService.sensorStatus.value;
-  final connStatus = LiveSensorService.connectionStatus.value;
-  final isOffline =
-      sensStatus == "Sensor Offline" || connStatus == "No Connection";
+  Widget _buildWaterLevelCard(bool isDark) {
+    // Same offline rule used by the weather card: sensor offline OR no internet
+    final sensStatus = LiveSensorService.sensorStatus.value;
+    final connStatus = LiveSensorService.connectionStatus.value;
+    final isOffline =
+        sensStatus == "Sensor Offline" || connStatus == "No Connection";
 
-  // When offline, force Unknown regardless of the last stored value
-  final displayStatus = isOffline ? "Unknown" : _waterStatus;
-  final displayPct = isOffline ? 0.0 : _waterPct;
+    // When offline, force Unknown regardless of the last stored value
+    final displayStatus = isOffline ? "Unknown" : _waterStatus;
+    final displayPct = isOffline ? 0.0 : _waterPct;
 
-  final statusColor = switch (displayStatus) {
-    "Full" => Colors.green,
-    "Normal" => Colors.blue,
-    "Low" => Colors.orange,
-    "Empty" || "Critical" => Colors.red.shade900,
-    _ => Colors.grey,
-  };
+    final statusColor = switch (displayStatus) {
+      "Full" => Colors.green,
+      "Normal" => Colors.blue,
+      "Low" => Colors.orange,
+      "Empty" || "Critical" => Colors.red.shade900,
+      _ => Colors.grey,
+    };
 
-  return Container(
-    padding: const EdgeInsets.all(14),
-    decoration: _bentoDecoration(
-      isDark,
-      accentColor: const Color(0xFF1E88E5),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(8),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: _bentoDecoration(
+        isDark,
+        accentColor: const Color(0xFF1E88E5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E88E5).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Symbols.water_medium,
+                  size: 15,
+                  color: Color(0xFF1E88E5),
+                ),
               ),
-              child: const Icon(
-                Symbols.water_medium,
-                size: 15,
-                color: Color(0xFF1E88E5),
+              const SizedBox(width: 8),
+              Text(
+                "Water Level",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              "Water Level",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: isDark ? Colors.white : Colors.black,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text(
-          isOffline ? "Level: --" : "Level: ${displayPct.toStringAsFixed(0)}%",
-          style: TextStyle(
-            color: isDark ? Colors.white60 : const Color(0xFF707070),
-            fontSize: 12,
+            ],
           ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Text(
-              "Status: ",
-              style: TextStyle(
-                color: isDark ? Colors.white60 : const Color(0xFF707070),
-                fontSize: 12,
-              ),
+          const SizedBox(height: 10),
+          Text(
+            isOffline ? "Level: --" : "Level: ${displayPct.toStringAsFixed(0)}%",
+            style: TextStyle(
+              color: isDark ? Colors.white60 : const Color(0xFF707070),
+              fontSize: 12,
             ),
-            Text(
-              displayStatus,
-              style: TextStyle(
-                color: statusColor,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: (displayPct / 100).clamp(0.0, 1.0),
-            minHeight: 6,
-            backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
           ),
-        ),
-      ],
-    ),
-  );
-}
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Text(
+                "Status: ",
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : const Color(0xFF707070),
+                  fontSize: 12,
+                ),
+              ),
+              Text(
+                displayStatus,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (displayPct / 100).clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: isDark ? Colors.white12 : Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildRecommendationCard(bool isDark) {
     Color conditionColor = Colors.amber;
@@ -2358,7 +2589,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             )
           else
             ..._mlRecommendations.map(
-              (r) => Padding(
+                  (r) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 3),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
