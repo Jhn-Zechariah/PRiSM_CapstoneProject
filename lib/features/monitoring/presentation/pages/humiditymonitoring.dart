@@ -15,6 +15,8 @@ const List<String> kHumidityTimeRanges = [
   'Today',
   'Custom',
 ];
+const int _kHumHourlyMinSpanHours =
+    6; // ranges this long or longer use sensor_readings_hourly
 
 String _humFormatDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -184,6 +186,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       'hum_today_v2'; // v1 data was approximate, ignore it
   static DateTime? _lastDocTs; // timestamp of the last document counted
   static bool _syncing = false;
+  static bool _fullSyncRunning = false;
 
   static void _resetStats() {
     _statMax = null;
@@ -269,6 +272,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       return false;
     }
   }
+
   // Minute-level data for the Custom range tab — kept separate from
   // _minuteBufferToday since it covers an arbitrary user-picked range
   // instead of "today", and isn't fed by live readings.
@@ -435,9 +439,22 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
     // Pull new humidity_second readings into Today's graph every 10s,
     // matching the ESP32's 10s save interval.
+    int todaySyncCounter = 0;
+
     _todaySyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted || !_wasTickerEnabled) return;
-      if (_selectedTimeRange == 2) unawaited(_syncToday());
+
+      if (_selectedTimeRange == 2) {
+        todaySyncCounter++;
+
+        // Refresh all Today history approximately every 5 minutes.
+        if (todaySyncCounter >= 30) {
+          todaySyncCounter = 0;
+          _todayHistoryFetchedDayKey = '';
+        }
+
+        unawaited(_syncToday());
+      }
     });
     // Every minute: Week/Month check whether a new week/month started or
     // the hourly refresh is due. The range key makes this a no-op otherwise.
@@ -461,8 +478,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     if (LiveSensorService.sensorStatus.value == "Sensor Offline") return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
-    if ((data['humidityValid'] as bool? ?? true) == false) return;
-    final h = (data['humidity'] as num?)?.toDouble();
+    if ((data['ambientHumidityValid'] as bool? ?? true) == false) return;
+    final h = (data['ambientHumidity'] as num?)?.toDouble();
     if (h == null || h <= 0 || h > 100) return;
     _currentHumidity = h;
     _addLivePoint(h, data);
@@ -574,13 +591,26 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   void _onSharedStatusChanged() {
-    if (!mounted) return;
-    setState(() {
-      _connectionStatus = LiveSensorService.connectionStatus.value;
-      _sensorStatus = LiveSensorService.sensorStatus.value;
-      if (_sensorStatus == "Sensor Offline") _currentHumidity = null;
-    });
-  }
+  if (!mounted) return;
+
+  final newConnectionStatus =
+      LiveSensorService.connectionStatus.value;
+
+  final newSensorStatus =
+      LiveSensorService.sensorStatus.value;
+
+  setState(() {
+    _connectionStatus = newConnectionStatus;
+    _sensorStatus = newSensorStatus;
+
+    // Never display an old humidity value when
+    // the sensor is offline or the app has no connection.
+    if (_sensorStatus == "Sensor Offline" ||
+        _connectionStatus == "No Connection") {
+      _currentHumidity = null;
+    }
+  });
+}
 
   // Loads today's persisted per-minute readings from the ESP32's
   // humidity_minute collection so the Minute view has real history
@@ -611,7 +641,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
     final rangeKey = rangeIndex == 3
         ? '$rangeIndex-${start.millisecondsSinceEpoch}-${end.millisecondsSinceEpoch}'
-        : '$rangeIndex-${start.millisecondsSinceEpoch}-${currentHourKey()}';
+        : '$rangeIndex-${start.millisecondsSinceEpoch}-${SensorMemory.todayKey()}-${DateTime.now().hour}';
 
     if (_minuteCustomRangeKey == rangeKey) {
       return;
@@ -717,6 +747,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       _resetRangeStats();
       return [];
     }
+    if (end.difference(start).inHours >= _kHumHourlyMinSpanHours) {
+      return _fetchHourlyHumRange(start, end, requestId);
+    }
     double? sMax;
     double? sMin;
     double sSum = 0;
@@ -741,7 +774,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
     while (true) {
       final snapshot = await _db
-          .collection('humidity_second')
+          .collection('sensor_readings_seconds')
           .orderBy('timestamp', descending: false)
           .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
@@ -758,7 +791,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       for (final doc in snapshot.docs) {
         final data = doc.data();
 
-        final raw = data['humidity'];
+        final raw = data['ambientHumidity'];
         final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
 
         if (timestamp == null) {
@@ -776,7 +809,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         }
 
         final value = (raw as num).toDouble();
-        if (data['humidityValid'] == false || value <= 0 || value > 100) {
+        if (data['ambientHumidityValid'] == false ||
+            value <= 0 ||
+            value > 100) {
           continue;
         }
 
@@ -896,6 +931,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       // ─────────────────────────────────────────────────────────────
 
       final bool needsFullHistory = _todayHistoryFetchedDayKey != todayKey;
+      _fullSyncRunning = needsFullHistory;
 
       // ─────────────────────────────────────────────────────────────
       // DUPLICATE-PREVENTION
@@ -916,25 +952,36 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         _lastDocTs = null;
       }
 
-      // Complete history starts from midnight.
-      //
-      // Later incremental synchronization starts after the newest
-      // document that was already processed.
-      var cursor = needsFullHistory
+            // Complete history starts before midnight.
+      // Incremental history uses a fixed timestamp boundary.
+      final queryStart = needsFullHistory
           ? midnight.subtract(const Duration(milliseconds: 1))
           : (_lastDocTs ?? midnight.subtract(const Duration(milliseconds: 1)));
 
+      var cursor = queryStart;
+
       // ─────────────────────────────────────────────────────────────
       // FIRESTORE PAGINATION
+      // Stable query boundary and document pagination.
       // ─────────────────────────────────────────────────────────────
 
+      QueryDocumentSnapshot<Map<String, dynamic>>? lastPageDocument;
+
       while (true) {
-        final snap = await _db
-            .collection('humidity_second')
+        Query<Map<String, dynamic>> query = _db
+            .collection('sensor_readings_seconds')
+            .where(
+              'timestamp',
+              isGreaterThan: Timestamp.fromDate(queryStart),
+            )
             .orderBy('timestamp', descending: false)
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
-            .limit(1000)
-            .get();
+            .limit(1000);
+
+        if (lastPageDocument != null) {
+          query = query.startAfterDocument(lastPageDocument);
+        }
+
+        final snap = await query.get();
 
         for (final doc in snap.docs) {
           final d = doc.data();
@@ -945,16 +992,20 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
             continue;
           }
 
-          cursor = ts;
+          if (ts.isAfter(cursor)) {
+            cursor = ts;
+          }
 
-          final raw = d['humidity'];
+          final raw = d['ambientHumidity'];
 
           if (raw == null) {
             continue;
           }
 
           final humidity = (raw as num).toDouble();
-          if (d['humidityValid'] == false || humidity <= 0 || humidity > 100) {
+          if (d['ambientHumidityValid'] == false ||
+              humidity <= 0 ||
+              humidity > 100) {
             continue;
           }
 
@@ -968,11 +1019,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           });
         }
 
-        // Remember newest document processed.
+        if (snap.docs.isNotEmpty) {
+          lastPageDocument = snap.docs.last;
+        }
+
         _lastDocTs = cursor;
 
-        // End pagination when fewer than 1000
-        // documents are returned.
         if (snap.docs.length < 1000) {
           break;
         }
@@ -1027,7 +1079,221 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     } finally {
       // Always unlock synchronization.
       _syncing = false;
+      _fullSyncRunning = false;
     }
+  }
+
+  Future<List<Map<String, double>>> _fetchHourlyHumRange(
+    DateTime start,
+    DateTime end,
+    int requestId,
+  ) async {
+    final now = DateTime.now();
+    final effectiveEnd = end.isAfter(now) ? now : end;
+
+    if (!effectiveEnd.isAfter(start)) {
+      _resetRangeStats();
+      return [];
+    }
+
+    final points = <Map<String, double>>[];
+    double? overallMin;
+    double? overallMax;
+    double overallSum = 0;
+    int overallCount = 0;
+
+    void record(
+      double minValue,
+      double maxValue,
+      double sum,
+      int count,
+      double x,
+    ) {
+      if (count <= 0) return;
+
+      if (overallMin == null || minValue < overallMin!) {
+        overallMin = minValue;
+      }
+      if (overallMax == null || maxValue > overallMax!) {
+        overallMax = maxValue;
+      }
+
+      overallSum += sum;
+      overallCount += count;
+
+      final average = sum / count;
+      points.add({
+        'x': x,
+        'humidity': average,
+        'avg': average,
+        'min': minValue,
+        'max': maxValue,
+      });
+    }
+
+    final firstHour = DateTime(start.year, start.month, start.day, start.hour);
+
+    final summarySnap = await _db
+        .collection('sensor_readings_hourly')
+        .where(
+          'timestamp',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(firstHour),
+        )
+        .where('timestamp', isLessThan: Timestamp.fromDate(effectiveEnd))
+        .orderBy('timestamp')
+        .get()
+        .timeout(const Duration(seconds: 30));
+
+    if (requestId != _rangeRequestId) return [];
+
+    final summaries = <int, Map<String, dynamic>>{};
+
+    for (final doc in summarySnap.docs) {
+      final data = doc.data();
+      final ts = (data['timestamp'] as Timestamp?)?.toDate();
+
+      if (ts != null) {
+        summaries[ts.millisecondsSinceEpoch] = data;
+      }
+    }
+
+    Future<void> loadRaw(DateTime segmentStart, DateTime segmentEnd) async {
+      QueryDocumentSnapshot<Map<String, dynamic>>? lastDocument;
+
+      double? localMin;
+      double? localMax;
+      double localSum = 0;
+      int localCount = 0;
+      double xSum = 0;
+
+      while (true) {
+        Query<Map<String, dynamic>> query = _db
+            .collection('sensor_readings_seconds')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(segmentStart),
+            )
+            .where('timestamp', isLessThan: Timestamp.fromDate(segmentEnd))
+            .orderBy('timestamp')
+            .limit(1000);
+
+        if (lastDocument != null) {
+          query = query.startAfterDocument(lastDocument);
+        }
+
+        final snap = await query.get().timeout(const Duration(seconds: 30));
+
+        if (requestId != _rangeRequestId) return;
+        if (snap.docs.isEmpty) break;
+
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final ts = (d['timestamp'] as Timestamp?)?.toDate();
+          final raw = d['ambientHumidity'];
+
+          if (ts == null || raw is! num || d['ambientHumidityValid'] == false) {
+            continue;
+          }
+
+          final value = raw.toDouble();
+
+          if (!value.isFinite || value <= 0 || value > 100) {
+            continue;
+          }
+
+          if (localMin == null || value < localMin!) {
+            localMin = value;
+          }
+          if (localMax == null || value > localMax!) {
+            localMax = value;
+          }
+
+          localSum += value;
+          localCount++;
+          xSum += ts.difference(start).inMilliseconds / 3600000.0;
+        }
+
+        lastDocument = snap.docs.last;
+
+        if (snap.docs.length < 1000) break;
+      }
+
+      if (localCount > 0 && requestId == _rangeRequestId) {
+        record(localMin!, localMax!, localSum, localCount, xSum / localCount);
+      }
+    }
+
+    var hourStart = firstHour;
+
+    while (hourStart.isBefore(effectiveEnd)) {
+      if (requestId != _rangeRequestId) return [];
+
+      final nextHour = DateTime(
+        hourStart.year,
+        hourStart.month,
+        hourStart.day,
+        hourStart.hour + 1,
+      );
+
+      final segmentStart = start.isAfter(hourStart) ? start : hourStart;
+
+      final segmentEnd = effectiveEnd.isBefore(nextHour)
+          ? effectiveEnd
+          : nextHour;
+
+      if (segmentEnd.isAfter(segmentStart)) {
+        final fullHour =
+            segmentStart.isAtSameMomentAs(hourStart) &&
+            segmentEnd.isAtSameMomentAs(nextHour) &&
+            !nextHour.isAfter(now);
+
+        final summary = summaries[hourStart.millisecondsSinceEpoch];
+
+        final minValue = (summary?['humMin'] as num?)?.toDouble();
+        final maxValue = (summary?['humMax'] as num?)?.toDouble();
+        final sum = (summary?['humSum'] as num?)?.toDouble();
+        final count = (summary?['humCount'] as num?)?.toInt();
+
+        if (fullHour &&
+            minValue != null &&
+            maxValue != null &&
+            sum != null &&
+            count != null &&
+            count > 0 &&
+            minValue.isFinite &&
+            maxValue.isFinite &&
+            sum.isFinite) {
+          final midpoint = hourStart.add(
+            Duration(
+              milliseconds: nextHour.difference(hourStart).inMilliseconds ~/ 2,
+            ),
+          );
+
+          record(
+            minValue,
+            maxValue,
+            sum,
+            count,
+            midpoint.difference(start).inMilliseconds / 3600000.0,
+          );
+        } else {
+          await loadRaw(segmentStart, segmentEnd);
+        }
+      }
+
+      hourStart = nextHour;
+    }
+
+    if (requestId != _rangeRequestId) return [];
+
+    points.sort((a, b) => a['x']!.compareTo(b['x']!));
+
+    _rangeStatMin = overallMin;
+    _rangeStatMax = overallMax;
+    _rangeStatSum = overallSum;
+    _rangeStatCount = overallCount;
+
+    return points;
   }
 
   void _onLiveDataChanged() {
@@ -1055,7 +1321,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       return;
     }
 
-    if ((data['humidityValid'] as bool? ?? true) == false) {
+    if ((data['ambientHumidityValid'] as bool? ?? true) == false) {
       if (_currentHumidity != null) {
         setState(() {
           _currentHumidity = null;
@@ -1064,7 +1330,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       return;
     }
 
-    final humLive = (data['humidity'] as num?)?.toDouble();
+    final humLive = (data['ambientHumidity'] as num?)?.toDouble();
 
     if (humLive == null || humLive <= 0 || humLive > 100) {
       if (_currentHumidity != null) {
@@ -1942,17 +2208,15 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       );
     } else if (isCustomTab) {
       final nowCap = DateTime.now();
-      final chartEnd =
-          (_selectedTimeRange != 3 && chartRange!.end.isAfter(nowCap))
+      final chartEnd = chartRange!.end.isAfter(nowCap)
           ? nowCap
-          : chartRange!.end;
+          : chartRange.end;
       final spanHours = chartEnd.difference(chartRange.start).inMinutes / 60.0;
-      final pxPerHour = spanHours <= 72
-          ? 60.0
-          : (spanHours <= 336 ? 15.0 : 8.0);
+
+      const double pxPerHour = 90.0;
       final minWidth = MediaQuery.of(context).size.width - 56;
-      final customWidth = (spanHours * pxPerHour)
-          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, 12000.0)
+      final customWidth = (spanHours * pxPerHour + 90.0)
+          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, double.infinity)
           .toDouble();
       chartBody = Stack(
         children: [
@@ -1969,7 +2233,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                     xDomainMax: spanHours,
                     rangeStart: chartRange.start,
                     showYAxisLabels: false,
-                    gapHours: spanHours / 300 * 2.5,
+                    gapHours:
+                        (spanHours >= _kHumHourlyMinSpanHours &&
+                            spanHours / 300 * 2.5 < 1.6)
+                        ? 1.6
+                        : spanHours / 300 * 2.5,
                     gapBlankHours: double.infinity,
                   ),
                   child: SizedBox(height: 320, width: customWidth),
@@ -2054,7 +2322,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     double? maxLabel;
 
     if (_selectedTimeRange == 2) {
-      if (_statCount > 0) {
+      if (_statCount > 0 && !_fullSyncRunning) {
         maxLabel = _statMax;
         minLabel = _statMin;
         avgLabel = _statSum / _statCount;
@@ -2332,8 +2600,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         _mlInsight = (result['insights'] as List?)?.join(' ');
         _mlRecommendation =
             ((result['recommendations'] as List?)?.isNotEmpty ?? false)
-                ? (result['recommendations'] as List).first as String?
-                : null;
+            ? (result['recommendations'] as List).first as String?
+            : null;
         _mlInsightLoading = false;
       });
     } catch (e) {
@@ -2392,7 +2660,9 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
     _endTime.hour,
     _endTime.minute,
   );
-  bool get _isValid => _fullStart.isBefore(_fullEnd);
+  bool get _isValid =>
+      _fullStart.isBefore(_fullEnd) &&
+      _fullEnd.difference(_fullStart).inDays <= 31;
 
   Future<void> _pickDate(bool isStart) async {
     final picked = await showDatePicker(
@@ -2539,7 +2809,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
                 Icon(Icons.error_outline, size: 14, color: Colors.red),
                 SizedBox(width: 4),
                 Text(
-                  'Start must be before end.',
+                  'Start must be before end (max 31 days).',
                   style: TextStyle(color: Colors.red, fontSize: 12),
                 ),
               ],
@@ -2679,12 +2949,10 @@ class _HumidityChartPainter extends CustomPainter {
   });
 
   String _rangeLabel(DateTime dt, bool withTime) {
-    final d =
-        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
-    if (!withTime) return d;
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final m = dt.minute.toString().padLeft(2, '0');
-    return '$d $h:$m${dt.hour < 12 ? 'AM' : 'PM'}';
+    final period = dt.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $period';
   }
 
   // Label with minutes, e.g. "2PM" or "2:10PM".
@@ -2912,39 +3180,36 @@ class _HumidityChartPainter extends CustomPainter {
           }
         } else {
           // Custom / Week / Month.
-          int hourStep = 3;
-          final pxPerHour = chartWidth / domainSpan;
-          const steps = [1, 2, 3, 6, 12, 24, 48, 72, 168];
-          hourStep = steps.firstWhere(
-            (s) => s * pxPerHour >= 90,
-            orElse: () => 336,
+          final start = rangeStart!;
+          final firstHour = DateTime(
+            start.year,
+            start.month,
+            start.day,
+            start.hour,
           );
+          final firstTick = firstHour.isBefore(start)
+              ? firstHour.add(const Duration(hours: 1))
+              : firstHour;
           for (
-            int h = domainMin.round();
-            h <= domainMax.floor();
-            h += hourStep
+            DateTime tick = firstTick;
+            tick.difference(start).inMilliseconds / 3600000.0 <= domainMax;
+            tick = tick.add(const Duration(hours: 1))
           ) {
-            if (inGap(h.toDouble())) continue;
+            final h = tick.difference(start).inMilliseconds / 3600000.0;
+            if (inGap(h)) continue;
             final x =
-                leftPadding +
-                ((mapH(h.toDouble()) - domainMin) / domainSpan) * chartWidth;
+                leftPadding + ((mapH(h) - domainMin) / domainSpan) * chartWidth;
             canvas.drawLine(
               Offset(x, topPadding),
               Offset(x, topPadding + chartHeight),
               vGridPaint,
             );
-            final label = _rangeLabel(
-              rangeStart!.add(Duration(hours: h)),
-              hourStep < 24,
-            );
+            final label = _rangeLabel(tick, true);
             final tp = TextPainter(
               text: TextSpan(text: label, style: hourLabelStyle),
               textDirection: TextDirection.ltr,
             )..layout();
-            double labelX = (x - tp.width / 2).clamp(
-              0.0,
-              size.width - tp.width,
-            );
+            final labelX = (x - tp.width / 2).clamp(0.0, size.width - tp.width);
             tp.paint(canvas, Offset(labelX, topPadding + chartHeight + 2));
           }
         }

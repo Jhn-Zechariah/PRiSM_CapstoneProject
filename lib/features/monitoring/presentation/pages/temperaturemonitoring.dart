@@ -10,6 +10,8 @@ import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 
 const List<String> kTimeRanges = ['This Month', 'This Week', 'Today', 'Custom'];
+const int _kHourlyMinSpanHours =
+    6; // ranges this long or longer use sensor_readings_hourly
 
 String _formatDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -176,6 +178,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   static const String _prefsKey = 'temp_today_v1';
   static DateTime? _lastDocTs; // timestamp of the last document counted
   static bool _syncing = false;
+  static bool _fullSyncRunning = false;
 
   static void _resetStats() {
     _statMax = null;
@@ -231,7 +234,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     }
   }
 
-   static Future<bool> _restoreToday() async {
+  static Future<bool> _restoreToday() async {
     if (_minuteBufferToday.isNotEmpty || _syncing) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -403,7 +406,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   // derive from whatever's in _minuteBufferCustom.
   double? get _activeDisplayMax {
     if (_selectedTimeRange == 2) {
-      return _statCount > 0 ? _statMax : null;
+      return (_statCount > 0 && !_fullSyncRunning) ? _statMax : null;
     }
 
     return _rangeStatCount > 0 ? _rangeStatMax : null;
@@ -411,7 +414,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   double? get _activeDisplayMin {
     if (_selectedTimeRange == 2) {
-      return _statCount > 0 ? _statMin : null;
+      return (_statCount > 0 && !_fullSyncRunning) ? _statMin : null;
     }
 
     return _rangeStatCount > 0 ? _rangeStatMin : null;
@@ -419,7 +422,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   double? get _activeDisplayAvg {
     if (_selectedTimeRange == 2) {
-      return _statCount > 0 ? _statSum / _statCount : null;
+      return (_statCount > 0 && !_fullSyncRunning)
+          ? _statSum / _statCount
+          : null;
     }
 
     return _rangeStatCount > 0 ? _rangeStatSum / _rangeStatCount : null;
@@ -452,9 +457,23 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
     // Pull new temperature_second readings into Today's graph every 10s,
     // matching the ESP32's 10s save interval.
+    int todaySyncCounter = 0;
+
     _todaySyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted || !_wasTickerEnabled) return;
-      if (_selectedTimeRange == 2) unawaited(_syncToday());
+
+      if (_selectedTimeRange == 2) {
+        todaySyncCounter++;
+
+        // Rebuild full Today history approximately every 5 minutes.
+        // This helps recover readings uploaded late by the ESP32.
+        if (todaySyncCounter >= 30) {
+          todaySyncCounter = 0;
+          _todayHistoryFetchedDayKey = '';
+        }
+
+        unawaited(_syncToday());
+      }
     });
     // Every minute: Week/Month check whether a new week/month started or
     // the hourly refresh is due. The range key makes this a no-op otherwise.
@@ -467,13 +486,26 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   }
 
   void _onSharedStatusChanged() {
-    if (!mounted) return;
-    setState(() {
-      _connectionStatus = LiveSensorService.connectionStatus.value;
-      _sensorStatus = LiveSensorService.sensorStatus.value;
-      if (_sensorStatus == "Sensor Offline") _currentTemp = null;
-    });
-  }
+  if (!mounted) return;
+
+  final newConnectionStatus =
+      LiveSensorService.connectionStatus.value;
+
+  final newSensorStatus =
+      LiveSensorService.sensorStatus.value;
+
+  setState(() {
+    _connectionStatus = newConnectionStatus;
+    _sensorStatus = newSensorStatus;
+
+    // Never display an old temperature when
+    // the sensor is offline or the app has no connection.
+    if (_sensorStatus == "Sensor Offline" ||
+        _connectionStatus == "No Connection") {
+      _currentTemp = null;
+    }
+  });
+}
 
   DateTime? _lastMlFetch;
 
@@ -486,8 +518,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     if (LiveSensorService.sensorStatus.value == "Sensor Offline") return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
-    if ((data['ambientTempValid'] as bool? ?? true) == false) return;
-    final t = (data['ambientTemp'] as num?)?.toDouble();
+    if ((data['pigBodyTempValid'] as bool? ?? true) == false) return;
+    final t = (data['pigBodyTemp'] as num?)?.toDouble();
     if (t == null || t < 0 || t > 80) return;
     _currentTemp = t;
     _addLivePoint(t, data);
@@ -614,6 +646,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       // ─────────────────────────────────────────────────────────────
 
       final bool needsFullHistory = _todayHistoryFetchedDayKey != todayKey;
+      _fullSyncRunning = needsFullHistory;
 
       // ─────────────────────────────────────────────────────────────
       // IMPORTANT DUPLICATE-PREVENTION FIX
@@ -642,26 +675,36 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         _lastDocTs = null;
       }
 
-      // Full history:
-      // Start immediately before midnight.
-      //
-      // Incremental update:
-      // Start after the last document already counted.
-      var cursor = needsFullHistory
+          // Full history starts before midnight.
+      // Incremental history starts at the last processed timestamp.
+      final queryStart = needsFullHistory
           ? midnight.subtract(const Duration(milliseconds: 1))
           : (_lastDocTs ?? midnight.subtract(const Duration(milliseconds: 1)));
 
+      var cursor = queryStart;
+
       // ─────────────────────────────────────────────────────────────
       // FIRESTORE PAGINATION
+      // Stable query boundary and document pagination.
       // ─────────────────────────────────────────────────────────────
 
+      QueryDocumentSnapshot<Map<String, dynamic>>? lastPageDocument;
+
       while (true) {
-        final snap = await _db
-            .collection('temperature_second')
+        Query<Map<String, dynamic>> query = _db
+            .collection('sensor_readings_seconds')
+            .where(
+              'timestamp',
+              isGreaterThan: Timestamp.fromDate(queryStart),
+            )
             .orderBy('timestamp', descending: false)
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
-            .limit(1000)
-            .get();
+            .limit(1000);
+
+        if (lastPageDocument != null) {
+          query = query.startAfterDocument(lastPageDocument);
+        }
+
+        final snap = await query.get();
 
         for (final doc in snap.docs) {
           final d = doc.data();
@@ -672,16 +715,18 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
             continue;
           }
 
-          cursor = ts;
+          if (ts.isAfter(cursor)) {
+            cursor = ts;
+          }
 
-          final raw = d['ambientTemp'];
+          final raw = d['pigBodyTemp'];
 
           if (raw == null) {
             continue;
           }
 
           final temp = (raw as num).toDouble();
-          if (d['ambientTempValid'] == false || temp < 0 || temp > 80) continue;
+          if (d['pigBodyTempValid'] == false || temp < 0 || temp > 80) continue;
 
           // Exact Today statistics.
           _addToStats(temp);
@@ -695,11 +740,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           });
         }
 
-        // Remember newest document processed.
+        if (snap.docs.isNotEmpty) {
+          lastPageDocument = snap.docs.last;
+        }
+
+        // Remember the newest timestamp processed.
         _lastDocTs = cursor;
 
-        // If fewer than 1000 documents were returned,
-        // we reached the end.
         if (snap.docs.length < 1000) {
           break;
         }
@@ -754,6 +801,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     } finally {
       // Always unlock synchronization.
       _syncing = false;
+      _fullSyncRunning = false;
     }
   }
 
@@ -788,9 +836,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     // Custom is fixed to its selected timestamps.
     // Week/Month include the current hour so they refresh as time advances.
+
     final rangeKey = rangeIndex == 3
         ? '$rangeIndex-${start.millisecondsSinceEpoch}-${end.millisecondsSinceEpoch}'
-        : '$rangeIndex-${start.millisecondsSinceEpoch}-${currentHourKey()}';
+        : '$rangeIndex-${start.millisecondsSinceEpoch}-${SensorMemory.todayKey()}-${DateTime.now().hour}';
 
     if (_minuteCustomRangeKey == rangeKey) {
       return;
@@ -897,6 +946,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       _resetRangeStats();
       return [];
     }
+    if (end.difference(start).inHours >= _kHourlyMinSpanHours) {
+      return _fetchHourlyTempRange(start, end, requestId);
+    }
     double? sMax;
     double? sMin;
     double sSum = 0;
@@ -922,7 +974,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     while (true) {
       final snapshot = await _db
-          .collection('temperature_second')
+          .collection('sensor_readings_seconds')
           .orderBy('timestamp', descending: false)
           .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
@@ -939,7 +991,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       for (final doc in snapshot.docs) {
         final data = doc.data();
 
-        final raw = data['ambientTemp'];
+        final raw = data['pigBodyTemp'];
         final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
 
         if (timestamp == null) {
@@ -959,7 +1011,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         }
 
         final value = (raw as num).toDouble();
-        if (data['ambientTempValid'] == false || value < 0 || value > 80)
+        if (data['pigBodyTempValid'] == false || value < 0 || value > 80)
           continue;
 
         // -----------------------------------------------
@@ -1046,6 +1098,219 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     return points;
   }
 
+  Future<List<Map<String, double>>> _fetchHourlyTempRange(
+    DateTime start,
+    DateTime end,
+    int requestId,
+  ) async {
+    final now = DateTime.now();
+    final effectiveEnd = end.isAfter(now) ? now : end;
+
+    if (!effectiveEnd.isAfter(start)) {
+      _resetRangeStats();
+      return [];
+    }
+
+    final points = <Map<String, double>>[];
+    double? overallMin;
+    double? overallMax;
+    double overallSum = 0;
+    int overallCount = 0;
+
+    void record(
+      double minValue,
+      double maxValue,
+      double sum,
+      int count,
+      double x,
+    ) {
+      if (count <= 0) return;
+
+      if (overallMin == null || minValue < overallMin!) {
+        overallMin = minValue;
+      }
+      if (overallMax == null || maxValue > overallMax!) {
+        overallMax = maxValue;
+      }
+
+      overallSum += sum;
+      overallCount += count;
+
+      final average = sum / count;
+      points.add({
+        'x': x,
+        'temp': average,
+        'avg': average,
+        'min': minValue,
+        'max': maxValue,
+      });
+    }
+
+    final firstHour = DateTime(start.year, start.month, start.day, start.hour);
+
+    final summarySnap = await _db
+        .collection('sensor_readings_hourly')
+        .where(
+          'timestamp',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(firstHour),
+        )
+        .where('timestamp', isLessThan: Timestamp.fromDate(effectiveEnd))
+        .orderBy('timestamp')
+        .get()
+        .timeout(const Duration(seconds: 30));
+
+    if (requestId != _rangeRequestId) return [];
+
+    final summaries = <int, Map<String, dynamic>>{};
+
+    for (final doc in summarySnap.docs) {
+      final data = doc.data();
+      final ts = (data['timestamp'] as Timestamp?)?.toDate();
+
+      if (ts != null) {
+        summaries[ts.millisecondsSinceEpoch] = data;
+      }
+    }
+
+    Future<void> loadRaw(DateTime segmentStart, DateTime segmentEnd) async {
+      QueryDocumentSnapshot<Map<String, dynamic>>? lastDocument;
+
+      double? localMin;
+      double? localMax;
+      double localSum = 0;
+      int localCount = 0;
+      double xSum = 0;
+
+      while (true) {
+        Query<Map<String, dynamic>> query = _db
+            .collection('sensor_readings_seconds')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(segmentStart),
+            )
+            .where('timestamp', isLessThan: Timestamp.fromDate(segmentEnd))
+            .orderBy('timestamp')
+            .limit(1000);
+
+        if (lastDocument != null) {
+          query = query.startAfterDocument(lastDocument);
+        }
+
+        final snap = await query.get().timeout(const Duration(seconds: 30));
+
+        if (requestId != _rangeRequestId) return;
+        if (snap.docs.isEmpty) break;
+
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final ts = (d['timestamp'] as Timestamp?)?.toDate();
+          final raw = d['pigBodyTemp'];
+
+          if (ts == null || raw is! num || d['pigBodyTempValid'] == false) {
+            continue;
+          }
+
+          final value = raw.toDouble();
+
+          if (!value.isFinite || value < 0 || value > 80) {
+            continue;
+          }
+
+          if (localMin == null || value < localMin!) {
+            localMin = value;
+          }
+          if (localMax == null || value > localMax!) {
+            localMax = value;
+          }
+
+          localSum += value;
+          localCount++;
+          xSum += ts.difference(start).inMilliseconds / 3600000.0;
+        }
+
+        lastDocument = snap.docs.last;
+
+        if (snap.docs.length < 1000) break;
+      }
+
+      if (localCount > 0 && requestId == _rangeRequestId) {
+        record(localMin!, localMax!, localSum, localCount, xSum / localCount);
+      }
+    }
+
+    var hourStart = firstHour;
+
+    while (hourStart.isBefore(effectiveEnd)) {
+      if (requestId != _rangeRequestId) return [];
+
+      final nextHour = DateTime(
+        hourStart.year,
+        hourStart.month,
+        hourStart.day,
+        hourStart.hour + 1,
+      );
+
+      final segmentStart = start.isAfter(hourStart) ? start : hourStart;
+
+      final segmentEnd = effectiveEnd.isBefore(nextHour)
+          ? effectiveEnd
+          : nextHour;
+
+      if (segmentEnd.isAfter(segmentStart)) {
+        final fullHour =
+            segmentStart.isAtSameMomentAs(hourStart) &&
+            segmentEnd.isAtSameMomentAs(nextHour) &&
+            !nextHour.isAfter(now);
+
+        final summary = summaries[hourStart.millisecondsSinceEpoch];
+
+        final minValue = (summary?['min'] as num?)?.toDouble();
+        final maxValue = (summary?['max'] as num?)?.toDouble();
+        final sum = (summary?['sum'] as num?)?.toDouble();
+        final count = (summary?['count'] as num?)?.toInt();
+
+        if (fullHour &&
+            minValue != null &&
+            maxValue != null &&
+            sum != null &&
+            count != null &&
+            count > 0 &&
+            minValue.isFinite &&
+            maxValue.isFinite &&
+            sum.isFinite) {
+          final midpoint = hourStart.add(
+            Duration(
+              milliseconds: nextHour.difference(hourStart).inMilliseconds ~/ 2,
+            ),
+          );
+
+          record(
+            minValue,
+            maxValue,
+            sum,
+            count,
+            midpoint.difference(start).inMilliseconds / 3600000.0,
+          );
+        } else {
+          await loadRaw(segmentStart, segmentEnd);
+        }
+      }
+
+      hourStart = nextHour;
+    }
+
+    if (requestId != _rangeRequestId) return [];
+
+    points.sort((a, b) => a['x']!.compareTo(b['x']!));
+
+    _rangeStatMin = overallMin;
+    _rangeStatMax = overallMax;
+    _rangeStatSum = overallSum;
+    _rangeStatCount = overallCount;
+
+    return points;
+  }
+
   void _onLiveDataChanged() {
     if (!mounted) return;
 
@@ -1071,7 +1336,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       return;
     }
 
-    final tempValid = data['ambientTempValid'] as bool? ?? true;
+    final tempValid = data['pigBodyTempValid'] as bool? ?? true;
 
     if (!tempValid) {
       debugPrint('[Temperature] Invalid AMG8833 live reading.');
@@ -1084,7 +1349,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       return;
     }
 
-    final tempLive = (data['ambientTemp'] as num?)?.toDouble();
+    final tempLive = (data['pigBodyTemp'] as num?)?.toDouble();
 
     if (tempLive == null || tempLive < 0 || tempLive > 80) {
       if (_currentTemp != null) {
@@ -1095,7 +1360,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       return;
     }
 
-    final humLive = (data['humidity'] as num?)?.toDouble();
+    final humLive = (data['ambientHumidity'] as num?)?.toDouble();
 
     setState(() {
       _currentTemp = tempLive;
@@ -1134,7 +1399,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   // Keeps "Highest" in sync with the same ratcheted value the Dashboard's
   // Quick Stats card reads — otherwise this screen shows the stale
-  // hourly-aggregate max until the next temperature_hourly doc lands.
+  // hourly-aggregate max until the next sensor_readings_hourly doc lands.
 
   Future<void> _loadSprinklerState() async {
     await SprinklerMemory.load();
@@ -1992,18 +2257,17 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       );
     } else if (isCustomTab) {
       final nowCap = DateTime.now();
-      final chartEnd =
-          (_selectedTimeRange != 3 && chartRange!.end.isAfter(nowCap))
+      final chartEnd = chartRange!.end.isAfter(nowCap)
           ? nowCap
-          : chartRange!.end;
+          : chartRange.end;
       final spanHours = chartEnd.difference(chartRange.start).inMinutes / 60.0;
-      final pxPerHour = spanHours <= 72
-          ? 60.0
-          : (spanHours <= 336 ? 15.0 : 8.0);
+
+      const double pxPerHour = 90.0;
       final minWidth = MediaQuery.of(context).size.width - 56;
-      final customWidth = (spanHours * pxPerHour)
-          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, 12000.0)
+      final customWidth = (spanHours * pxPerHour + 90.0)
+          .clamp(minWidth < 1300.0 ? 1300.0 : minWidth, double.infinity)
           .toDouble();
+
       chartBody = Stack(
         children: [
           ClipRect(
@@ -2020,7 +2284,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                     rangeStart: chartRange.start,
                     showYAxisLabels: false,
 
-                    gapHours: spanHours / 300 * 2.5,
+                    gapHours:
+                        (spanHours >= _kHourlyMinSpanHours &&
+                            spanHours / 300 * 2.5 < 1.6)
+                        ? 1.6
+                        : spanHours / 300 * 2.5,
                     gapBlankHours: double.infinity,
                   ),
                   child: SizedBox(height: 320, width: customWidth),
@@ -2369,8 +2637,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         _mlInsight = (result['insights'] as List?)?.join(' ');
         _mlRecommendation =
             ((result['recommendations'] as List?)?.isNotEmpty ?? false)
-                ? (result['recommendations'] as List).first as String?
-                : null;
+            ? (result['recommendations'] as List).first as String?
+            : null;
         _mlLoading = false;
       });
     } catch (e) {
@@ -2428,7 +2696,9 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
     _endTime.hour,
     _endTime.minute,
   );
-  bool get _isValid => _fullStart.isBefore(_fullEnd);
+  bool get _isValid =>
+      _fullStart.isBefore(_fullEnd) &&
+      _fullEnd.difference(_fullStart).inDays <= 31;
 
   Future<void> _pickDate(bool isStart) async {
     final picked = await showDatePicker(
@@ -2575,7 +2845,7 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
                 Icon(Icons.error_outline, size: 14, color: Colors.red),
                 SizedBox(width: 4),
                 Text(
-                  'Start must be before end.',
+                  'Start must be before end (max 31 days).',
                   style: TextStyle(color: Colors.red, fontSize: 12),
                 ),
               ],
@@ -2717,12 +2987,10 @@ class _TemperatureChartPainter extends CustomPainter {
   });
 
   String _rangeLabel(DateTime dt, bool withTime) {
-    final d =
-        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
-    if (!withTime) return d;
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final m = dt.minute.toString().padLeft(2, '0');
-    return '$d $h:$m${dt.hour < 12 ? 'AM' : 'PM'}';
+    final period = dt.hour < 12 ? 'AM' : 'PM';
+    return '$h:$m $period';
   }
 
   // Label with minutes, e.g. "2PM" or "2:10PM" (Today chart, 10-min ticks).
@@ -2950,39 +3218,36 @@ class _TemperatureChartPainter extends CustomPainter {
           }
         } else {
           // Custom / Week / Month: unchanged behavior.
-          int hourStep = 3;
-          final pxPerHour = chartWidth / domainSpan;
-          const steps = [1, 2, 3, 6, 12, 24, 48, 72, 168];
-          hourStep = steps.firstWhere(
-            (s) => s * pxPerHour >= 90,
-            orElse: () => 336,
+          final start = rangeStart!;
+          final firstHour = DateTime(
+            start.year,
+            start.month,
+            start.day,
+            start.hour,
           );
+          final firstTick = firstHour.isBefore(start)
+              ? firstHour.add(const Duration(hours: 1))
+              : firstHour;
           for (
-            int h = domainMin.round();
-            h <= domainMax.floor();
-            h += hourStep
+            DateTime tick = firstTick;
+            tick.difference(start).inMilliseconds / 3600000.0 <= domainMax;
+            tick = tick.add(const Duration(hours: 1))
           ) {
-            if (inGap(h.toDouble())) continue;
+            final h = tick.difference(start).inMilliseconds / 3600000.0;
+            if (inGap(h)) continue;
             final x =
-                leftPadding +
-                ((mapH(h.toDouble()) - domainMin) / domainSpan) * chartWidth;
+                leftPadding + ((mapH(h) - domainMin) / domainSpan) * chartWidth;
             canvas.drawLine(
               Offset(x, topPadding),
               Offset(x, topPadding + chartHeight),
               vGridPaint,
             );
-            final label = _rangeLabel(
-              rangeStart!.add(Duration(hours: h)),
-              hourStep < 24,
-            );
+            final label = _rangeLabel(tick, true);
             final tp = TextPainter(
               text: TextSpan(text: label, style: hourLabelStyle),
               textDirection: TextDirection.ltr,
             )..layout();
-            double labelX = (x - tp.width / 2).clamp(
-              0.0,
-              size.width - tp.width,
-            );
+            final labelX = (x - tp.width / 2).clamp(0.0, size.width - tp.width);
             tp.paint(canvas, Offset(labelX, topPadding + chartHeight + 2));
           }
         }
