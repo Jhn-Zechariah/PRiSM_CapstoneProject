@@ -486,26 +486,24 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   }
 
   void _onSharedStatusChanged() {
-  if (!mounted) return;
+    if (!mounted) return;
 
-  final newConnectionStatus =
-      LiveSensorService.connectionStatus.value;
+    final newConnectionStatus = LiveSensorService.connectionStatus.value;
 
-  final newSensorStatus =
-      LiveSensorService.sensorStatus.value;
+    final newSensorStatus = LiveSensorService.sensorStatus.value;
 
-  setState(() {
-    _connectionStatus = newConnectionStatus;
-    _sensorStatus = newSensorStatus;
+    setState(() {
+      _connectionStatus = newConnectionStatus;
+      _sensorStatus = newSensorStatus;
 
-    // Never display an old temperature when
-    // the sensor is offline or the app has no connection.
-    if (_sensorStatus == "Sensor Offline" ||
-        _connectionStatus == "No Connection") {
-      _currentTemp = null;
-    }
-  });
-}
+      // Never display an old temperature when
+      // the sensor is offline or the app has no connection.
+      if (_sensorStatus == "Sensor Offline" ||
+          _connectionStatus == "No Connection") {
+        _currentTemp = null;
+      }
+    });
+  }
 
   DateTime? _lastMlFetch;
 
@@ -675,7 +673,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         _lastDocTs = null;
       }
 
-          // Full history starts before midnight.
+      // Full history starts before midnight.
       // Incremental history starts at the last processed timestamp.
       final queryStart = needsFullHistory
           ? midnight.subtract(const Duration(milliseconds: 1))
@@ -693,10 +691,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       while (true) {
         Query<Map<String, dynamic>> query = _db
             .collection('sensor_readings_seconds')
-            .where(
-              'timestamp',
-              isGreaterThan: Timestamp.fromDate(queryStart),
-            )
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(queryStart))
             .orderBy('timestamp', descending: false)
             .limit(1000);
 
@@ -1009,10 +1004,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         if (timestamp.isBefore(start) || timestamp.isAfter(end)) {
           continue;
         }
-
         final value = (raw as num).toDouble();
-        if (data['pigBodyTempValid'] == false || value < 0 || value > 80)
+
+        if (data['pigBodyTempValid'] == false || value < 0 || value > 80) {
           continue;
+        }
 
         // -----------------------------------------------
         // EXACT RANGE STATISTICS
@@ -1215,14 +1211,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           if (!value.isFinite || value < 0 || value > 80) {
             continue;
           }
-
-          if (localMin == null || value < localMin!) {
+          if (localMin == null || value < localMin) {
             localMin = value;
           }
-          if (localMax == null || value > localMax!) {
+          if (localMax == null || value > localMax) {
             localMax = value;
           }
-
           localSum += value;
           localCount++;
           xSum += ts.difference(start).inMilliseconds / 3600000.0;
@@ -1466,7 +1460,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final enabled = TickerMode.of(context);
+    final enabled = TickerMode.valuesOf(context).enabled;
     if (enabled && !_wasTickerEnabled) {
       // Screen is visible again after navigating away.
       if (_selectedTimeRange != 2) {
@@ -1520,7 +1514,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     setState(() => _isSprinklerLoading = true);
     try {
       // Fire the LAN command first — this is what makes the relay flip
-      // instantly instead of waiting for the ESP32's 2s Firestore poll.
+      // instantly instead of waiting for the ESP32's 15s Firestore poll.
       unawaited(
         http
             .post(

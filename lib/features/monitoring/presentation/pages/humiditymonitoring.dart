@@ -506,7 +506,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final enabled = TickerMode.of(context);
+    final enabled = TickerMode.valuesOf(context).enabled;
     if (enabled && !_wasTickerEnabled) {
       // Screen is visible again after navigating away.
       if (_selectedTimeRange != 2) {
@@ -591,26 +591,24 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   void _onSharedStatusChanged() {
-  if (!mounted) return;
+    if (!mounted) return;
 
-  final newConnectionStatus =
-      LiveSensorService.connectionStatus.value;
+    final newConnectionStatus = LiveSensorService.connectionStatus.value;
 
-  final newSensorStatus =
-      LiveSensorService.sensorStatus.value;
+    final newSensorStatus = LiveSensorService.sensorStatus.value;
 
-  setState(() {
-    _connectionStatus = newConnectionStatus;
-    _sensorStatus = newSensorStatus;
+    setState(() {
+      _connectionStatus = newConnectionStatus;
+      _sensorStatus = newSensorStatus;
 
-    // Never display an old humidity value when
-    // the sensor is offline or the app has no connection.
-    if (_sensorStatus == "Sensor Offline" ||
-        _connectionStatus == "No Connection") {
-      _currentHumidity = null;
-    }
-  });
-}
+      // Never display an old humidity value when
+      // the sensor is offline or the app has no connection.
+      if (_sensorStatus == "Sensor Offline" ||
+          _connectionStatus == "No Connection") {
+        _currentHumidity = null;
+      }
+    });
+  }
 
   // Loads today's persisted per-minute readings from the ESP32's
   // humidity_minute collection so the Minute view has real history
@@ -952,7 +950,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         _lastDocTs = null;
       }
 
-            // Complete history starts before midnight.
+      // Complete history starts before midnight.
       // Incremental history uses a fixed timestamp boundary.
       final queryStart = needsFullHistory
           ? midnight.subtract(const Duration(milliseconds: 1))
@@ -970,10 +968,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       while (true) {
         Query<Map<String, dynamic>> query = _db
             .collection('sensor_readings_seconds')
-            .where(
-              'timestamp',
-              isGreaterThan: Timestamp.fromDate(queryStart),
-            )
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(queryStart))
             .orderBy('timestamp', descending: false)
             .limit(1000);
 
@@ -1200,24 +1195,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           if (!value.isFinite || value <= 0 || value > 100) {
             continue;
           }
-
-          if (localMin == null || value < localMin!) {
+          if (localMin == null || value < localMin) {
             localMin = value;
           }
-          if (localMax == null || value > localMax!) {
+          if (localMax == null || value > localMax) {
             localMax = value;
           }
-
           localSum += value;
           localCount++;
           xSum += ts.difference(start).inMilliseconds / 3600000.0;
         }
-
         lastDocument = snap.docs.last;
-
         if (snap.docs.length < 1000) break;
       }
-
       if (localCount > 0 && requestId == _rangeRequestId) {
         record(localMin!, localMax!, localSum, localCount, xSum / localCount);
       }
@@ -1475,7 +1465,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     setState(() => _isSprinklerLoading = true);
     try {
       // Fire the LAN command first — this is what makes the relay flip
-      // instantly instead of waiting for the ESP32's 2s Firestore poll.
+      // instantly instead of waiting for the ESP32's 15s Firestore poll.
       unawaited(
         http
             .post(
