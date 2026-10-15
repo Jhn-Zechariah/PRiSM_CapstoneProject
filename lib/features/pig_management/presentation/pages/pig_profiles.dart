@@ -141,16 +141,13 @@ class PigProfilesScreen extends StatelessWidget {
                           separatorBuilder: (context, index) =>
                           const SizedBox(height: 16),
                           itemBuilder: (context, index) {
-                            final colors = [
-                              Colors.red,
-                              const Color(0xFF003366),
-                              Colors.orange,
-                            ];
-                            final assignedColor = colors[index % colors.length];
-
+                            final pig = displayPigs[index];
                             return PigProfileCard(
-                              pig: displayPigs[index], // Use the filtered pigs array here
-                              accentColor: assignedColor,
+                              // Keyed by id so card state (ML results) follows
+                              // its pig when the list shifts or is refiltered
+                              key: ValueKey(pig.pigId),
+                              pig: pig,
+                              accentColor: pigAccentColor(index),
                               isDarkMode: isDarkMode,
                             );
                           },

@@ -36,6 +36,12 @@ class AppPig {
     this.lastIntakeName,
   });
 
+  /// Sold and deceased pigs are no longer part of the active herd.
+  bool get isInactive {
+    final statusLower = status.toLowerCase();
+    return statusLower == 'sold' || statusLower == 'deceased';
+  }
+
   /// Calculates the pig's life stage based on its age in days:
   /// - Piglet: 0-21 days
   /// - Nursery: 22-70 days

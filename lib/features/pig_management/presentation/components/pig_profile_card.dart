@@ -11,6 +11,17 @@ import '../../../../core/services/ml_service.dart';
 enum PigMenuAction { info, updateWeight }
 
 
+// Shared by the profiles list and weight history so a pig keeps the same
+// color on both screens (indexed by its position in the filtered list).
+const List<Color> pigAccentColors = [
+  Colors.red,
+  Color(0xFF003366),
+  Colors.orange,
+];
+
+Color pigAccentColor(int index) => pigAccentColors[index % pigAccentColors.length];
+
+
 class PigProfileCard extends StatefulWidget {
   final AppPig pig;
   final Color accentColor;
@@ -53,13 +64,11 @@ class _PigProfileCardState extends State<PigProfileCard>
         birthWeightChanged ||
         birthDateChanged ||
         statusChanged) {
-
-      setState(() {
-        _mlLoading = true;
-        _mlClassification = null;
-        _mlInsight = null;
-        _mlRecommendation = null;
-      });
+      // No setState needed: build() always runs after didUpdateWidget
+      _mlLoading = true;
+      _mlClassification = null;
+      _mlInsight = null;
+      _mlRecommendation = null;
 
       _fetchMLInsights();
     }
@@ -83,9 +92,8 @@ class _PigProfileCardState extends State<PigProfileCard>
 
   Future<void> _fetchMLInsights() async {
     // Only run ML for active pigs
-    final statusLower = widget.pig.status.toLowerCase();
-    if (statusLower == 'sold' || statusLower == 'deceased') {
-      setState(() => _mlLoading = false);
+    if (widget.pig.isInactive) {
+      _mlLoading = false;
       return;
     }
 
@@ -179,16 +187,21 @@ class _PigProfileCardState extends State<PigProfileCard>
 
 
         if (newWeight != null) {
-          pigCubit.updateWeight(
-            widget.pig.pigId,
-            widget.pig.currentWeightKg,
-            newWeight,
-          );
-          if (!context.mounted) return;
-          CustomSnackbar.show(
-            context: context,
-            message: "Weight updated to $newWeight kg",
-          );
+          try {
+            await pigCubit.updateWeight(widget.pig.pigId, newWeight);
+            if (!context.mounted) return;
+            CustomSnackbar.show(
+              context: context,
+              message: "Weight updated to $newWeight kg",
+            );
+          } catch (e) {
+            if (!context.mounted) return;
+            CustomSnackbar.show(
+              context: context,
+              isError: true,
+              message: "Failed to update weight. Please try again.",
+            );
+          }
         }
         break;
     }
@@ -206,8 +219,7 @@ class _PigProfileCardState extends State<PigProfileCard>
     final labelColor = isDarkMode ? Colors.white70 : Colors.black54;
 
 
-    final statusLower = pig.status.toLowerCase();
-    final isInactive = statusLower == 'sold' || statusLower == 'deceased';
+    final isInactive = pig.isInactive;
     final displayAccentColor = isInactive
         ? Colors.grey.shade600
         : widget.accentColor;

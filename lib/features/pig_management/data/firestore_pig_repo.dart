@@ -65,8 +65,9 @@ class FirebasePigRepo implements PigRepo {
         // 1. Birth weight history entry
         final birthHistoryRef = docRef.collection('weight_history').doc();
         transaction.set(birthHistoryRef, {
-          'weightKg': 1.4, // Changed from '1.4' to 1.4 (see note below)
-          'dateRecorded': FieldValue.serverTimestamp(),
+          'weightKg': 1.4,
+          // Dated at birth so it always sorts before the initial weight entry
+          'dateRecorded': Timestamp.fromDate(pig.birthDate),
           'notes': 'Birth weight',
         });
 
@@ -101,7 +102,6 @@ class FirebasePigRepo implements PigRepo {
         'birthDate': updatedPig.birthDate,
         'sex': updatedPig.sex,
         'notes': updatedPig.notes,
-        'stage': updatedPig.stage,
         'status': updatedPig.status,
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -181,6 +181,7 @@ class FirebasePigRepo implements PigRepo {
 
 
   // --- ONE-TIME MIGRATION HELPER ---
+  @override
   Future<void> migrateCounterForUser(String userId) async {
     final counterRef = _countersCollection.doc(userId);
     final counterSnap = await counterRef.get();

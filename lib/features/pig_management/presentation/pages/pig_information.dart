@@ -9,7 +9,6 @@ import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../cubits/pig_cubit.dart';
-import '../cubits/pig_states.dart';
 
 
 class PigInformationScreen extends StatefulWidget {
@@ -87,32 +86,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   }
 
 
-  /// Calculates the pig's life stage based on its age in days:
-  /// - Piglet: 0-21 days
-  /// - Nursery: 22-70 days
-  /// - Grower: 71-120 days
-  /// - Finisher: 121-170 days
-  /// - Mature: 171+ days (fallback for anything beyond the finisher window)
-  String _calculateStage(DateTime birthDate) {
-    final ageInDays = DateTime.now().difference(birthDate).inDays;
-
-    if (ageInDays < 0) {
-      // Defensive fallback; birth date should never be in the future.
-      return 'Piglet';
-    } else if (ageInDays <= 21) {
-      return 'Piglet';
-    } else if (ageInDays <= 70) {
-      return 'Nursery';
-    } else if (ageInDays <= 120) {
-      return 'Grower';
-    } else if (ageInDays <= 170) {
-      return 'Finisher';
-    } else {
-      return 'Mature';
-    }
-  }
-
-
   /// Re-derives the stage from whatever is currently in the birth date
   /// field and pushes it into both the backing value and its controller.
   void _updateStageFromBirthDate() {
@@ -123,7 +96,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
       return;
     }
 
-    final stage = _calculateStage(parsedDate);
+    final stage = AppPig.calculateStage(parsedDate);
     _selectedStage = stage;
     _stageController.text = stage;
   }
@@ -131,6 +104,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
   void _onSave() async {
     if (!_formKey.currentState!.validate()) return;
+    // Read before any await so the context isn't used across an async gap
+    final pigCubit = context.read<PigCubit>();
 
 
     // 2. Check for confirmation dialog condition if updating
@@ -165,11 +140,11 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
     if (_isLoading) return;
     setState(() => _isLoading = true);
-    final pigCubit = context.read<PigCubit>();
 
 
     if (widget.existingPig != null) {
-      String notes = "";
+      // Keep existing notes unless the status change records a new one
+      String notes = widget.existingPig!.notes;
 
 
       if (_selectedStatus == 'Sold') {
@@ -205,23 +180,18 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         );
 
         if (!mounted) return;
-
-        // ✅ Check if the cubit emitted an error before celebrating
-        final currentState = pigCubit.state;
-        if (currentState is PigError) {
-          CustomSnackbar.show(
-            context: context,
-            isError: true,
-            message: "Failed to update pig. Please try again.",
-          );
-          return;
-        }
-
         CustomSnackbar.show(
           context: context,
           message: "Pig updated successfully!",
         );
         Navigator.pop(context);
+      } catch (e) {
+        if (!mounted) return;
+        CustomSnackbar.show(
+          context: context,
+          isError: true,
+          message: "Failed to update pig. Please try again.",
+        );
       } finally {
         if (mounted) setState(() => _isLoading = false);
       }
@@ -235,7 +205,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         birthDate:
         DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,
-        birthWeightKg: double.parse('1.4'), // Default birth weight (can be updated later)
+        birthWeightKg: 1.4, // Default birth weight (can be updated later)
         currentWeightKg: double.parse(_weightController.text),
         notes: 'Pig Registered ',
         stage: _selectedStage!,
@@ -273,10 +243,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
     );
 
 
-    final isReadOnly =
-        widget.existingPig != null &&
-            (widget.existingPig!.status.toLowerCase() == 'sold' ||
-                widget.existingPig!.status.toLowerCase() == 'deceased');
+    final isReadOnly = widget.existingPig?.isInactive ?? false;
 
 
     return Scaffold(
@@ -470,9 +437,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                   backgroundColor: Colors.blue,
                                   border: 10,
                                   onPressed: _onSave,
-                                  color: isDarkMode
-                                      ? Colors.black87
-                                      : Colors.black87,
+                                  color: Colors.black87,
                                 ),
                                 const SizedBox(height: 12),
                               ],

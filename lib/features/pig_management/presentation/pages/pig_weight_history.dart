@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/model/app_weight_history.dart';
 import '../../../../core/widgets/app_top_bar.dart';
 import '../../domain/model/app_pig.dart';
+import '../components/pig_profile_card.dart';
 import '../cubits/weight_history_cubit.dart';
 import '../cubits/weight_history_states.dart';
 
@@ -19,32 +20,26 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
   String? _selectedPigId;
   String _currentFilter = 'Active'; // Added filter state
 
-  // Define the looping accent colors
-  final List<Color> _accentColors = const [
-    Color(0xFFE57373), // Red
-    Color(0xFF81C784), // Green
-    Color(0xFF64B5F6), // Blue
-    Color(0xFFFFB74D), // Orange
-    Color(0xFFBA68C8), // Purple
-  ];
+  // Recomputed only when the filter changes, not on every build
+  late List<AppPig> _filteredPigs;
+  // Same palette and indexing as the profiles list, so colors match
+  late Map<String, Color> _pigColors;
 
-  // 👇 2. Getter to dynamically filter the pigs
-  List<AppPig> get _filteredPigs {
-    return widget.availablePigs.where((pig) {
-      final statusLower = pig.status.toLowerCase();
-      final isInactive = statusLower == 'sold' || statusLower == 'deceased';
-
-      if (_currentFilter == 'Active') {
-        return !isInactive;
-      } else {
-        return isInactive;
-      }
-    }).toList();
+  void _applyFilter() {
+    _filteredPigs = widget.availablePigs
+        .where((pig) =>
+            _currentFilter == 'Active' ? !pig.isInactive : pig.isInactive)
+        .toList();
+    _pigColors = {
+      for (var i = 0; i < _filteredPigs.length; i++)
+        _filteredPigs[i].pigId: pigAccentColor(i),
+    };
   }
 
   @override
   void initState() {
     super.initState();
+    _applyFilter();
     _loadInitialPig();
   }
 
@@ -60,12 +55,7 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
     }
   }
 
-  // Helper to get color based on the pig's index in the ORIGINAL list so colors stay consistent
-  Color _getColorForPig(String pigId) {
-    final index = widget.availablePigs.indexWhere((p) => p.pigId == pigId);
-    if (index == -1) return Colors.grey;
-    return _accentColors[index % _accentColors.length];
-  }
+  Color _getColorForPig(String pigId) => _pigColors[pigId] ?? Colors.grey;
 
   // Helper to format Date
   String _formatDate(DateTime date) {
@@ -102,6 +92,7 @@ class _WeightHistoryScreenState extends State<WeightHistoryScreen> {
               if (value != null && value != _currentFilter) {
                 setState(() {
                   _currentFilter = value;
+                  _applyFilter();
                   _loadInitialPig(); // Re-select the first pig of the new list!
                 });
               }

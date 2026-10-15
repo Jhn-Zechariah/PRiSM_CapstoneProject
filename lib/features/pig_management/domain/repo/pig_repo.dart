@@ -14,4 +14,7 @@ abstract class PigRepo {
 
   Stream<List<AppWeightRecord>> streamWeightHistory(String pigId);
 
+  // One-time backfill of the per-user pig counter used for display IDs.
+  Future<void> migrateCounterForUser(String userId);
+
 }
