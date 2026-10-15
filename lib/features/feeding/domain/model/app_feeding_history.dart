@@ -40,6 +40,9 @@ class AppFeedingHistory {
 
   // ── Convenience Getters ────────────────────────────────────────────────────
 
-  String get formattedDate => DateFormat.yMMMMd().format(timestamp);
-  String get formattedTime => DateFormat.jm().format(timestamp);
+  static final DateFormat _dateFormat = DateFormat.yMMMMd();
+  static final DateFormat _timeFormat = DateFormat.jm();
+
+  String get formattedDate => _dateFormat.format(timestamp);
+  String get formattedTime => _timeFormat.format(timestamp);
 }

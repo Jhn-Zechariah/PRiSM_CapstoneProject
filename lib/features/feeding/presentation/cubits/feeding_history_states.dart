@@ -33,10 +33,18 @@ class FeedingHistoryLoaded extends FeedingHistoryState {
   /// True when Firestore returned a full page, meaning more pages may exist.
   final bool hasMore;
 
-  const FeedingHistoryLoaded(this.historyRecords, {this.hasMore = false});
+  /// Set when fetching the next page failed. The loaded records stay visible
+  /// and the list offers a retry instead of being replaced by an error.
+  final bool loadMoreFailed;
+
+  const FeedingHistoryLoaded(
+    this.historyRecords, {
+    this.hasMore = false,
+    this.loadMoreFailed = false,
+  });
 
   @override
-  List<Object?> get props => [historyRecords, hasMore];
+  List<Object?> get props => [historyRecords, hasMore, loadMoreFailed];
 }
 
 class FeedingHistoryError extends FeedingHistoryState {

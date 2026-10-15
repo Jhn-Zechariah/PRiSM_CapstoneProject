@@ -4,19 +4,41 @@ import '../../domain/model/app_feeding_history.dart';
 import '../../domain/repo/feeding_record_repo.dart';
 import 'feeding_history_states.dart';
 
+/// Pagination state for one history view (all pigs, or a single pig).
+class _HistoryCacheEntry {
+  List<AppFeedingHistory> records;
+  DocumentSnapshot? lastDoc;
+  bool hasMore;
+  DateTime fetchedAt;
+
+  _HistoryCacheEntry({
+    required this.records,
+    required this.lastDoc,
+    required this.hasMore,
+    required this.fetchedAt,
+  });
+}
+
+/// Provided app-wide (see main.dart) so the cache survives between visits to
+/// the history page. FeedingRecordCubit's onRecordSaved calls
+/// [invalidateCache] so new records show up immediately.
 class FeedingHistoryCubit extends Cubit<FeedingHistoryState> {
   final FeedingRecordRepo _repo;
 
-  List<AppFeedingHistory>? _cachedRecords;
-  String? _cachedUserId;
-  DateTime? _cachedAt;
+  // Keyed by '$userId|$pigId' ('All' when no pig is selected), so switching
+  // between pigs and back doesn't refetch pages already loaded.
+  final Map<String, _HistoryCacheEntry> _cache = {};
 
-  DocumentSnapshot? _lastDocument;
-  bool _hasMore = true;
+  String? _userId;
+  String? _pigId;
 
   /// Prevents concurrent loadMoreHistory calls while a page request is
   /// already in flight (e.g. rapid scroll events).
   bool _isRequestingMore = false;
+
+  /// Bumped on every new view so responses for a pig the user has already
+  /// switched away from are dropped instead of overwriting the current view.
+  int _requestToken = 0;
 
   static const _cacheDuration = Duration(seconds: 60);
   static const _pageSize = 50;
@@ -25,112 +47,106 @@ class FeedingHistoryCubit extends Cubit<FeedingHistoryState> {
       : _repo = repo,
         super(const FeedingHistoryInitial());
 
-  // ── Cache helpers ──────────────────────────────────────────────────────────
-
-  bool _isCacheValid(String userId) {
-    if (_cachedRecords == null || _cachedAt == null) return false;
-    if (_cachedUserId != userId) return false;
-    return DateTime.now().difference(_cachedAt!) < _cacheDuration;
-  }
+  String get _currentKey => '$_userId|${_pigId ?? 'All'}';
 
   /// Busts the cache so the next load fetches fresh data from Firestore.
-  ///
-  /// Call this whenever a record is saved (e.g. via FeedingRecordCubit's
-  /// onRecordSaved callback) so history reflects new writes immediately
-  /// rather than waiting for the 60-second TTL to expire.
   void invalidateCache() {
-    _cachedRecords = null;
-    _cachedAt = null;
-    _cachedUserId = null;
-    _lastDocument = null;
-    _hasMore = true;
+    _cache.clear();
     _isRequestingMore = false;
   }
 
   // ── Load first page ────────────────────────────────────────────────────────
 
+  /// Loads history for [userId], limited to [pigId] when given.
   Future<void> loadGlobalFeedingHistory(
       String userId, {
+        String? pigId,
         bool forceRefresh = false,
       }) async {
-    if (!forceRefresh && _isCacheValid(userId)) {
-      emit(FeedingHistoryLoaded(_cachedRecords!, hasMore: _hasMore));
+    _userId = userId;
+    _pigId = pigId;
+    _isRequestingMore = false;
+    final key = _currentKey;
+    final token = ++_requestToken;
+
+    final cached = _cache[key];
+    if (!forceRefresh &&
+        cached != null &&
+        DateTime.now().difference(cached.fetchedAt) < _cacheDuration) {
+      emit(FeedingHistoryLoaded(cached.records, hasMore: cached.hasMore));
       return;
     }
-
-    // Reset pagination state before the fresh fetch.
-    _lastDocument = null;
-    _hasMore = true;
-    _isRequestingMore = false;
 
     emit(const FeedingHistoryLoading());
 
     try {
       final result = await _repo.getGlobalFeedingHistory(
         userId,
+        pigId: pigId,
         limit: _pageSize,
       );
 
-      if (isClosed) return;
-
-      _cachedRecords = result.records;
-      _cachedUserId = userId;
-      _cachedAt = DateTime.now();
-      _lastDocument = result.lastDoc;
+      if (isClosed || token != _requestToken) return;
 
       // A partial page means Firestore has no more documents — stop paging.
-      _hasMore = result.records.length == _pageSize;
+      final entry = _HistoryCacheEntry(
+        records: result.records,
+        lastDoc: result.lastDoc,
+        hasMore: result.records.length == _pageSize,
+        fetchedAt: DateTime.now(),
+      );
+      _cache[key] = entry;
 
-      emit(FeedingHistoryLoaded(result.records, hasMore: _hasMore));
+      emit(FeedingHistoryLoaded(entry.records, hasMore: entry.hasMore));
     } catch (e) {
-      if (isClosed) return;
+      if (isClosed || token != _requestToken) return;
       emit(FeedingHistoryError('Failed to fetch history: $e'));
     }
   }
 
   // ── Load next page ─────────────────────────────────────────────────────────
 
-  Future<void> loadMoreHistory(String userId) async {
-    if (!_hasMore || _isRequestingMore) return;
-    if (state is FeedingHistoryLoadingMore) return;
+  Future<void> loadMoreHistory() async {
+    final userId = _userId;
+    if (userId == null || _isRequestingMore) return;
 
-    final current = _cachedRecords;
-    if (current == null) {
-      await loadGlobalFeedingHistory(userId);
-      return;
-    }
+    final entry = _cache[_currentKey];
+    if (entry == null || !entry.hasMore) return;
 
+    final token = _requestToken;
     _isRequestingMore = true;
-    emit(FeedingHistoryLoadingMore(current));
+    emit(FeedingHistoryLoadingMore(entry.records));
 
     try {
       final result = await _repo.getGlobalFeedingHistory(
         userId,
-        startAfter: _lastDocument,
+        pigId: _pigId,
+        startAfter: entry.lastDoc,
         limit: _pageSize,
       );
 
-      if (isClosed) return;
+      if (isClosed || token != _requestToken) return;
 
-      _hasMore = result.records.length == _pageSize;
+      entry.hasMore = result.records.length == _pageSize;
 
       // Only advance the cursor when the response contained a document;
       // keeps the previous cursor valid on an empty/partial last page.
-      if (result.lastDoc != null) _lastDocument = result.lastDoc;
+      if (result.lastDoc != null) entry.lastDoc = result.lastDoc;
 
-      final merged = [...current, ...result.records];
-      _cachedRecords = merged;
-      _cachedAt = DateTime.now();
+      entry.records = [...entry.records, ...result.records];
+      entry.fetchedAt = DateTime.now();
 
-      emit(FeedingHistoryLoaded(merged, hasMore: _hasMore));
+      emit(FeedingHistoryLoaded(entry.records, hasMore: entry.hasMore));
     } catch (e) {
-      if (isClosed) return;
-      // Restore the previous loaded state so the list doesn't blank out on
-      // a transient network failure, then surface the error.
-      emit(FeedingHistoryLoaded(current, hasMore: _hasMore));
-      emit(FeedingHistoryError('Failed to load more: $e'));
+      if (isClosed || token != _requestToken) return;
+      // Keep the list on screen and let the user retry the next page.
+      emit(FeedingHistoryLoaded(
+        entry.records,
+        hasMore: entry.hasMore,
+        loadMoreFailed: true,
+      ));
     } finally {
-      _isRequestingMore = false;
+      if (token == _requestToken) _isRequestingMore = false;
     }
   }
 }

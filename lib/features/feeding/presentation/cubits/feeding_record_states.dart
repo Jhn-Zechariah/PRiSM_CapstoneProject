@@ -10,17 +10,6 @@ abstract class FeedingRecordState extends Equatable {
 
 class FeedingRecordInitial extends FeedingRecordState {}
 
-class FeedingRecordLoading extends FeedingRecordState {}
-
-class FeedingRecordLoaded extends FeedingRecordState {
-  final List<AppFeedingRecord> records;
-
-  const FeedingRecordLoaded(this.records);
-
-  @override
-  List<Object?> get props => [records];
-}
-
 class FeedingRecordError extends FeedingRecordState {
   final String message;
 

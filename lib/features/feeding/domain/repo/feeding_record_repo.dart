@@ -24,15 +24,11 @@ abstract class FeedingRecordRepo {
 
   Future<void> addBatchFeedingRecords(List<AppFeedingRecord> records);
 
-  Future<List<AppFeedingRecord>> getFeedingRecordsForPig(
-      String pigId, {
-        int limit = 50,
-      });
-
   Future<AppFeedingRecord?> getLatestFeedingRecord(String pigId);
 
   Future<FeedingHistoryQueryResult> getGlobalFeedingHistory(
       String userId, {
+        String? pigId,
         DocumentSnapshot? startAfter,
         int limit,
       });

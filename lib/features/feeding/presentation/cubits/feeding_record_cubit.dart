@@ -34,21 +34,7 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
   AppFeedingRecord? getCachedLatestRecord(String pigId) =>
       _latestRecordCache[pigId];
 
-  void removePigFromCache(String pigId) => _latestRecordCache.remove(pigId);
-
   void clearLatestCache() => _latestRecordCache.clear();
-
-  Future<void> loadRecordsForPig(String pigId) async {
-    try {
-      emit(FeedingRecordLoading());
-      final records = await feedingRepo.getFeedingRecordsForPig(pigId);
-      if (isClosed) return;
-      emit(FeedingRecordLoaded(records));
-    } catch (e) {
-      if (isClosed) return;
-      emit(FeedingRecordError('Failed to load records: $e'));
-    }
-  }
 
   Future<void> loadLatestRecord(
       String pigId, {

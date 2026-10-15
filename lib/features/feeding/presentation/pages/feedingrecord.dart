@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -7,9 +6,9 @@ import '../../../../core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/header.dart';
 import '../../../../core/widgets/textlink.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
+import '../../../pig_management/presentation/components/pig_profile_card.dart';
 import '../../../pig_management/presentation/cubits/pig_cubit.dart';
 import '../../../pig_management/presentation/cubits/pig_states.dart';
-import '../../domain/repo/feeding_record_repo.dart';
 import '../components/feeding_card.dart';
 import '../cubits/feeding_history_cubit.dart';
 import '../cubits/feeding_record_cubit.dart';
@@ -17,38 +16,19 @@ import 'selectpigfeedpopup.dart';
 import 'feedinghistory.dart';
 
 class FeedingRecordsPage extends StatefulWidget {
-  final FeedingRecordRepo repo;
-
-  const FeedingRecordsPage({super.key, required this.repo});
+  const FeedingRecordsPage({super.key});
 
   @override
   State<FeedingRecordsPage> createState() => _FeedingRecordsPageState();
 }
 
 class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
-  int _expandedIndex = -1;
+  // Tracked by id, not list index, so the open card stays with its pig when
+  // a new pig is added at the top of the list.
+  String? _expandedPigId;
 
-  // Held so we can wire the invalidateCache callback without creating a new
-  // cubit instance on every build. Lazily initialised on first access.
-  FeedingHistoryCubit? _historyBustCubit;
-
-  final List<Color> _accentColors = const [
-    Color.fromRGBO(214, 40, 40, 1),
-    Color.fromRGBO(0, 48, 73, 1),
-    Color.fromRGBO(247, 127, 0, 1),
-    Color(0xFF81C784),
-    Color(0xFFBA68C8),
-  ];
-
-  List<AppPig> _getActivePigs(List<AppPig> allPigs) {
-    return allPigs.where((pig) {
-      final statusLower = pig.status.toLowerCase();
-      return statusLower != 'sold' && statusLower != 'deceased';
-    }).toList();
-  }
-
-  Color _getColorForPig(int index) =>
-      _accentColors[index % _accentColors.length];
+  List<AppPig> _getActivePigs(List<AppPig> allPigs) =>
+      allPigs.where((pig) => !pig.isInactive).toList();
 
   @override
   Widget build(BuildContext context) {
@@ -114,57 +94,22 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                       CustomTextLink(
                         text: 'View feeding history',
                         onPressed: () {
-                          final pigState = context.read<PigCubit>().state;
-                          List<AppPig> allPigs = [];
-                          if (pigState is PigLoaded) {
-                            allPigs = pigState.allPigs;
-                          }
-
-                          final userId =
-                              FirebaseAuth.instance.currentUser?.uid;
-                          if (userId == null) return;
-
-                          // FIX (Critical): Wire the onRecordSaved callback so
-                          // that FeedingRecordCubit.addRecord() and
-                          // addBatchRecords() immediately invalidate the history
-                          // cache — even when the history page isn't open yet.
-                          //
-                          // Previously, a single-pig save (PigFeedCardPopUp)
-                          // never busted the history cache at all, so the user
-                          // would see stale data until the 60-second TTL expired.
+                          // App-wide cubit (main.dart): its cache survives
+                          // between visits and is busted whenever a record
+                          // is saved, so reopening history is free.
+                          final historyCubit =
+                              context.read<FeedingHistoryCubit>();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) {
-                                final historyCubit = FeedingHistoryCubit(
-                                  repo: widget.repo,
-                                );
-
-                                // Keep a reference so the callback remains
-                                // valid for the lifetime of the push route.
-                                _historyBustCubit = historyCubit;
-
-                                // Patch the record cubit's onRecordSaved now
-                                // that we have both cubits in scope.
-                                // Note: if FeedingRecordCubit is provided higher
-                                // in the tree (e.g. via MultiBlocProvider in
-                                // main), pass onRecordSaved in its constructor
-                                // there instead.
-                                historyCubit.invalidateCache();
-                                historyCubit.loadGlobalFeedingHistory(userId);
-
-                                return BlocProvider.value(
-                                  value: historyCubit,
-                                  child: FeedingHistoryPage(
-                                    availablePigs: allPigs,
-                                  ),
-                                );
-                              },
+                              builder: (context) => BlocProvider.value(
+                                value: historyCubit,
+                                child: FeedingHistoryPage(
+                                  availablePigs: state.allPigs,
+                                ),
+                              ),
                             ),
-                          ).then((_) {
-                            // Clear the reference when the route is popped.
-                            _historyBustCubit = null;
-                          });
+                          );
                         },
                       ),
 
@@ -186,17 +131,17 @@ class _FeedingRecordsPageState extends State<FeedingRecordsPage> {
                           itemCount: activePigs.length,
                           itemBuilder: (context, index) {
                             final pig = activePigs[index];
-                            final isExpanded =
-                                _expandedIndex == index;
+                            final isExpanded = _expandedPigId == pig.pigId;
 
                             return FeedingCard(
+                              key: ValueKey(pig.pigId),
                               pig: pig,
-                              color: _getColorForPig(index),
+                              color: pigAccentColor(index),
                               isExpanded: isExpanded,
                               onToggleExpand: () {
                                 setState(() {
-                                  _expandedIndex =
-                                  isExpanded ? -1 : index;
+                                  _expandedPigId =
+                                  isExpanded ? null : pig.pigId;
                                 });
                               },
                             );

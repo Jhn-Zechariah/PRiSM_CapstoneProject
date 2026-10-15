@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 
 import '../../../pig_management/domain/model/app_pig.dart';
+import '../../../pig_management/presentation/components/pig_profile_card.dart';
 import '../../domain/model/app_feeding_history.dart';
 import '../cubits/feeding_history_cubit.dart';
 import '../cubits/feeding_history_states.dart';
@@ -24,17 +25,11 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
   final ScrollController _scrollController = ScrollController();
   String? _currentUserId;
 
-  // Memoised so _filteredPigs isn't recomputed on every rebuild.
-  List<AppPig>? _cachedFilteredPigs;
-  String? _lastFilter;
-
-  static const _accentColors = [
-    Color(0xFFE57373),
-    Color(0xFF81C784),
-    Color(0xFF64B5F6),
-    Color(0xFFFFB74D),
-    Color(0xFFBA68C8),
-  ];
+  // Recomputed only when the Active/Inactive filter changes.
+  late List<AppPig> _filteredPigs;
+  late Map<String, AppPig> _pigsById;
+  // Same palette and indexing as the pig profiles and feeding lists
+  late Map<String, Color> _pigColors;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -42,7 +37,10 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
   void initState() {
     super.initState();
     _currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    _pigsById = {for (final p in widget.availablePigs) p.pigId: p};
+    _applyFilter();
     _scrollController.addListener(_onScroll);
+    _loadHistory();
   }
 
   @override
@@ -55,25 +53,35 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  /// Returns the pigs matching [_currentFilter], memoised until the filter
-  /// value changes so we don't re-scan the pig list on every frame.
-  List<AppPig> get _filteredPigs {
-    if (_cachedFilteredPigs == null || _lastFilter != _currentFilter) {
-      _lastFilter = _currentFilter;
-      _cachedFilteredPigs = widget.availablePigs.where((pig) {
-        final statusLower = pig.status.toLowerCase();
-        final isInactive =
-            statusLower == 'sold' || statusLower == 'deceased';
-        return _currentFilter == 'Active' ? !isInactive : isInactive;
-      }).toList();
-    }
-    return _cachedFilteredPigs!;
+  void _applyFilter() {
+    _filteredPigs = widget.availablePigs
+        .where((pig) =>
+            _currentFilter == 'Active' ? !pig.isInactive : pig.isInactive)
+        .toList();
+    _pigColors = {
+      for (var i = 0; i < _filteredPigs.length; i++)
+        _filteredPigs[i].pigId: pigAccentColor(i),
+    };
   }
 
-  Color _colorForPig(String pigId) {
-    final index = widget.availablePigs.indexWhere((p) => p.pigId == pigId);
-    if (index == -1) return Colors.grey;
-    return _accentColors[index % _accentColors.length];
+  Color _colorForPig(String pigId) => _pigColors[pigId] ?? Colors.grey;
+
+  /// A single pig is queried directly from its own subcollection, so its
+  /// older records appear without paging through every other pig's records.
+  void _loadHistory() {
+    final userId = _currentUserId;
+    if (userId == null) return;
+    context.read<FeedingHistoryCubit>().loadGlobalFeedingHistory(
+          userId,
+          pigId: _selectedPigId == 'All' ? null : _selectedPigId,
+        );
+  }
+
+  void _loadMore() {
+    final cubit = context.read<FeedingHistoryCubit>();
+    final state = cubit.state;
+    if (state is FeedingHistoryLoaded && state.loadMoreFailed) return;
+    cubit.loadMoreHistory();
   }
 
   // ── Scroll listener ────────────────────────────────────────────────────────
@@ -81,11 +89,18 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
   void _onScroll() {
     if (!mounted) return;
     final pos = _scrollController.position;
-    if (pos.pixels >= pos.maxScrollExtent - 200) {
-      final userId = _currentUserId;
-      if (userId == null) return;
-      context.read<FeedingHistoryCubit>().loadMoreHistory(userId);
-    }
+    if (pos.pixels >= pos.maxScrollExtent - 200) _loadMore();
+  }
+
+  /// When the filtered records don't fill the screen there is nothing to
+  /// scroll, so the scroll listener could never request the next page.
+  void _fillScreenIfNeeded(bool noVisibleRecords) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final cannotScroll = !_scrollController.hasClients ||
+          _scrollController.position.maxScrollExtent <= 0;
+      if (noVisibleRecords || cannotScroll) _loadMore();
+    });
   }
 
   // ── Filter bar ─────────────────────────────────────────────────────────────
@@ -115,11 +130,13 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
             ],
             onChanged: (value) {
               if (value != null && value != _currentFilter) {
+                final wasAll = _selectedPigId == 'All';
                 setState(() {
                   _currentFilter = value;
-                  _cachedFilteredPigs = null; // bust memo
+                  _applyFilter();
                   _selectedPigId = 'All';
                 });
+                if (!wasAll) _loadHistory();
               }
             },
           ),
@@ -184,6 +201,7 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
             onChanged: (value) {
               if (value != null && value != _selectedPigId) {
                 setState(() => _selectedPigId = value);
+                _loadHistory();
               }
             },
           ),
@@ -249,65 +267,43 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                     List<AppFeedingHistory> records = [];
                     bool hasMore = false;
                     bool isLoadingMore = false;
+                    bool loadMoreFailed = false;
 
                     if (state is FeedingHistoryLoaded) {
                       records = state.historyRecords;
                       hasMore = state.hasMore;
+                      loadMoreFailed = state.loadMoreFailed;
                     } else if (state is FeedingHistoryLoadingMore) {
                       records = state.currentRecords;
                       isLoadingMore = true;
                     }
 
-                    if (records.isEmpty) {
-                      return const Center(
-                          child: Text('No feeding records found.'));
-                    }
-
-                    final pigMap = {
-                      for (final p in widget.availablePigs)
-                        p.pigId: p,
-                    };
-
-                    // Filter records by active/inactive status and
-                    // selected pig, then sort latest-first by timestamp.
+                    // Records already arrive latest-first from Firestore and
+                    // pages are appended in order, so no re-sort is needed.
+                    // A selected pig's query is already scoped to that pig;
+                    // "All" still needs the Active/Inactive filter.
                     final targetRecords = records
-                        .where((record) {
-                      final pig = pigMap[record.pigId];
-                      if (pig == null) return false;
+                        .where((record) => _pigColors.containsKey(record.pigId))
+                        .toList();
 
-                      final statusLower =
-                      pig.status.toLowerCase();
-                      final isInactive = statusLower == 'sold' ||
-                          statusLower == 'deceased';
-                      final matchesStatus =
-                      _currentFilter == 'Active'
-                          ? !isInactive
-                          : isInactive;
-
-                      if (!matchesStatus) return false;
-                      if (_selectedPigId == 'All') return true;
-                      return record.pigId == _selectedPigId;
-                    })
-                        .toList()
-                    // Guarantee latest-first even after client-side
-                    // filter narrows a merged multi-pig result set.
-                      ..sort((a, b) =>
-                          b.timestamp.compareTo(a.timestamp));
+                    final canLoadMore =
+                        (hasMore || isLoadingMore) && !loadMoreFailed;
+                    if (canLoadMore) {
+                      _fillScreenIfNeeded(targetRecords.isEmpty);
+                    }
 
                     if (targetRecords.isEmpty) {
-                      return const Center(
-                          child: Text('No feeding records found.'));
+                      return Center(
+                        child: canLoadMore
+                            ? const CircularProgressIndicator()
+                            : loadMoreFailed
+                                ? _buildRetryButton()
+                                : const Text('No feeding records found.'),
+                      );
                     }
 
-                    // Only show the trailing spinner when there are
-                    // records AND more pages exist (or a load is
-                    // active). Without the non-empty guard, the spinner
-                    // persists when the current filter has no matching
-                    // records but Firestore has records on other pigs.
-                    final showTrailingSpinner =
-                        (isLoadingMore || hasMore) &&
-                            targetRecords.isNotEmpty;
-                    final itemCount = showTrailingSpinner
+                    final showTrailingItem = canLoadMore || loadMoreFailed;
+                    final itemCount = showTrailingItem
                         ? targetRecords.length + 1
                         : targetRecords.length;
 
@@ -316,18 +312,21 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
                       itemCount: itemCount,
                       itemBuilder: (context, index) {
                         if (index == targetRecords.length) {
-                          return const Padding(
+                          return Padding(
                             padding:
-                            EdgeInsets.symmetric(vertical: 16),
+                            const EdgeInsets.symmetric(vertical: 16),
                             child: Center(
-                                child: CircularProgressIndicator()),
+                              child: loadMoreFailed
+                                  ? _buildRetryButton()
+                                  : const CircularProgressIndicator(),
+                            ),
                           );
                         }
 
                         final record = targetRecords[index];
                         return _buildFeedingRecordCard(
                           record: record,
-                          pig: pigMap[record.pigId],
+                          pig: _pigsById[record.pigId],
                           accentColor: _colorForPig(record.pigId),
                           isDarkMode: isDark,
                         );
@@ -340,6 +339,14 @@ class _FeedingHistoryPageState extends State<FeedingHistoryPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRetryButton() {
+    return TextButton.icon(
+      onPressed: () => context.read<FeedingHistoryCubit>().loadMoreHistory(),
+      icon: const Icon(Icons.refresh),
+      label: const Text("Couldn't load more records. Retry"),
     );
   }
 

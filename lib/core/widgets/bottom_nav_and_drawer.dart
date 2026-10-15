@@ -10,7 +10,6 @@ import 'package:prism_app/features/auth/presentation/pages/user_profile.dart';
 import 'package:prism_app/features/medication/presentation/pages/pig_meds.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/presentation/cubits/auth_states.dart';
-import '../../features/feeding/data/firestore_feeding_record_repo.dart';
 import '../../features/medication/presentation/cubits/medicine_cubit.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
@@ -40,7 +39,6 @@ class _AppNavState extends State<AppNav> {
   bool _showHumidity = false;
   bool _showPigMeds = false;
 
-  final _feedingRepo = FirestoreFeedingRecordRepo();
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -79,7 +77,7 @@ class _AppNavState extends State<AppNav> {
               onSwitchToHumidity: () => setState(() => _showHumidity = true),
             ),
       DashboardScreen(),
-      FeedingRecordsPage(repo: _feedingRepo),
+      const FeedingRecordsPage(),
       _showPigMeds
           ? pig_meds(
         onSwitchToStock: () {

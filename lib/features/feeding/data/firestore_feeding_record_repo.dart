@@ -68,29 +68,6 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
     }
   }
 
-  // ── Read records for a pig (LIMITED) ──────────────────────────────────────
-  //
-  // Uses a [limit] (default 50) to prevent unbounded reads.
-  // For older records, add a startAfter cursor for pagination.
-
-  @override
-  Future<List<AppFeedingRecord>> getFeedingRecordsForPig(
-      String pigId, {
-        int limit = 50,
-      }) async {
-    final snapshot = await _firestore
-        .collection('pigs')
-        .doc(pigId)
-        .collection('feeding_records')
-        .orderBy('timestamp', descending: true)
-        .limit(limit)
-        .get();
-
-    return snapshot.docs
-        .map((doc) => AppFeedingRecord.fromMap(doc.data()))
-        .toList();
-  }
-
   // ── Latest single record ───────────────────────────────────────────────────
 
   @override
@@ -119,17 +96,26 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
   //
   // Ordered by timestamp DESCENDING so the latest records always appear first.
   //
-  // NOTE: Requires the composite index documented at the top of this file.
+  // With [pigId], reads only that pig's subcollection (single-field index,
+  // no composite index needed) instead of filtering every pig's records.
+  //
+  // NOTE: The all-pigs query requires the composite index documented at the
+  // top of this file.
 
   @override
   Future<FeedingHistoryQueryResult> getGlobalFeedingHistory(
       String userId, {
+        String? pigId,
         DocumentSnapshot? startAfter,
         int limit = 50,
       }) async {
-    var query = _firestore
-        .collectionGroup('feeding_records')
-        .where('userId', isEqualTo: userId)
+    final Query<Map<String, dynamic>> base = pigId != null
+        ? _firestore.collection('pigs').doc(pigId).collection('feeding_records')
+        : _firestore
+            .collectionGroup('feeding_records')
+            .where('userId', isEqualTo: userId);
+
+    var query = base
         .orderBy('timestamp', descending: true) // latest first
         .limit(limit);
 

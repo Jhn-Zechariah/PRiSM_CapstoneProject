@@ -12,6 +12,7 @@ import 'package:prism_app/core/widgets/splash_screen.dart';
 import 'package:prism_app/core/theme/app_theme.dart';
 import 'core/services/notification_services.dart';
 import 'features/feeding/data/firestore_feeding_record_repo.dart';
+import 'features/feeding/presentation/cubits/feeding_history_cubit.dart';
 import 'features/feeding/presentation/cubits/feeding_record_cubit.dart';
 import 'features/medication/data/firestore_medicine_repo.dart';
 import 'features/medication/presentation/cubits/medicine_cubit.dart';
@@ -64,6 +65,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   late ThemeMode _themeMode; // 🔹 Changed to late so we can set it in initState
   final pigRepo = FirebasePigRepo();
+  final feedingRepo = FirestoreFeedingRecordRepo();
 
   //auth repo
   final firebaseAuthRepo = FirebaseAuthRepo();
@@ -100,8 +102,16 @@ class _MyAppState extends State<MyApp> {
           BlocProvider(
             create: (context) => PigCubit(pigRepo: pigRepo), // ✅ Use shared instance
           ),
+          // Declared before FeedingRecordCubit so saves can bust its cache
+          BlocProvider<FeedingHistoryCubit>(
+            create: (context) => FeedingHistoryCubit(repo: feedingRepo),
+          ),
           BlocProvider<FeedingRecordCubit>(
-            create: (context) => FeedingRecordCubit(feedingRepo: FirestoreFeedingRecordRepo()),
+            create: (context) => FeedingRecordCubit(
+              feedingRepo: feedingRepo,
+              onRecordSaved: () =>
+                  context.read<FeedingHistoryCubit>().invalidateCache(),
+            ),
           ),
           BlocProvider<MedicineCubit>(
             create: (context) => MedicineCubit(repository: FirestoreMedicineRepo()),
