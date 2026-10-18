@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/build_tab_bar.dart';
@@ -29,55 +28,18 @@ class _MedicineStocksPageState extends State<MedicineStocksPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
-  // 🗑️ REMOVED local _expiryCache map from here!
-
   @override
   void initState() {
     super.initState();
-    final cubit = context.read<MedicineCubit>();
-    cubit.listenToMedicines();
-
-    // 🔹 FIXED: If returning to the page and the Cubit is already warm, trigger instantly
-    if (cubit.state is MedicineLoaded) {
-      _prefetchExpiries((cubit.state as MedicineLoaded).medicines);
-    }
+    // Medicines are streamed by the cubit from login; this asks it to also
+    // look up each medicine's nearest expiry (in parallel, once per medicine).
+    context.read<MedicineCubit>().ensureExpiries();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  Future<void> _prefetchExpiries(List<Medicine> medicines) async {
-    final cubit = context.read<MedicineCubit>();
-    bool changed = false;
-
-    for (final med in medicines) {
-      final id = med.medId ?? '';
-      // Point to cubit.expiryCache instead of local map
-      if (id.isEmpty || cubit.expiryCache.containsKey(id)) continue;
-
-      try {
-        final snapshot = await FirebaseFirestore.instance
-            .collection('medicines')
-            .doc(id)
-            .collection('medicine_stock')
-            .orderBy('expiryDate')
-            .limit(1)
-            .get();
-
-        cubit.expiryCache[id] = snapshot.docs.isNotEmpty
-            ? (snapshot.docs.first['expiryDate'] as String? ?? 'N/A')
-            : 'N/A';
-      } catch (_) {
-        cubit.expiryCache[id] = 'Error';
-      }
-
-      changed = true;
-    }
-
-    if (changed && mounted) setState(() {});
   }
 
   String _calculateStatus(double stock, double reorder) {
@@ -102,7 +64,6 @@ class _MedicineStocksPageState extends State<MedicineStocksPage> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final cubit = context.read<MedicineCubit>(); // 🔹 Grab cubit reference for builder
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -148,20 +109,18 @@ class _MedicineStocksPageState extends State<MedicineStocksPage> {
                 const SizedBox(height: 12),
 
                 Expanded(
-                  child: BlocConsumer<MedicineCubit, MedicineState>(
-                    listener: (context, state) {
-                      // 🔹 Trigger prefetch anytime the backup list has items
-                      if (cubit.currentMedicines.isNotEmpty) {
-                        _prefetchExpiries(cubit.currentMedicines);
-                      }
-                    },
-                    // Allow UI to refresh on SaveSuccess as well
-                    buildWhen: (prev, curr) => curr is MedicineLoading || curr is MedicineLoaded || curr is MedicineError || curr is MedicineSaveSuccess,
+                  child: BlocBuilder<MedicineCubit, MedicineState>(
+                    // Intake updates don't affect this list
+                    buildWhen: (prev, curr) =>
+                        prev.medicines != curr.medicines ||
+                        prev.medicinesLoading != curr.medicinesLoading ||
+                        prev.medicinesError != curr.medicinesError ||
+                        prev.nextExpiries != curr.nextExpiries,
                     builder: (context, state) {
 
-                      // 1. 🔹 PRIMARY CHECK: If our safe backup has data, ALWAYS draw it.
-                      if (cubit.currentMedicines.isNotEmpty) {
-                        final filteredItems = cubit.currentMedicines
+                      // 1. Data on hand is always drawn, even while refreshing
+                      if (state.medicines.isNotEmpty) {
+                        final filteredItems = state.medicines
                             .where((med) => med.name.toLowerCase().contains(_searchQuery))
                             .toList();
 
@@ -182,7 +141,7 @@ class _MedicineStocksPageState extends State<MedicineStocksPage> {
                             final item = filteredItems[index];
                             final id = item.medId ?? '';
 
-                            final displayExpiry = cubit.expiryCache[id] ?? 'Loading...';
+                            final displayExpiry = state.nextExpiries[id] ?? 'Loading...';
 
                             return MedicineCard(
                               name: item.name,
@@ -199,19 +158,25 @@ class _MedicineStocksPageState extends State<MedicineStocksPage> {
                         );
                       }
 
-                      // 2. Fallback to loading spinner ONLY if the backup list is 100% empty
-                      if (state is MedicineLoading) {
+                      // 2. Nothing loaded yet
+                      if (state.medicinesLoading) {
                         return const Center(child: CircularProgressIndicator());
                       }
 
-                      // 3. Fallback to Errors
-                      if (state is MedicineError) {
+                      // 3. Errors
+                      if (state.medicinesError != null) {
                         return Center(
-                          child: Text('Error: ${state.message}', style: const TextStyle(color: Colors.red)),
+                          child: Text('Error: ${state.medicinesError}', style: const TextStyle(color: Colors.red)),
                         );
                       }
 
-                      return const SizedBox.shrink();
+                      // 4. Loaded, but the user has no medicines yet
+                      return Center(
+                        child: Text(
+                          'No medicines found.',
+                          style: TextStyle(color: isDarkMode ? Colors.white54 : Colors.black54),
+                        ),
+                      );
                     },
                   ),
                 ),

@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart'; // 🔹 Added for one-time fetch
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -57,33 +56,28 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     super.dispose();
   }
 
-  // 🔹 Logic to fetch the last time this medicine was given to this pig
-  Future<void> _fetchPreviousRecord(String medName) async {
+  // The last time this medicine was given to this pig. dateTaken is a
+  // Firestore Timestamp, so it's parsed by MedicineIntake.fromMap rather than
+  // DateTime.parse (which threw and always left this showing '—').
+  Future<String> _fetchPreviousRecord(String medName) async {
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('pigs')
-          .doc(widget.pigId)
-          .collection('medicine_intakes')
-          .where('medName', isEqualTo: medName)
-          .orderBy('dateTaken', descending: true)
-          .limit(1)
-          .get(const GetOptions(source: Source.serverAndCache));
-
-      if (snapshot.docs.isNotEmpty) {
-        final data = snapshot.docs.first.data();
-        final dateTaken = DateTime.parse(data['dateTaken']);
-        final dosage = data['dosage'];
-        final unit = data['unitOfMeasurement'];
-
-        setState(() {
-          _previousRecordText = "${DateFormat('MMM dd').format(dateTaken)} ($dosage$unit)";
-        });
-      } else {
-        setState(() => _previousRecordText = 'No history');
-      }
+      final last = await context
+          .read<MedicineCubit>()
+          .getLastIntake(widget.pigId, medName);
+      if (last == null) return 'No history';
+      return "${DateFormat('MMM dd').format(last.dateTaken)} (${last.dosage}${last.unitOfMeasurement})";
     } catch (e) {
       debugPrint("Error fetching previous record: $e");
-      setState(() => _previousRecordText = '—');
+      return '—';
+    }
+  }
+
+  Future<List<MedicineStock>> _fetchStocks(String medId) async {
+    try {
+      return await context.read<MedicineCubit>().getStocksForMedicine(medId);
+    } catch (e) {
+      debugPrint("Error fetching stock batches: $e");
+      return [];
     }
   }
 
@@ -184,11 +178,9 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     final selectedBatchString = _selectedStockBatch != null ? _formatBatch(_selectedStockBatch!) : '';
 
     return BlocBuilder<MedicineCubit, MedicineState>(
-    buildWhen: (prev, curr) => curr is MedicineLoaded,
+    buildWhen: (prev, curr) => prev.medicines != curr.medicines,
     builder: (context, state) {
-    final allMedicines = state is MedicineLoaded
-    ? state.medicines
-        : context.read<MedicineCubit>().currentMedicines;
+    final allMedicines = state.medicines;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
@@ -231,11 +223,16 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                             _selectedStockBatch = null;
                           });
 
-                          // 🔹 Optimization: Fetch data sequentially
-                          await _fetchPreviousRecord(selection.name);
-                          final stocks = await context.read<MedicineCubit>().getStocksForMedicine(selection.medId!);
+                          // Both lookups run at the same time
+                          final previousFuture = _fetchPreviousRecord(selection.name);
+                          final stocks = await _fetchStocks(selection.medId!);
+                          final previous = await previousFuture;
 
+                          // Dialog may have been closed, or another medicine
+                          // picked, while these were loading
+                          if (!mounted || _selectedMedicine != selection) return;
                           setState(() {
+                            _previousRecordText = previous;
                             _fetchedBatches = stocks;
                             _isLoadingSubStocks = false;
                             if (_fetchedBatches.isNotEmpty) _selectedStockBatch = _fetchedBatches.first;

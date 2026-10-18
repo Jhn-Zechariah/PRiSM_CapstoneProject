@@ -122,7 +122,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
           builder: (context) => CustomConfirmDialog(
             title: 'Confirm Status Change',
             content:
-            'Are you sure you want to mark ${widget.existingPig!.breed}/${widget.existingPig!.displayId} as $_selectedStatus?',
+            'Are you sure you want to mark ${widget.existingPig!.breed}/${widget.existingPig!.displayId} as $_selectedStatus? '
+            'Any ongoing or upcoming medication schedules for this pig will be discontinued.',
             confirmText: 'Yes, Proceed',
             cancelText: 'Cancel',
             confirmColor: Colors.amber.shade700,

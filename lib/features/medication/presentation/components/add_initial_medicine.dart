@@ -12,7 +12,6 @@ import '../../../../core/widgets/textfield.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
 import '../cubits/medicine_cubit.dart';
-import '../cubits/medicine_states.dart';
 
 class AddNewMedDialog extends StatefulWidget {
   final Color accentColor;
@@ -138,6 +137,8 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
   }
 
   Future<void> _onSave() async {
+    if (_isLoading) return;
+
     // 🔹 1. Validate required fields before proceeding
     if (_nameController.text.trim().isEmpty) {
       CustomErrorDialog.show(
@@ -199,15 +200,26 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
       // Build the nested Subcollection Item structural model
       final initialStockBatch = MedicineStock(
         medicineId: generatedMedicineId,
-        expiryDate: _expiryController.text.trim().isEmpty ? 'No Expiry Date Set' : _expiryController.text.trim(),
+        expiryDate: _expiryController.text.trim().isEmpty ? MedicineStock.noExpiry : _expiryController.text.trim(),
         amount: parsedQty,
       );
 
-      // Dispatch execution request down through Cubit plumbing layers
-      if (mounted) {
-        context.read<MedicineCubit>().saveMedicineWithStock(
+      setState(() => _isLoading = true);
+      try {
+        await context.read<MedicineCubit>().saveMedicineWithStock(
           medicine: newMedicine,
           initialBatch: initialStockBatch,
+        );
+        if (!mounted) return;
+        Navigator.pop(context);
+        CustomSnackbar.show(context: context, message: 'Item added successfully!');
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        CustomSnackbar.show(
+          context: context,
+          isError: true,
+          message: MedicineCubit.errorMessage(e),
         );
       }
     }
@@ -234,27 +246,7 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<MedicineCubit, MedicineState>(
-      listener: (context, state) {
-        if (state is MedicineLoading) {
-          setState(() => _isLoading = true);
-        } else if (state is MedicineSaveSuccess) {
-          setState(() => _isLoading = false);
-          Navigator.pop(context);
-          CustomSnackbar.show(
-            context: context,
-            message: 'Item added successfully!',
-          );
-        } else if (state is MedicineError) {
-          setState(() => _isLoading = false);
-          CustomSnackbar.show(
-            context: context,
-            isError: true,
-            message: state.message,
-          );
-        }
-      },
-      child: Dialog(
+    return Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 20),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: ClipRRect(
@@ -405,7 +397,6 @@ class _AddNewMedDialogState extends State<AddNewMedDialog> {
             ),
           ),
         ),
-      ),
     );
   }
 }

@@ -10,12 +10,9 @@ import '../../../../core/widgets/textfield.dart';
 import '../../domain/model/app_medicine.dart';
 import '../../domain/model/app_medicine_stock.dart';
 import '../cubits/medicine_cubit.dart';
-import '../cubits/medicine_states.dart';
 
-// Sentinel value used wherever no expiry date has been set.
-// Using a single constant prevents the empty-string / 'No Expiry Date Set'
-// mismatch that previously caused orphan documents on update (FIX #9).
-const _kNoExpiry = 'No Expiry Date Set';
+// Sentinel value used wherever no expiry date has been set (FIX #9).
+const _kNoExpiry = MedicineStock.noExpiry;
 
 class UpdateMedicineDialog extends StatefulWidget {
   final Color accentColor;
@@ -65,9 +62,18 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
   }
 
   Future<void> _fetchStocks() async {
-    final stocks = await context
-        .read<MedicineCubit>()
-        .getStocksForMedicine(widget.medicine.medId ?? '');
+    List<MedicineStock> stocks;
+    try {
+      stocks = await context
+          .read<MedicineCubit>()
+          .getStocksForMedicine(widget.medicine.medId ?? '');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isFetchingStocks = false);
+      CustomErrorDialog.show(
+          context: context, message: 'Failed to load stock batches.');
+      return;
+    }
 
     if (mounted) {
       setState(() {
@@ -148,6 +154,7 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
   }
 
   Future<void> _onSave() async {
+    if (_isLoading) return;
     if (_nameController.text.trim().isEmpty) {
       CustomErrorDialog.show(
           context: context, message: 'Please enter a medicine name.');
@@ -220,12 +227,26 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
       final stockDocId = _selectedStock!.id ?? '';
       final oldStockAmount = _selectedStock!.amount;
 
-      context.read<MedicineCubit>().updateMedicineItem(
-        medicine: updatedMedicine,
-        updatedStock: updatedStock,
-        stockDocId: stockDocId,
-        oldStockAmount: oldStockAmount,
-      );
+      setState(() => _isLoading = true);
+      try {
+        await context.read<MedicineCubit>().updateMedicineItem(
+          medicine: updatedMedicine,
+          updatedStock: updatedStock,
+          stockDocId: stockDocId,
+          oldStockAmount: oldStockAmount,
+        );
+        if (!mounted) return;
+        Navigator.pop(context);
+        CustomSnackbar.show(context: context, message: 'Item updated successfully!');
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        CustomSnackbar.show(
+          context: context,
+          isError: true,
+          message: MedicineCubit.errorMessage(e),
+        );
+      }
     }
   }
 
@@ -250,22 +271,7 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
         ? _selectedExpiryDate!
         : 'No Stock';
 
-    return BlocListener<MedicineCubit, MedicineState>(
-      listener: (context, state) {
-        if (state is MedicineLoading) {
-          setState(() => _isLoading = true);
-        } else if (state is MedicineSaveSuccess) {
-          setState(() => _isLoading = false);
-          Navigator.pop(context);
-          CustomSnackbar.show(
-              context: context, message: 'Item updated successfully!');
-        } else if (state is MedicineError) {
-          setState(() => _isLoading = false);
-          CustomErrorDialog.show(
-              context: context, message: state.message);
-        }
-      },
-      child: Dialog(
+    return Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 20),
         shape:
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -447,7 +453,6 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
             ),
           ),
         ),
-      ),
     );
   }
 }

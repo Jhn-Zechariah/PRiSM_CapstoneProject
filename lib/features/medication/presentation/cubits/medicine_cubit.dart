@@ -11,117 +11,186 @@ import 'medicine_states.dart';
 
 class MedicineCubit extends Cubit<MedicineState> {
   final MedicineRepository repository;
-  final Map<String, String> expiryCache = {};
   final Map<String, List<MedicineStock>> _stockCache = {};
-
-  List<Medicine> currentMedicines = [];
 
   StreamSubscription? _medicineSubscription;
   StreamSubscription? _intakeSubscription;
-  StreamSubscription? _authSubscription; // 🔹 NEW
+  StreamSubscription? _authSubscription;
 
-  String? _lastLoadedUid;
-  String? _lastIntakeUid;
+  String? _uid;
+  String? _intakeUid;
 
-  MedicineCubit({required this.repository}) : super(MedicineInitial()) {
-    _listenToAuthChanges(); // 🔹 NEW
+  // Expiry lookups only run once the stock page has asked for them, and
+  // each medicine is fetched at most once at a time.
+  bool _expiriesWanted = false;
+  final Set<String> _expiriesInFlight = {};
+  // Medicines written to while their expiry lookup was in flight; that
+  // result may predate the write, so it is discarded and fetched again.
+  final Set<String> _staleExpiries = {};
+
+  MedicineCubit({required this.repository}) : super(const MedicineState()) {
+    _listenToAuthChanges();
   }
 
-  // 🔹 NEW
+  /// Strips the "Exception: " prefix so messages read cleanly in the UI.
+  static String errorMessage(Object e) =>
+      e.toString().replaceFirst('Exception: ', '');
+
   void _listenToAuthChanges() {
     _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
       if (user != null) {
-        listenToMedicines();
-        listenToIntakes();
+        _start(user.uid);
       } else {
         _medicineSubscription?.cancel();
         _medicineSubscription = null;
         _intakeSubscription?.cancel();
         _intakeSubscription = null;
-        _lastLoadedUid = null;
-        _lastIntakeUid = null;
-        currentMedicines = [];
+        _uid = null;
+        _intakeUid = null;
+        _expiriesWanted = false;
+        _expiriesInFlight.clear();
+        _staleExpiries.clear();
         _stockCache.clear();
-        expiryCache.clear();
-        emit(MedicineInitial());
+        emit(const MedicineState());
       }
     });
   }
 
-  void listenToMedicines() {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-    if (_lastLoadedUid == currentUser.uid && _medicineSubscription != null) return;
+  /// Subscribes to the user's medicines. Skips the work when a healthy
+  /// stream for the same uid is already live, so userChanges() and
+  /// forceReload() firing together on login don't query Firestore twice.
+  void _start(String uid) {
+    if (_uid == uid &&
+        _medicineSubscription != null &&
+        state.medicinesError == null) {
+      return;
+    }
+
+    if (_uid != uid) {
+      // Different account: drop everything from the previous one
+      _intakeSubscription?.cancel();
+      _intakeSubscription = null;
+      _intakeUid = null;
+      _stockCache.clear();
+      _expiriesInFlight.clear();
+      emit(const MedicineState());
+    }
 
     _medicineSubscription?.cancel();
-    _lastLoadedUid = currentUser.uid;
+    _uid = uid;
 
-    emit(MedicineLoading());
-
-    _medicineSubscription = repository.streamMedicines(currentUser.uid).listen(
-          (medicines) {
-        currentMedicines = medicines;
-        emit(MedicineLoaded(medicines));
-      },
-      onError: (e) => emit(MedicineError(e.toString())),
-    );
-  }
-
-  void listenToIntakes() {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
-    if (_lastIntakeUid == currentUser.uid && _intakeSubscription != null) return;
-
-    _intakeSubscription?.cancel();
-    _lastIntakeUid = currentUser.uid;
-
-    _intakeSubscription = repository.streamIntakes(currentUser.uid).listen(
-          (intakes) => emit(MedicineIntakesLoaded(intakes)),
-      onError: (e) => emit(MedicineError(e.toString())),
-    );
-  }
-
-  /// 🔹 NEW: Explicit trusted reload, called from AppNav on Authenticated.
-  void forceReload(String uid) {
-    _medicineSubscription?.cancel();
-    _medicineSubscription = null;
-    _lastLoadedUid = uid;
-
-    _intakeSubscription?.cancel();
-    _intakeSubscription = null;
-    _lastIntakeUid = uid;
-
-    emit(MedicineLoading());
+    emit(state.copyWith(medicinesLoading: true, clearMedicinesError: true));
 
     _medicineSubscription = repository.streamMedicines(uid).listen(
-          (medicines) {
-        currentMedicines = medicines;
-        emit(MedicineLoaded(medicines));
+      (medicines) {
+        emit(state.copyWith(
+          medicines: medicines,
+          medicinesLoading: false,
+          clearMedicinesError: true,
+        ));
+        if (_expiriesWanted) _loadMissingExpiries();
       },
-      onError: (e) => emit(MedicineError(e.toString())),
-    );
-
-    _intakeSubscription = repository.streamIntakes(uid).listen(
-          (intakes) => emit(MedicineIntakesLoaded(intakes)),
-      onError: (e) => emit(MedicineError(e.toString())),
+      onError: (e) => emit(state.copyWith(
+        medicinesLoading: false,
+        medicinesError: e.toString(),
+      )),
     );
   }
 
-  Future<void> saveMedicineWithStock({
-    required Medicine medicine,
-    required MedicineStock initialBatch,
-  }) async {
-    try {
-      await repository.addMedicineWithInitialStock(
-        medicine: medicine,
-        initialBatch: initialBatch,
-      );
-      emit(MedicineSaveSuccess());
-    } catch (e) {
-      emit(MedicineError(e.toString()));
+  /// Called explicitly by AppNav when AuthCubit confirms a login, in case
+  /// userChanges() misses an emission during rapid logout→login cycles.
+  void forceReload(String uid) => _start(uid);
+
+  /// Starts the intake history stream. Called by the history page rather
+  /// than on login, so sessions that never open history don't download
+  /// every intake record.
+  void listenToIntakes() {
+    final uid = _uid ?? FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    if (_intakeUid == uid &&
+        _intakeSubscription != null &&
+        state.intakesError == null) {
+      return;
+    }
+
+    _intakeSubscription?.cancel();
+    _intakeUid = uid;
+
+    emit(state.copyWith(intakesLoading: true, clearIntakesError: true));
+
+    _intakeSubscription = repository.streamIntakes(uid).listen(
+      (intakes) => emit(state.copyWith(
+        intakes: intakes,
+        intakesLoading: false,
+        clearIntakesError: true,
+      )),
+      onError: (e) => emit(state.copyWith(
+        intakesLoading: false,
+        intakesError: e.toString(),
+      )),
+    );
+  }
+
+  // ── Expiry dates for the stock list ───────────────────────────────────────
+
+  /// Called by the stock page; also keeps expiries current as medicines
+  /// change from then on.
+  void ensureExpiries() {
+    _expiriesWanted = true;
+    _loadMissingExpiries();
+  }
+
+  Future<void> _loadMissingExpiries() async {
+    final ids = state.medicines
+        .map((m) => m.medId ?? '')
+        .where((id) =>
+            id.isNotEmpty &&
+            !state.nextExpiries.containsKey(id) &&
+            !_expiriesInFlight.contains(id))
+        .toList();
+    if (ids.isEmpty) return;
+
+    _expiriesInFlight.addAll(ids);
+    // Fetched in parallel instead of one medicine after another
+    final results = await Future.wait(ids.map((id) async {
+      try {
+        return MapEntry(id, await repository.getNearestExpiry(id));
+      } catch (_) {
+        return MapEntry(id, 'Error');
+      }
+    }));
+    _expiriesInFlight.removeAll(ids);
+
+    if (isClosed) return;
+    final fresh =
+        results.where((r) => !_staleExpiries.remove(r.key)).toList();
+    emit(state.copyWith(
+      nextExpiries: {...state.nextExpiries, ...Map.fromEntries(fresh)},
+    ));
+    if (fresh.length != results.length) _loadMissingExpiries();
+  }
+
+  void _invalidateStock(String? medId) {
+    if (medId == null) return;
+    _stockCache.remove(medId);
+    if (_expiriesInFlight.contains(medId)) _staleExpiries.add(medId);
+    if (state.nextExpiries.containsKey(medId)) {
+      emit(state.copyWith(
+        nextExpiries: Map.of(state.nextExpiries)..remove(medId),
+      ));
     }
   }
 
+  /// Clears cached stock data for [medId] after a write and re-fetches its
+  /// expiry if the stock page is showing it.
+  void _afterStockWrite(String? medId) {
+    _invalidateStock(medId);
+    if (_expiriesWanted) _loadMissingExpiries();
+  }
+
+  // ── Stocks ────────────────────────────────────────────────────────────────
+
+  /// Throws on failure so the calling dialog can show the error.
   Future<List<MedicineStock>> getStocksForMedicine(
       String medId, {
         bool forceRefresh = false,
@@ -129,20 +198,27 @@ class MedicineCubit extends Cubit<MedicineState> {
     if (!forceRefresh && _stockCache.containsKey(medId)) {
       return _stockCache[medId]!;
     }
-    try {
-      final stocks = await repository.getMedicineStocks(medId);
-      _stockCache[medId] = stocks;
-      return stocks;
-    } catch (e) {
-      emit(MedicineError('Failed to load stock dates: $e'));
-      return [];
-    }
+    final stocks = await repository.getMedicineStocks(medId);
+    _stockCache[medId] = stocks;
+    return stocks;
   }
 
-  void _invalidateStockCache(String? medId) {
-    if (medId == null) return;
-    expiryCache.remove(medId);
-    _stockCache.remove(medId);
+  Future<MedicineIntake?> getLastIntake(String pigId, String medName) =>
+      repository.getLastIntake(pigId: pigId, medName: medName);
+
+  // ── Writes ────────────────────────────────────────────────────────────────
+  //
+  // Each write throws on failure and is awaited by the dialog that started
+  // it, so errors can't be lost when no screen is listening.
+
+  Future<void> saveMedicineWithStock({
+    required Medicine medicine,
+    required MedicineStock initialBatch,
+  }) async {
+    await repository.addMedicineWithInitialStock(
+      medicine: medicine,
+      initialBatch: initialBatch,
+    );
   }
 
   Future<void> updateMedicineItem({
@@ -152,19 +228,14 @@ class MedicineCubit extends Cubit<MedicineState> {
     required double oldStockAmount,
   }) async {
     try {
-      emit(MedicineLoading());
-      _invalidateStockCache(medicine.medId);
-
       await repository.updateMedicineAndStock(
         medicine: medicine,
         updatedStock: updatedStock,
         stockDocId: stockDocId,
         oldStockAmount: oldStockAmount,
       );
-
-      emit(MedicineSaveSuccess());
-    } catch (e) {
-      emit(MedicineError(e.toString()));
+    } finally {
+      _afterStockWrite(medicine.medId);
     }
   }
 
@@ -173,17 +244,12 @@ class MedicineCubit extends Cubit<MedicineState> {
     required MedicineStock newStock,
   }) async {
     try {
-      emit(MedicineLoading());
-      _invalidateStockCache(medicine.medId);
-
       await repository.addNewStockBatch(
         medicine: medicine,
         newStock: newStock,
       );
-
-      emit(MedicineSaveSuccess());
-    } catch (e) {
-      emit(MedicineError(e.toString()));
+    } finally {
+      _afterStockWrite(medicine.medId);
     }
   }
 
@@ -193,20 +259,17 @@ class MedicineCubit extends Cubit<MedicineState> {
     required String medicineId,
   }) async {
     try {
-      emit(MedicineLoading());
-      _invalidateStockCache(medicineId);
-
       await repository.addIntakeAndReduceStock(
         intake: intake,
         selectedStock: selectedStock,
         medicineId: medicineId,
       );
-
-      emit(MedicineSaveSuccess());
     } catch (e, stackTrace) {
-      dev.log('Firestore save error: $e', name: 'MedicineCubit', error: e, stackTrace: stackTrace);
-      final errorMessage = e.toString().replaceAll('Exception: ', '');
-      emit(MedicineError(errorMessage));
+      dev.log('Firestore save error: $e',
+          name: 'MedicineCubit', error: e, stackTrace: stackTrace);
+      rethrow;
+    } finally {
+      _afterStockWrite(medicineId);
     }
   }
 
@@ -214,7 +277,7 @@ class MedicineCubit extends Cubit<MedicineState> {
   Future<void> close() {
     _medicineSubscription?.cancel();
     _intakeSubscription?.cancel();
-    _authSubscription?.cancel(); // 🔹 NEW
+    _authSubscription?.cancel();
     return super.close();
   }
 }

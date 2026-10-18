@@ -39,6 +39,10 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => MedicineIntake.fromMap(doc.data(), documentId: doc.id))
+          // Filtered here rather than with a second where(): combining a
+          // status filter with the nextSchedule range needs a new composite
+          // index, and discontinued intakes are few.
+          .where((intake) => intake.status != 'Discontinued')
           .toList();
     });
   }
@@ -79,11 +83,51 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .collection('medicines')
         .doc(medicineId)
         .collection('medicine_stock')
+        .orderBy('expiryDate') // stable order: soonest-expiring batch first
         .get();
 
     return snapshot.docs
         .map((doc) => MedicineStock.fromMap(doc.data(), doc.id))
         .toList();
+  }
+
+  @override
+  Future<String> getNearestExpiry(String medicineId) async {
+    final snapshot = await _firestore
+        .collection('medicines')
+        .doc(medicineId)
+        .collection('medicine_stock')
+        .orderBy('expiryDate')
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return 'N/A';
+    return snapshot.docs.first.data()['expiryDate'] as String? ?? 'N/A';
+  }
+
+  @override
+  Future<MedicineIntake?> getLastIntake({
+    required String pigId,
+    required String medName,
+  }) async {
+    // Equality filter only: adding orderBy('dateTaken') would need a
+    // composite index. A pig has few intakes of one medicine, so the latest
+    // is picked here instead.
+    final snapshot = await _firestore
+        .collection('pigs')
+        .doc(pigId)
+        .collection('medicine_intakes')
+        .where('medName', isEqualTo: medName)
+        .get();
+
+    MedicineIntake? latest;
+    for (final doc in snapshot.docs) {
+      final intake = MedicineIntake.fromMap(doc.data(), documentId: doc.id);
+      if (latest == null || intake.dateTaken.isAfter(latest.dateTaken)) {
+        latest = intake;
+      }
+    }
+    return latest;
   }
 
   @override
@@ -120,12 +164,10 @@ class FirestoreMedicineRepo implements MedicineRepository {
       if (existingDocsWithSameDate.isNotEmpty) {
         // Merge Case
         final targetDoc = existingDocsWithSameDate.first;
-        final docData = targetDoc.data() as Map<String, dynamic>?;
-        final double existingAmount =
-            (docData?['amount'] as num?)?.toDouble() ?? 0.0;
-        final double mergedAmount = existingAmount + updatedStock.amount;
-
-        batch.update(targetDoc.reference, {'amount': mergedAmount});
+        // Increment server-side so a concurrent change to that batch isn't lost
+        batch.update(targetDoc.reference, {
+          'amount': FieldValue.increment(updatedStock.amount),
+        });
         batch.delete(currentStockRef);
       } else {
         // Normal Case
@@ -136,14 +178,15 @@ class FirestoreMedicineRepo implements MedicineRepository {
       }
     }
 
-    // Math works out automatically: (Current Total - Old Batch Size) + 0 = Correct new total
+    // Applied as a server-side increment rather than from medicine.totalStock,
+    // which may be stale if an intake was recorded after the dialog opened.
+    // Merging batches doesn't change the total, so only the edit's delta counts.
     final double stockDifference = updatedStock.amount - oldStockAmount;
-    final double newTotalStock = medicine.totalStock + stockDifference;
 
     batch.update(medRef, {
       'name': medicine.name,
       'reorderLevel': medicine.reorderLevel,
-      'totalStock': newTotalStock,
+      'totalStock': FieldValue.increment(stockDifference),
     });
 
     await batch.commit();
@@ -167,11 +210,9 @@ class FirestoreMedicineRepo implements MedicineRepository {
     if (querySnapshot.docs.isNotEmpty) {
       // MATCH FOUND: Merge into existing batch
       final existingDoc = querySnapshot.docs.first;
-      final existingAmount =
-          (existingDoc.data()['amount'] as num?)?.toDouble() ?? 0.0;
-      final updatedBatchAmount = existingAmount + newStock.amount;
-
-      batch.update(existingDoc.reference, {'amount': updatedBatchAmount});
+      batch.update(existingDoc.reference, {
+        'amount': FieldValue.increment(newStock.amount),
+      });
     } else {
       // NO MATCH: Create a new batch document
       final newStockRef = stockCollectionRef.doc();
@@ -182,8 +223,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
       });
     }
 
-    final double newTotalStock = medicine.totalStock + newStock.amount;
-    batch.update(medRef, {'totalStock': newTotalStock});
+    batch.update(medRef, {'totalStock': FieldValue.increment(newStock.amount)});
 
     await batch.commit();
   }

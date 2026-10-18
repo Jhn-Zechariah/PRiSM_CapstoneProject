@@ -14,6 +14,15 @@ abstract class MedicineRepository {
 
   Future<List<MedicineStock>> getMedicineStocks(String medicineId);
 
+  /// Earliest expiry date among the medicine's batches, or 'N/A' if none.
+  Future<String> getNearestExpiry(String medicineId);
+
+  /// Most recent intake of [medName] for the pig, or null if never given.
+  Future<MedicineIntake?> getLastIntake({
+    required String pigId,
+    required String medName,
+  });
+
   Future<void> updateMedicineAndStock({
     required Medicine medicine,
     required MedicineStock updatedStock,

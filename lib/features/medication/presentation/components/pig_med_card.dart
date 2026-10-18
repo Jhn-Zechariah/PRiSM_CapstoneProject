@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:prism_app/core/widgets/snackbar.dart';
 import 'package:prism_app/features/medication/presentation/components/medicine_intake_dialog.dart';
 
+import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_medicine_stock.dart';
 import '../../domain/model/app_medicine_intake.dart';
 import '../cubits/medicine_cubit.dart';
@@ -10,7 +12,7 @@ import '../cubits/medicine_cubit.dart';
 enum PigMedAction { medicine, vaccine, vitamin }
 
 class PigMedCard extends StatelessWidget {
-  final dynamic pig;
+  final AppPig pig;
   final Color accentColor;
   final VoidCallback onAdd;
   final MedicineIntake? recentIntake; // 🔹 Added this to accept the recent intake data
@@ -145,13 +147,29 @@ class PigMedCard extends StatelessWidget {
                             ),
                           );
 
-                          // If the dialog returned data (user hit Save), trigger the Cubit
+                          // If the dialog returned data (user hit Save), save it and
+                          // report the outcome — failures such as insufficient
+                          // stock were previously emitted with no one listening.
                           if (result != null && context.mounted) {
-                            context.read<MedicineCubit>().addIntakeAndReduceStock(
-                              intake: result['intake'] as MedicineIntake,
-                              selectedStock: result['selectedStock'] as MedicineStock,
-                              medicineId: result['medicineId'] as String,
-                            );
+                            try {
+                              await context.read<MedicineCubit>().addIntakeAndReduceStock(
+                                intake: result['intake'] as MedicineIntake,
+                                selectedStock: result['selectedStock'] as MedicineStock,
+                                medicineId: result['medicineId'] as String,
+                              );
+                              if (!context.mounted) return;
+                              CustomSnackbar.show(
+                                context: context,
+                                message: '$selectedType intake recorded.',
+                              );
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              CustomSnackbar.show(
+                                context: context,
+                                isError: true,
+                                message: MedicineCubit.errorMessage(e),
+                              );
+                            }
                           }
                         },
                         itemBuilder: (context) => [

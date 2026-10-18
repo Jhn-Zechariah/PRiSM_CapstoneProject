@@ -12,7 +12,7 @@ import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../../core/widgets/header.dart';
-import '../../../pig_management/domain/model/app_pig.dart';
+import '../../../pig_management/presentation/components/pig_profile_card.dart';
 import '../cubits/medicine_cubit.dart';
 import 'meds_intake_schedule.dart';
 
@@ -25,23 +25,8 @@ class pig_meds extends StatefulWidget {
   State<pig_meds> createState() => _pig_medsState();
 }
 
-// Filter for Active pigs only (ignores Sold/Deceased)
-List<AppPig> _getActivePigs(List<AppPig> allPigs) {
-  return allPigs.where((pig) {
-    final statusLower = pig.status.toLowerCase();
-    return statusLower != 'sold' && statusLower != 'deceased';
-  }).toList();
-}
-
 class _pig_medsState extends State<pig_meds> {
   int _selectedTab = 1;
-
-  // 🔹 Define colors here so they stay synchronized across the file
-  final List<Color> _accentColors = const [
-    Colors.red,
-    Color(0xFF003366),
-    Colors.orange,
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -104,19 +89,7 @@ class _pig_medsState extends State<pig_meds> {
                           context,
                           MaterialPageRoute(
                             builder: (_) => MedsIntakeHistoryScreen(
-                              pigs: state.allPigs.asMap().entries.map((entry) {
-                                final index = entry.key;
-                                final pig = entry.value;
-
-                                return PigMedOption(
-                                  id: pig.pigId,
-                                  displayId: pig.displayId,
-                                  status: pig.status,
-                                  breed: pig.breed,
-                                  // 🔹 FIXED: Dynamically matches the exact color array layout index
-                                  accentColor: _accentColors[index % _accentColors.length],
-                                );
-                              }).toList(),
+                              pigs: state.allPigs,
                             ),
                           ),
                         );
@@ -154,7 +127,9 @@ class _pig_medsState extends State<pig_meds> {
                       }
 
                       if (state is PigLoaded) {
-                        final activePigs = _getActivePigs(state.allPigs);
+                        final activePigs = state.allPigs
+                            .where((pig) => !pig.isInactive)
+                            .toList();
 
                         if (activePigs.isEmpty) {
                           return Center(
@@ -172,15 +147,12 @@ class _pig_medsState extends State<pig_meds> {
                           itemCount: activePigs.length,
                           separatorBuilder: (_, __) => const SizedBox(height: 12),
                           itemBuilder: (context, index) {
-                            // 🔹 Finding the global index from allPigs so colors don't change when filtering
-                            final globalIndex = state.allPigs.indexOf(activePigs[index]);
-                            final itemColor = _accentColors[globalIndex != -1
-                                ? (globalIndex % _accentColors.length)
-                                : (index % _accentColors.length)];
-
+                            final pig = activePigs[index];
+                            // Same palette and indexing as the other pig lists
                             return PigMedCard(
-                              pig: activePigs[index],
-                              accentColor: itemColor,
+                              key: ValueKey(pig.pigId),
+                              pig: pig,
+                              accentColor: pigAccentColor(index),
                               onAdd: () {},
                             );
                           },

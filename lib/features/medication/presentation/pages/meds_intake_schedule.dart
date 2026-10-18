@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import 'package:prism_app/features/medication/domain/model/app_medicine_intake.dart';
+import 'package:prism_app/features/pig_management/presentation/cubits/pig_cubit.dart';
+import 'package:prism_app/features/pig_management/presentation/cubits/pig_states.dart';
 
 class MedsIntakeScheduleScreen extends StatelessWidget {
   final Stream<List<MedicineIntake>> intakeStream;
@@ -13,6 +16,16 @@ class MedsIntakeScheduleScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Pigs removed before intakes were auto-discontinued may still have
+    // schedules on record; only show those of pigs still in the herd.
+    final pigState = context.watch<PigCubit>().state;
+    final activePigIds = pigState is PigLoaded
+        ? pigState.allPigs
+            .where((pig) => !pig.isInactive)
+            .map((pig) => pig.pigId)
+            .toSet()
+        : null;
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -48,7 +61,10 @@ class MedsIntakeScheduleScreen extends StatelessWidget {
                     // 🔹 Filter out any records with no schedule date at all,
                     // since nextSchedule is nullable.
                     final schedules = (snapshot.data ?? [])
-                        .where((intake) => intake.nextSchedule != null)
+                        .where((intake) =>
+                            intake.nextSchedule != null &&
+                            (activePigIds == null ||
+                                activePigIds.contains(intake.pigId)))
                         .toList();
 
                     if (schedules.isEmpty) {

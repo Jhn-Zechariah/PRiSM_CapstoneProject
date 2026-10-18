@@ -1,4 +1,8 @@
 class MedicineStock {
+  /// Stored as the expiry date of batches that don't expire. Kept in one
+  /// place so every dialog writes the exact same value and batches merge.
+  static const String noExpiry = 'No Expiry Date Set';
+
   final String? id;
   final String medicineId;
   final String expiryDate;

@@ -116,6 +116,14 @@ class FirebasePigRepo implements PigRepo {
         });
       }
 
+      // A sold/deceased pig can't receive further doses, so its ongoing and
+      // upcoming intakes are discontinued in the same commit as the status
+      // change. Inactive pigs are read-only, so this only runs on the
+      // transition itself.
+      if (updatedPig.isInactive) {
+        await _discontinueOpenIntakes(docRef, batch);
+      }
+
 
       await batch.commit();
     } catch (e) {
@@ -123,6 +131,35 @@ class FirebasePigRepo implements PigRepo {
     }
   }
 
+
+  /// Adds updates to [batch] marking the pig's open intakes 'Discontinued':
+  /// any still 'Ongoing', plus any with a next schedule from today onward.
+  /// Two single-field queries (no composite index) merged by document id.
+  Future<void> _discontinueOpenIntakes(
+      DocumentReference pigRef,
+      WriteBatch batch,
+      ) async {
+    final intakes = pigRef.collection('medicine_intakes');
+    final now = DateTime.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
+
+    final results = await Future.wait([
+      intakes.where('status', isEqualTo: 'Ongoing').get(),
+      intakes
+          .where('nextSchedule',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday))
+          .get(),
+    ]);
+
+    final openIntakes = {
+      for (final snapshot in results)
+        for (final doc in snapshot.docs) doc.id: doc.reference,
+    };
+
+    for (final ref in openIntakes.values) {
+      batch.update(ref, {'status': 'Discontinued'});
+    }
+  }
 
   // --- UPDATE WEIGHT ---
   @override

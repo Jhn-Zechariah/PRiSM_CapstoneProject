@@ -2,28 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 
+import '../../../pig_management/domain/model/app_pig.dart';
+import '../../../pig_management/presentation/components/pig_profile_card.dart';
 import '../cubits/medicine_cubit.dart';
 import '../cubits/medicine_states.dart';
 import '../../domain/model/app_medicine_intake.dart';
 
-class PigMedOption {
-  final String id;
-  final String displayId;
-  final String breed;
-  final String status;
-  final Color accentColor;
-
-  PigMedOption({
-    required this.id,
-    required this.displayId,
-    required this.breed,
-    required this.status,
-    required this.accentColor,
-  });
-}
-
 class MedsIntakeHistoryScreen extends StatefulWidget {
-  final List<PigMedOption> pigs;
+  final List<AppPig> pigs;
 
   const MedsIntakeHistoryScreen({super.key, required this.pigs});
 
@@ -36,25 +22,34 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
   String _selectedFilter = 'All';
   String _currentFilter = 'Active';
 
+  // Recomputed only when a filter changes, not on every build
+  late Map<String, AppPig> _pigsById;
+  late List<AppPig> _filteredPigsByStatus;
+  // Same palette and indexing as the other pig lists, so colors match
+  late Map<String, Color> _pigColors;
+  late Set<String> _validPigIds;
+
   @override
   void initState() {
     super.initState();
+    _pigsById = {for (final p in widget.pigs) p.pigId: p};
+    _applyFilters();
+    // Intakes are only streamed once this page is opened
     context.read<MedicineCubit>().listenToIntakes();
   }
 
-  List<PigMedOption> get _filteredPigsByStatus {
-    return widget.pigs.where((pig) {
-      final statusLower = pig.status.toLowerCase();
-      final isInactive = statusLower == 'sold' || statusLower == 'deceased';
-
-      return _currentFilter == 'Active' ? !isInactive : isInactive;
-    }).toList();
-  }
-
-  void _loadInitialPig() {
-    setState(() {
-      _selectedFilter = 'All';
-    });
+  void _applyFilters() {
+    _filteredPigsByStatus = widget.pigs
+        .where((pig) =>
+            _currentFilter == 'Active' ? !pig.isInactive : pig.isInactive)
+        .toList();
+    _pigColors = {
+      for (var i = 0; i < _filteredPigsByStatus.length; i++)
+        _filteredPigsByStatus[i].pigId: pigAccentColor(i),
+    };
+    _validPigIds = _selectedFilter == 'All'
+        ? _filteredPigsByStatus.map((p) => p.pigId).toSet()
+        : {_selectedFilter};
   }
 
   Widget _buildFiltersRow(bool isDark) {
@@ -85,7 +80,8 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
               if (value != null && value != _currentFilter) {
                 setState(() {
                   _currentFilter = value;
-                  _loadInitialPig();
+                  _selectedFilter = 'All';
+                  _applyFilters();
                 });
               }
             },
@@ -121,7 +117,7 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
               ),
               ...displayPigs.map((pig) {
                 return DropdownMenuItem(
-                  value: pig.id,
+                  value: pig.pigId,
                   child: Row(
                     children: [
                       Container(
@@ -129,7 +125,7 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                         height: 8,
                         margin: const EdgeInsets.only(right: 6),
                         decoration: BoxDecoration(
-                          color: pig.accentColor,
+                          color: _pigColors[pig.pigId],
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -148,7 +144,10 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
             ],
             onChanged: (value) {
               if (value != null && value != _selectedFilter) {
-                setState(() => _selectedFilter = value);
+                setState(() {
+                  _selectedFilter = value;
+                  _applyFilters();
+                });
               }
             },
           ),
@@ -160,13 +159,6 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final validPigIds = _filteredPigsByStatus
-        .where((p) {
-          if (_selectedFilter == 'All') return true;
-          return p.id == _selectedFilter;
-        })
-        .map((p) => p.id)
-        .toSet();
 
     return Scaffold(
       backgroundColor: isDark
@@ -185,7 +177,7 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
               const SizedBox(height: 8),
 
               Expanded(
-                child: validPigIds.isEmpty
+                child: _validPigIds.isEmpty
                     ? Center(
                         child: Text(
                           _currentFilter == 'Active'
@@ -197,20 +189,25 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                         ),
                       )
                     : BlocBuilder<MedicineCubit, MedicineState>(
+                        // Only intake changes affect this page; medicine and
+                        // stock updates no longer replace it
+                        buildWhen: (prev, curr) =>
+                            prev.intakes != curr.intakes ||
+                            prev.intakesLoading != curr.intakesLoading ||
+                            prev.intakesError != curr.intakesError,
                         builder: (context, state) {
-                          if (state is MedicineLoading ||
-                              state is MedicineInitial) {
+                          if (state.intakesLoading) {
                             return const Center(
                               child: CircularProgressIndicator(),
                             );
                           }
 
-                          if (state is MedicineError) {
+                          if (state.intakesError != null) {
                             return Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(16.0),
                                 child: Text(
-                                  'Error: ${state.message}',
+                                  'Error: ${state.intakesError}',
                                   style: TextStyle(color: Colors.red.shade400),
                                   textAlign: TextAlign.center,
                                 ),
@@ -218,52 +215,41 @@ class _MedsIntakeHistoryScreenState extends State<MedsIntakeHistoryScreen> {
                             );
                           }
 
-                          if (state is MedicineIntakesLoaded) {
-                            final filteredIntakes = state.intakes.where((
-                              intake,
-                            ) {
-                              return validPigIds.contains(intake.pigId);
-                            }).toList();
+                          final filteredIntakes = state.intakes
+                              .where((intake) =>
+                                  _validPigIds.contains(intake.pigId))
+                              .toList();
 
-                            if (filteredIntakes.isEmpty) {
-                              return Center(
-                                child: Text(
-                                  'No intake records found for the selected filter.',
-                                  style: TextStyle(
-                                    color: isDark
-                                        ? Colors.white54
-                                        : Colors.black54,
-                                  ),
+                          if (filteredIntakes.isEmpty) {
+                            return Center(
+                              child: Text(
+                                'No intake records found for the selected filter.',
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.black54,
                                 ),
-                              );
-                            }
-
-                            return ListView.builder(
-                              itemCount: filteredIntakes.length,
-                              itemBuilder: (context, index) {
-                                final intake = filteredIntakes[index];
-
-                                final matchedPig = widget.pigs.firstWhere(
-                                  (p) => p.id == intake.pigId,
-                                  orElse: () => PigMedOption(
-                                    id: intake.pigId,
-                                    displayId: 'Unknown',
-                                    breed: 'Unknown',
-                                    status: 'Unknown',
-                                    accentColor: Colors.grey,
-                                  ),
-                                );
-
-                                return IntakeHistoryCard(
-                                  intake: intake,
-                                  displayId: matchedPig.breed,
-                                  accentColor: matchedPig.accentColor,
-                                  isDark: isDark,
-                                );
-                              },
+                              ),
                             );
                           }
-                          return const SizedBox.shrink();
+
+                          return ListView.builder(
+                            itemCount: filteredIntakes.length,
+                            itemBuilder: (context, index) {
+                              final intake = filteredIntakes[index];
+                              final pig = _pigsById[intake.pigId];
+
+                              return IntakeHistoryCard(
+                                intake: intake,
+                                displayId: pig != null
+                                    ? '${pig.breed} | ${pig.displayId}'
+                                    : 'Unknown Pig',
+                                accentColor:
+                                    _pigColors[intake.pigId] ?? Colors.grey,
+                                isDark: isDark,
+                              );
+                            },
+                          );
                         },
                       ),
               ),
