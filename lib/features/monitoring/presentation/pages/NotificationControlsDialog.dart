@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
+import '../../../../core/services/notification_feedback.dart';
 
 class NotificationControlsDialog extends StatefulWidget {
   const NotificationControlsDialog({super.key});
@@ -198,9 +199,10 @@ class _NotificationControlsDialogState
               label: 'Sound',
               value: isSoundOn,
               onChanged: (val) {
-                setState(() {
-                  isSoundOn = val;
-                });
+                setState(
+                  () => isSoundOn = val,
+                ); // vibrate stays as the user set it
+                if (val) NotificationFeedback.playSound(); // test sound
               },
               isEnabled: isNotifEnabled,
             ),
@@ -214,10 +216,13 @@ class _NotificationControlsDialogState
               onChanged: (val) {
                 setState(() {
                   isVibrateOn = val;
+                  if (val) isSoundOn = false; // vibrate ON -> sound OFF
                 });
+                if (val) NotificationFeedback.vibrate(); // test vibration
               },
               isEnabled: isNotifEnabled,
             ),
+
             const SizedBox(height: 24),
 
             Row(
@@ -229,11 +234,7 @@ class _NotificationControlsDialogState
                   () => Navigator.pop(context),
                 ),
                 const SizedBox(width: 8),
-                _buildActionButton(
-                  'Save',
-                  isNotifEnabled ? textColor : theme.disabledColor,
-                  isNotifEnabled ? _savePreferences : () {},
-                ),
+                _buildActionButton('Save', textColor, _savePreferences),
               ],
             ),
           ],

@@ -1,10 +1,10 @@
-import  'package:firebase_core/firebase_core.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // 🔹 Imported shared_preferences
-
+import 'core/services/local_notification_service.dart'; // notification service
 import 'package:prism_app/features/auth/data/firebase_auth_repo.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/firebase_options.dart';
@@ -30,7 +30,8 @@ void main() async {
 
   // Initialize Google Sign-In once
   await GoogleSignIn.instance.initialize(
-    serverClientId: '666163168561-gugikgqvg7mhrruqj0clqmrlchrg45qn.apps.googleusercontent.com',
+    serverClientId:
+        '666163168561-gugikgqvg7mhrruqj0clqmrlchrg45qn.apps.googleusercontent.com',
   );
 
   // Disable Firestore cache so sensor offline is always detected correctly
@@ -43,10 +44,12 @@ void main() async {
   print("🔔 INITIALIZING NOTIFICATIONS...");
   final notificationService = NotificationService();
   await notificationService.init();
+  await initLocalNotifications();
 
   // 🔹 1. Load the saved theme mode BEFORE the app runs
   final prefs = await SharedPreferences.getInstance();
-  final savedThemeIndex = prefs.getInt('theme_mode') ?? 0; // Default to 0 (System)
+  final savedThemeIndex =
+      prefs.getInt('theme_mode') ?? 0; // Default to 0 (System)
   final initialThemeMode = ThemeMode.values[savedThemeIndex];
 
   // 🔹 2. Pass the saved theme into MyApp
@@ -89,18 +92,22 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return RepositoryProvider<FirebasePigRepo>.value( // ✅ Expose repo to the whole tree
+    return RepositoryProvider<FirebasePigRepo>.value(
+      // ✅ Expose repo to the whole tree
       value: pigRepo,
       child: MultiBlocProvider(
         providers: [
           BlocProvider<AuthCubit>(
-            create: (context) => AuthCubit(authRepo: firebaseAuthRepo)..checkAuth(),
+            create: (context) =>
+                AuthCubit(authRepo: firebaseAuthRepo)..checkAuth(),
           ),
           BlocProvider<ProfileCubit>(
-            create: (context) => ProfileCubit(profileRepo: FirebaseProfileRepo()),
+            create: (context) =>
+                ProfileCubit(profileRepo: FirebaseProfileRepo()),
           ),
           BlocProvider(
-            create: (context) => PigCubit(pigRepo: pigRepo), // ✅ Use shared instance
+            create: (context) =>
+                PigCubit(pigRepo: pigRepo), // ✅ Use shared instance
           ),
           // Declared before FeedingRecordCubit so saves can bust its cache
           BlocProvider<FeedingHistoryCubit>(
@@ -114,7 +121,8 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
           BlocProvider<MedicineCubit>(
-            create: (context) => MedicineCubit(repository: FirestoreMedicineRepo()),
+            create: (context) =>
+                MedicineCubit(repository: FirestoreMedicineRepo()),
           ),
         ],
         child: MaterialApp(

@@ -15,6 +15,13 @@ async function safeSend(userId, payload) {
         logger.error(`Failed to send notification to user ${userId}:`, error);
     }
 }
+function channelFor(prefs, critical = false) {
+    // Critical alerts (high temp / humidity) ALWAYS play sound.
+    const sound = critical || prefs.isSoundOn !== false;
+    const vibrate = prefs.isVibrateOn !== false;
+    const prefix = critical && sound ? "critical" : "alerts";
+    return `${prefix}_${sound ? "s" : "x"}${vibrate ? "v" : "x"}`;
+}
 
 /**
  * Fetches an admin doc, using an in-memory cache map to avoid re-fetching
@@ -94,6 +101,7 @@ exports.dailyLowStockCheck = onSchedule({
 
                 await safeSend(userId, {
                     notification: { title: "⚠️ Daily Low Stock Summary", body: bodyText },
+                    android: { notification: { channelId: channelFor(prefs) } },
                     token: userData.fcmToken,
                     data: { type: "stock_alert" }
                 });
@@ -172,6 +180,7 @@ exports.dailyExpirationCheck = onSchedule({
 
                 await safeSend(userId, {
                     notification: { title: "⚠️ Expiration Alert", body },
+                    android: { notification: { channelId: channelFor(prefs) } },
                     token: userData.fcmToken,
                     data: {
                         type: "med_exp_alert",
@@ -266,6 +275,7 @@ exports.dailyIntakeScheduleCheck = onSchedule({
 
             await safeSend(userId, {
                 notification: { title, body },
+                android: { notification: { channelId: channelFor(prefs) } },
                 token: userData.fcmToken,
                 data: { type: "vax_alert", pigId: data.pigId }
             });
@@ -371,6 +381,7 @@ exports.onLiveSensorUpdate = onDocumentWritten(
 
             await safeSend(userId, {
                 notification: { title: "🌡️ IoT Threshold Alert", body },
+                android: { notification: { channelId: channelFor(prefs, true) } },
                 token: userData.fcmToken,
                 data: { type: "iot_threshold_alert" },
             });
