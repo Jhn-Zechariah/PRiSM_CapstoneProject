@@ -1,0 +1,26 @@
+{
+  "_comment": "Model acceptance criteria, fixed BEFORE any evaluation (2026-10-12). Status: PROPOSED by the implementation; must be reviewed and signed off by the capstone adviser and an agricultural/veterinary expert before the first model is approved. All metrics are computed on the held-out temporal test set only.",
+  "version": "1.0.0-proposed",
+  "data_requirements": {
+    "min_trusted_labeled_readings": 600,
+    "min_label_sessions": 20,
+    "min_label_sessions_per_class": 4,
+    "min_test_sessions": 5,
+    "min_test_readings_per_class": 20
+  },
+  "metrics": {
+    "min_high_risk_recall": 0.90,
+    "max_high_risk_false_negative_rate": 0.10,
+    "min_macro_f1": 0.70,
+    "min_balanced_accuracy": 0.70,
+    "min_needs_attention_recall": 0.60,
+    "max_good_predicted_when_high_risk": 0.02,
+    "must_beat_majority_baseline_macro_f1_by": 0.15,
+    "max_multiclass_brier": 0.45
+  },
+  "rationale": {
+    "high_risk_recall": "Missing a genuinely High Risk condition is the costliest error, so it carries the strictest bound.",
+    "good_when_high_risk": "Displaying a reassuring 'Good' for a High Risk condition must be rare.",
+    "baseline": "A model must clearly outperform always predicting the most frequent class."
+  }
+}

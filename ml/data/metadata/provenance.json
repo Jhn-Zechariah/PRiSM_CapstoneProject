@@ -1,0 +1,72 @@
+[
+  {
+    "dataset": "hotpig",
+    "doi": "10.5281/zenodo.17090997",
+    "license": "CC-BY-4.0",
+    "file": "series.zip",
+    "original_name": "series.zip",
+    "source_url": "https://zenodo.org/api/records/17090997/files/series.zip/content",
+    "md5": "ecd7562d5288974a009c1f3f7873f41f",
+    "md5_verified_against_publisher": true,
+    "sha256": "1ba5125167224b969281509b88ef7b3cba121114aeb0532f3903894c796df7e8",
+    "bytes": 2603605,
+    "acquired_via": "downloaded",
+    "acquired_at": "2026-10-12T03:48:48+00:00"
+  },
+  {
+    "dataset": "hotpig",
+    "doi": "10.5281/zenodo.17090997",
+    "license": "CC-BY-4.0",
+    "file": "metadata.txt",
+    "original_name": "metadata.txt",
+    "source_url": "https://zenodo.org/api/records/17090997/files/metadata.txt/content",
+    "md5": "df6dfe2f7de4bd94ca49643d77d5755e",
+    "md5_verified_against_publisher": true,
+    "sha256": "ef3b3910c1ea6705d308b307238b9e4480491951afafa081ace781e958b282ce",
+    "bytes": 1117,
+    "acquired_via": "downloaded",
+    "acquired_at": "2026-10-12T03:48:49+00:00"
+  },
+  {
+    "dataset": "inrae_core_bt",
+    "doi": "10.57745/GPW3E1",
+    "license": "etalab-2.0",
+    "file": "bt_raw.tab",
+    "original_name": "File 2 - Core body temperature_raw data.tab",
+    "source_url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/708536",
+    "md5": "6c3a0ac6da3898649218f6388ed5efb7",
+    "md5_verified_against_publisher": true,
+    "sha256": "78d2d97f2b9575d3a9d7c4193bf90a051dda1dacb90eec30593f5edf395100f7",
+    "bytes": 185261961,
+    "acquired_via": "downloaded",
+    "acquired_at": "2026-10-12T03:53:43+00:00"
+  },
+  {
+    "dataset": "inrae_core_bt",
+    "doi": "10.57745/GPW3E1",
+    "license": "etalab-2.0",
+    "file": "bt_metadata.tab",
+    "original_name": "File 1 - Core body temperature_metadata.tab",
+    "source_url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/708541",
+    "md5": "41fd158bf1228cc08481a129dce171bc",
+    "md5_verified_against_publisher": false,
+    "sha256": "6260022585db3a55963ff915f13197eba15d4b65fc17a12c0f00294c928fba11",
+    "bytes": 17835,
+    "acquired_via": "downloaded",
+    "acquired_at": "2026-10-12T03:53:44+00:00"
+  },
+  {
+    "dataset": "inrae_core_bt",
+    "doi": "10.57745/GPW3E1",
+    "license": "etalab-2.0",
+    "file": "metadata.docx",
+    "original_name": "File- 0 - metadata.docx",
+    "source_url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/708542",
+    "md5": "9dd54e8805746f52b50eae2e5c989244",
+    "md5_verified_against_publisher": true,
+    "sha256": "379b6f9f02af7534c895191bbe716958437d66ee329979f81cee57745979890e",
+    "bytes": 18370,
+    "acquired_via": "downloaded",
+    "acquired_at": "2026-10-12T03:53:46+00:00"
+  }
+]

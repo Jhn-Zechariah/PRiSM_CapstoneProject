@@ -1,0 +1,128 @@
+rules_version = '2';
+
+// PRISM Firestore security rules (TARGET rules - see docs/SECURITY.md before deploying).
+//
+// Deploying these rules BLOCKS the current ESP32 firmware, which reads and writes Firestore
+// unauthenticated with only the web API key. Deploy them only after the device has been migrated
+// to an authenticated identity (a Firebase Auth user carrying the custom claim prism_device=true,
+// see docs/DEPLOYMENT.md "Device identity"), or after it posts readings to the API's signed
+// ingestion endpoint instead. They are intentionally NOT referenced from firebase.json yet.
+//
+// Server-side code (Cloud Functions, the PRISM API service account) uses the Admin SDK and is not
+// subject to these rules.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isUser(uid) { return signedIn() && request.auth.uid == uid; }
+    function isDevice() { return signedIn() && request.auth.token.get('prism_device', false) == true; }
+    function isAppUser() { return signedIn() && !isDevice(); }
+    function ownsResource() { return isAppUser() && resource.data.userId == request.auth.uid; }
+    function createsOwn() { return isAppUser() && request.resource.data.userId == request.auth.uid; }
+    function keepsOwner() { return request.resource.data.userId == resource.data.userId; }
+    function ownsPig(pigId) {
+      return isAppUser() && get(/databases/$(database)/documents/pigs/$(pigId)).data.userId == request.auth.uid;
+    }
+    function ownsMedicine(medId) {
+      return isAppUser() && get(/databases/$(database)/documents/medicines/$(medId)).data.userId == request.auth.uid;
+    }
+
+    // ---------------------------------------------------------------- user profiles
+    match /admins/{uid} {
+      allow read, create, update: if isUser(uid);
+      allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------- farm records (owner only)
+    match /pigs/{pigId} {
+      allow read, delete: if ownsResource();
+      allow create: if createsOwn();
+      allow update: if ownsResource() && keepsOwner();
+      match /{sub}/{docId} {               // feeding_records, weight_history
+        allow read, write: if ownsPig(pigId);
+      }
+    }
+    match /medicines/{medId} {
+      allow read, delete: if ownsResource();
+      allow create: if createsOwn();
+      allow update: if ownsResource() && keepsOwner();
+      match /medicine_stock/{docId} {
+        allow read, write: if ownsMedicine(medId);
+      }
+    }
+    match /medicine_intakes/{docId} {
+      allow read, delete: if ownsResource();
+      allow create: if createsOwn();
+      allow update: if ownsResource() && keepsOwner();
+    }
+    // Shared pig-id counter (current app design). Any signed-in user can increment it.
+    match /counters/{docId} {
+      allow read, write: if isAppUser();
+    }
+
+    // ---------------------------------------------------------------- sensor data (device writes only)
+    // NOTE: the current schema is single-farm (one global device). Every signed-in user can read these
+    // documents. Multi-farm isolation requires the farms/{farmId}/... layout below.
+    match /live_sensor/{docId} {
+      allow read: if signedIn();
+      allow write: if isDevice();
+    }
+    match /sensor_readings_seconds/{docId} {
+      allow read: if signedIn();
+      allow write: if isDevice();
+    }
+    match /sensor_readings_hourly/{docId} {
+      allow read: if signedIn();
+      allow write: if isDevice();
+    }
+    match /temperature_hourly/{docId} {
+      allow read: if signedIn();
+      allow write: if isDevice();
+    }
+    match /humidity_hourly/{docId} {
+      allow read: if signedIn();
+      allow write: if isDevice();
+    }
+    match /sprinkler_logs/{docId} {
+      allow read: if signedIn();
+      allow create: if isDevice();
+      allow update, delete: if false;
+    }
+
+    // ---------------------------------------------------------------- sprinkler control
+    match /sprinkler_command/{docId} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && request.resource.data.keys().hasOnly(['state', 'updatedAt', 'source'])
+        && request.resource.data.state in ['on', 'off'];
+    }
+    match /sprinkler_settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isAppUser();
+    }
+    match /sprinkler_state/{docId} {
+      allow read, write: if isAppUser();
+    }
+    match /sensor_memory/{docId} {
+      allow read, write: if isAppUser();
+    }
+
+    // ---------------------------------------------------------------- multi-farm layout (API ingestion)
+    match /farms/{farmId} {
+      allow read: if isAppUser() && request.auth.uid in resource.data.memberUids;
+      allow write: if false;                        // managed by administrators via the Admin SDK
+      match /sensor_readings/{docId} {
+        allow read: if isAppUser()
+          && request.auth.uid in get(/databases/$(database)/documents/farms/$(farmId)).data.memberUids;
+        allow write: if false;                      // written only by the PRISM API service account
+      }
+    }
+
+    // ---------------------------------------------------------------- ML artifacts / config
+    // Models, datasets and training labels are NOT stored in Firestore; anything else is denied.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

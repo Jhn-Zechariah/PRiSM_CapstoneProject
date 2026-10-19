@@ -295,8 +295,13 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         const after = event.data?.after?.data();
         if (!after) return; // doc deleted, nothing to check
 
-        const tempAvg = parseFloat(after.tempAvg);
-        const humidity = parseFloat(after.humidity);
+        // Field names used by the app / current firmware (pigBodyTemp = AMG8833
+        // maximum pixel, ambientHumidity = DHT22), with the older names as a
+        // fallback. Readings flagged invalid by the device are ignored.
+        const tempValid = after.pigBodyTempValid !== false && after.thermalValid !== false;
+        const humValid = after.ambientHumidityValid !== false && after.humidityValid !== false;
+        const tempAvg = tempValid ? parseFloat(after.pigBodyTemp ?? after.tempAvg) : NaN;
+        const humidity = humValid ? parseFloat(after.ambientHumidity ?? after.humidity) : NaN;
 
         const hasTemp = !Number.isNaN(tempAvg);
         const hasHumidity = !Number.isNaN(humidity);
@@ -330,7 +335,7 @@ exports.onLiveSensorUpdate = onDocumentWritten(
 
                 if (isOver && !wasOver) {
                     breaches.push(
-                        `Body temperature is ${tempAvg.toFixed(1)}°C, at or above the ${thresholds.maxTemp}°C limit.`
+                        `Thermal camera reading is ${tempAvg.toFixed(1)}°C (surface), at or above your ${thresholds.maxTemp}°C limit.`
                     );
                 }
                 if (isOver !== wasOver) {

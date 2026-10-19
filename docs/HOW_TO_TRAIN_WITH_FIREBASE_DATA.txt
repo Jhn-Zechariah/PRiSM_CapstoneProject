@@ -1,0 +1,286 @@
+=====================================================================
+ PRISM - HOW TO TRAIN THE ML MODEL USING OUR OWN FIREBASE DATA
+ (step by step - keep this file)
+=====================================================================
+
+Use this AFTER sensor calibration is finished. Until a model is trained
+AND approved, the app shows "Recommendations unavailable at this moment.
+Model is not yet trained using real farm data." That is correct behavior.
+
+IMPORTANT RULES (do not break them):
+ - Sensor readings alone are NOT training data. A qualified person must
+   look at the pigs and record the status (Good / Needs Attention /
+   High Risk). Those records are the "labels".
+ - Never label from the sensor numbers or from the app's status.
+   The person labelling must NOT look at the app during the session.
+ - Never make up, copy, or "fill in" readings or labels.
+ - Never use the model's own predictions as labels.
+
+---------------------------------------------------------------------
+ PART 0. WHAT YOU NEED
+---------------------------------------------------------------------
+ [ ] Calibrated sensors (AMG8833 and DHT22 checked against a reference
+     thermometer / hygrometer). Give the setup a name, for example
+     cal-2026-11-v1, and do NOT move or re-calibrate the sensor while
+     collecting data. If you must, use a new name.
+ [ ] The PRISM ESP32 updated with the change in PART 2.
+ [ ] A veterinarian, agricultural expert, or trained observer to label.
+ [ ] The project computer with the repo: C:\src\PRiSM_CapstoneProject
+ [ ] About 1-2 months of label sessions (see PART 4 for how many).
+
+---------------------------------------------------------------------
+ PART 1. ONE-TIME COMPUTER SETUP
+---------------------------------------------------------------------
+ 1. Open PowerShell (or the VS Code terminal) and go to the ML folder:
+       cd C:\src\PRiSM_CapstoneProject\ml
+ 2. Activate the Python environment:
+       .\.venv\Scripts\Activate.ps1
+    (You should see (.venv) at the start of the line.
+     If blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+     then try again.)
+    On a new computer instead run once:
+       python -m venv .venv
+       .\.venv\Scripts\Activate.ps1
+       pip install -r requirements-dev.txt
+ 3. Check everything works:
+       pytest
+    It must end with "passed" and no "failed".
+
+---------------------------------------------------------------------
+ PART 2. ESP32 CHANGE - SAVE THE THERMAL FRAME IN FIREBASE HISTORY
+---------------------------------------------------------------------
+ Why: the model needs the full 64-pixel AMG8833 frame for each reading.
+ Right now sensor_readings_seconds only stores the hottest pixel.
+
+ In the Arduino code (prismoct12):
+
+ 2a. Under the SENSOR SETTINGS section add:
+
+    // Name of the current sensor calibration (change it whenever the
+    // sensor is re-calibrated or moved)
+    #define CALIBRATION_PROFILE "cal-2026-11-v1"
+    // Save the full 64-pixel frame in the history every N seconds
+    // (20 s = ~45 frames per 15-minute label session; keeps Firestore
+    // storage well inside the free 1 GiB)
+    #define FRAME_HISTORY_EVERY_SEC 20
+
+ 2b. In pushAllToFirestore(), change   body.reserve(7000);
+     to                                body.reserve(9000);
+
+ 2c. In pushAllToFirestore(), inside the history loop, find:
+
+    if (r.humidityOk) {
+      body += "\"ambientHumidity\":{\"doubleValue\":";
+      body += String(r.humidity, 1);
+      body += "},";
+    }
+
+     and add RIGHT AFTER it:
+
+    // Full thermal frame for ML training (current reading only)
+    if (r.slot == currentSlot && thermalValid &&
+        (r.slot % FRAME_HISTORY_EVERY_SEC) == 0) {
+      body += "\"thermalPixels\":{\"arrayValue\":{\"values\":[";
+      for (int p = 0; p < AMG88xx_PIXEL_ARRAY_SIZE; p++) {
+        body += "{\"doubleValue\":" + String(thermalPixels[p], 1) + "}";
+        if (p < AMG88xx_PIXEL_ARRAY_SIZE - 1) body += ",";
+      }
+      body += "]}},";
+    }
+    body += "\"calibrationProfile\":{\"stringValue\":\"" CALIBRATION_PROFILE "\"},";
+
+ 2c-2. Also send the profile with the LIVE data, so the app passes it to
+     the ML (otherwise a trained model answers "Sensor Check Required"):
+     - in pushAllToFirestore(), in the live_sensor/latest part, after
+         body += "\"ip\":{\"stringValue\":\"" + WiFi.localIP().toString() + "\"},";
+       add
+         body += "\"calibrationProfile\":{\"stringValue\":\"" CALIBRATION_PROFILE "\"},";
+     - in handleSensorRequest(), after
+         json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+       add
+         json += "\"calibrationProfile\":\"" CALIBRATION_PROFILE "\",";
+
+ 2d. Verify/compile in Arduino IDE, upload, open Serial Monitor and
+     check pushes still say "Commit HTTP code: 200".
+ 2e. In the Firebase console > Firestore > sensor_readings_seconds,
+     open a new document: about every 2nd document should now have
+     thermalPixels (64 numbers) and calibrationProfile.
+
+ Note: this adds NO extra Firestore writes (same documents), only size.
+ Readings saved while Wi-Fi was down will not have a frame; that is OK,
+ they are skipped automatically.
+
+---------------------------------------------------------------------
+ PART 3. GET THE FIREBASE SERVER KEY (ONE TIME, FREE)
+---------------------------------------------------------------------
+ 1. Firebase console > Project settings (gear) > Service accounts >
+    "Generate new private key" > save the .json file.
+ 2. Put it OUTSIDE the project folder, e.g.
+       C:\prism-secrets\prism-service-account.json
+    NEVER commit it to Git, never put it in the app or the ESP32,
+    never send it in chat. Anyone with it can read/write your database.
+ 3. Each time you open a new PowerShell to export, run:
+       $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\prism-secrets\prism-service-account.json"
+
+---------------------------------------------------------------------
+ PART 4. COLLECT LABEL SESSIONS (THE MOST IMPORTANT PART)
+---------------------------------------------------------------------
+ A "label session" = the reviewer watches ONE pen for 10-15 minutes and
+ decides its status. The ESP32 keeps recording during that time.
+
+ 4.1 Before each session
+     - ESP32 online, clock correct, no "Sensor Check Required".
+     - Write down the exact START time (phone clock).
+ 4.2 During the session (do NOT look at the PRISM app)
+     - Count breaths of a resting pig for 30 seconds, x2 = breaths/min.
+     - Note: panting / open-mouth breathing? lying apart from each other?
+       wallowing / dirty pen? active or lazy when you approach?
+ 4.3 Decide the status:
+     Good            = no heat-stress signs, normal behavior
+     Needs Attention = early signs: faster breathing, seeking cool/wet
+                       spots, lying apart, less active
+     High Risk       = panting / open-mouth breathing, breathing well
+                       above 50 per minute at rest, very weak/lethargic,
+                       a pig not getting up
+     (Based on Vermeer & Aarnink 2023. Have your adviser and the
+      veterinarian approve these definitions before starting.)
+     If unsure, mark confidence "probable" or "uncertain" (those are kept
+     but NOT used for training).
+ 4.4 Write down the exact END time.
+ 4.5 Fill one row in the label sheet:
+     Open ml\templates\label_sessions_template.csv in Excel, add rows,
+     "Save As" CSV UTF-8 into:
+        C:\src\PRiSM_CapstoneProject\ml\data\raw\local\labels\
+     e.g. labels_2026-12.csv
+
+     Column               What to type (example)
+     label_session_id     S001  (unique, never reuse)
+     farm_id              farm-1   (always the same text for your farm)
+     pen_id               pen-1    (always the same text for this pen)
+     window_start         2026-12-01T14:00:00+08:00   (Philippine time)
+     window_end           2026-12-01T14:15:00+08:00   (max 30 min later)
+     status               Good   or   Needs Attention   or   High Risk
+     label_confidence     confirmed  (or probable / uncertain)
+     reviewer_id          dr-santos  (name or code)
+     reviewer_role        veterinarian / agricultural_expert / trained_observer
+     reviewer_blinded     true   (they did not see the app)
+     assessment_method    visual observation
+     respiration_rate_bpm 64
+     panting              no
+     lying_apart          yes
+     pen_fouling          no
+     rectal_temp_c        (only if a vet measured it, else empty)
+     protocol_version     PRISM-LABEL-1.0
+     labeled_at           2026-12-01T14:20:00+08:00
+     notes                anything useful
+
+ 4.6 HOW MANY sessions (minimum before training will even start):
+     - at least 20 confirmed sessions total
+     - at least 4 confirmed sessions of EACH status
+     - at least 600 usable readings total
+     Recommended: 40+ sessions. Spread them over many days, mornings AND
+     hot afternoons, and keep collecting all three statuses until the
+     end (the newest 25% of sessions are used as the final test).
+     NEVER make pigs hot on purpose to get High Risk sessions. Record
+     only real conditions, and help the pigs first if they need it.
+
+---------------------------------------------------------------------
+ PART 5. EXPORT THE READINGS FROM FIREBASE
+---------------------------------------------------------------------
+ (PowerShell, inside C:\src\PRiSM_CapstoneProject\ml, venv active)
+ 1. $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\prism-secrets\prism-service-account.json"
+ 2. python scripts\export_readings.py --farm farm-1 --pen pen-1 --source firebase-history --calibration-profile cal-2026-11-v1
+    - farm-1 / pen-1 must be EXACTLY what you typed in the label sheet.
+    - It only downloads the minutes inside your label sessions, so it
+      uses few Firestore reads (40 sessions x 15 min = about 3,600 reads;
+      free limit is 50,000 per day).
+    - Output: ml\data\raw\local\readings\firebase-history_farm-1_<date>.csv
+    - If it warns "readings have no 64-pixel thermal frame", PART 2 was
+      not applied for those days; those readings are skipped.
+ 3. Do not edit the exported CSV files.
+
+---------------------------------------------------------------------
+ PART 6. CHECK THE DATA
+---------------------------------------------------------------------
+    python scripts\check_dataset.py
+ - Shows readings and sessions per status, and why anything was rejected
+   (e.g. stale, missing frame, unconfirmed label, reviewer not blinded).
+ - "NOT READY TO TRAIN" lists exactly what is missing: collect more
+   sessions (PART 4) and export again (PART 5).
+ - "READY" means you can train.
+
+---------------------------------------------------------------------
+ PART 7. TRAIN
+---------------------------------------------------------------------
+    python scripts\train.py
+ Result codes:
+   exit 0 = model trained AND passed the acceptance criteria
+   exit 1 = model trained but FAILED acceptance (do not approve it;
+            read the failures, usually: more High Risk / Needs Attention
+            sessions are needed)
+   exit 2 = not enough trusted labelled data (nothing trained)
+ The report is saved in ml\reports\training_<model-id>.json
+ (held-out test results: macro-F1, balanced accuracy, High Risk recall,
+ confusion matrix). These are the numbers to put in your paper.
+
+---------------------------------------------------------------------
+ PART 8. REVIEW AND APPROVE (MANUAL, NEVER AUTOMATIC)
+---------------------------------------------------------------------
+ 1. See the models:          python scripts\registry.py list
+ 2. Compare with current:    python scripts\registry.py compare <model-id>
+ 3. Have the adviser and the vet/expert look at the report, especially
+    how many High Risk cases were missed.
+ 4. Approve:
+       python scripts\registry.py approve <model-id> --by "Juan Dela Cruz, adviser" --note "reviewed 2027-01-10"
+    (It refuses models that failed acceptance.)
+ 5. Copy the real results from the report into docs\MODEL_CARD.md.
+
+---------------------------------------------------------------------
+ PART 9. USE THE NEW MODEL IN THE APP
+---------------------------------------------------------------------
+ 1. Restart the ML API (Ctrl+C, then start it again):
+       $env:FIREBASE_PROJECT_ID = "prism-3cd2c"
+       $env:PRISM_STORAGE_BACKEND = "sqlite"
+       uvicorn prism_ml.api.asgi:app --host 0.0.0.0 --port 8000
+ 2. Check: open http://localhost:8000/health  -> {"status":"ok"}
+ 3. Run the app pointing to the API:
+       flutter run --dart-define=PRISM_API_BASE_URL=http://<PC-IP>:8000
+ 4. The Dashboard "Smart Recommendation" card now shows Good /
+    Needs Attention / High Risk with recommendations.
+    If the readings are unusual or the model is unsure it shows
+    "Unavailable" - that is a safety feature, not an error.
+
+---------------------------------------------------------------------
+ PART 10. LATER: RETRAIN OR UNDO
+---------------------------------------------------------------------
+ - Retrain: keep adding label sessions, repeat PART 5 > 6 > 7 > 8 > 9.
+   Every new model is compared with the approved one before approval.
+ - Sensor re-calibrated or moved? Change CALIBRATION_PROFILE (PART 2a)
+   and collect new sessions; the old model will show "Sensor Check
+   Required" for the new profile on purpose.
+ - Undo a bad model:
+       python scripts\registry.py rollback --by "Your Name" --note "reason"
+   then restart the API (PART 9).
+
+---------------------------------------------------------------------
+ TROUBLESHOOTING
+---------------------------------------------------------------------
+ "DefaultCredentialsError"   -> PART 3 step 3 was not run in this window.
+ Export wrote 0 readings     -> farm_id/pen_id in the label sheet differ
+                                from --farm/--pen, or wrong date/time
+                                (use +08:00 at the end of the times).
+ Many "missing_value"        -> PART 2 not applied (no thermalPixels).
+ Many "not_confirmed"        -> labels marked probable/uncertain.
+ "reviewer_not_blinded"      -> reviewer_blinded must be true.
+ "window_length_invalid"     -> session longer than 30 minutes or end
+                                before start.
+ Firestore "quota exceeded"  -> wait until the next day (free limit
+                                resets daily) and export again.
+ Storage: each history document with a frame is about 1 KB. At one frame
+ every 20 s that is about 4-5 MB per day; the free limit is 1 GiB.
+ After exporting and backing up, old sensor_readings_seconds documents
+ can be deleted to free space.
+
+ More detail: docs\FARM_DATA_COLLECTION_AND_RETRAINING.md,
+              docs\ML_PIPELINE.md, docs\SENSOR_THRESHOLDS.md
+=====================================================================

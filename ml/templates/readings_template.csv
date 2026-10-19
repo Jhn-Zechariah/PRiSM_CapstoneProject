@@ -1,0 +1,1 @@
+reading_id,device_id,farm_id,pen_id,observed_at,air_temp_c,air_temp_valid,relative_humidity_pct,humidity_valid,thermal_pixels_c,thermal_valid,water_level_pct,water_valid,calibration_profile,data_origin

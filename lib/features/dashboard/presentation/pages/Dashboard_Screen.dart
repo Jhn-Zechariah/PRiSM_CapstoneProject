@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:prism_app/core/constants/thermal_thresholds.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_top_bar.dart';
@@ -891,7 +892,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
   double _humidityLive = 0;
-  double _roomTemp = 0; // DHT22 room temperature (used by the ML card)
+  double _roomTemp = 0; // DHT22 air temperature (flagged against the grower comfort zone)
 
   // AMG8833 thermal heatmap — 64 pixels (8x8)
   List<double> _thermalPixels = List.filled(64, 0.0);
@@ -1029,16 +1030,14 @@ class _DashboardScreenState extends State<DashboardScreen>
       final newRoomTemp = roomValid
           ? (data['ambientTemp'] as num?)?.toDouble()
           : null;
-      if (newRoomTemp != null && newRoomTemp > 0 && newRoomTemp <= 80) {
+      if (newRoomTemp != null && newRoomTemp > -40 && newRoomTemp < 80) {
         _roomTemp = newRoomTemp;
       }
       if (newTempLive != null && newTempLive > 0 && newTempLive <= 80) {
         _tempMax = newTempLive;
         _lastKnownTemp = _tempMax;
         SensorMemory.lastTemp = _tempMax;
-        _pigStatus = newTempLive < 38.7
-            ? "Low"
-            : (newTempLive <= 39.8 ? "Normal" : "High");
+        _pigStatus = ThermalThresholds.skinTempStatus(newTempLive);
         SensorMemory.lastPigStatus = _pigStatus;
         SensorMemory.resetIfNewDay();
         if (newTempLive > SensorMemory.lastTempMaxToday) {
@@ -1404,51 +1403,68 @@ class _DashboardScreenState extends State<DashboardScreen>
   // ── ML insights ──────────────────────────────
 
   Future<void> _fetchMLInsights() async {
-    // Guard: only run when we have a real live humidity value. Temperature
-    // sensor (AMG8833) is disabled, so it's no longer part of this check —
-    // a neutral placeholder temperature is passed to the ML service instead.
-    if (_humidityLive <= 0) {
-      if (_mlCondition.isEmpty || _mlCondition == "Unavailable") {
-        setState(() {
-          _mlCondition = "Unavailable";
-          _mlRecommendations = [
-            "Sensor is offline. Connect to receive smart recommendations.",
-          ];
-          _mlLoading = false;
-        });
-      }
+    // Sends the latest live reading (AMG8833 thermal frame + DHT22 air
+    // temperature and humidity) for the overall farm status. Recommendations
+    // are shown only when the status comes from a trained model; otherwise a
+    // clear "unavailable" message is shown. No placeholder values are sent.
+    final data = LiveSensorService.sensorStatus.value == "Sensor Online"
+        ? LiveSensorService.latestData.value
+        : null;
+    if (data == null) {
+      setState(() {
+        _mlCondition = "Unavailable";
+        _mlRecommendations = [
+          "Sensor is offline. Connect to receive smart recommendations.",
+        ];
+        _mlLoading = false;
+      });
       return;
     }
 
     setState(() => _mlLoading = true);
 
     try {
-      final result = await MlService.analyzeFarm(
-        temperatureC: _roomTemp > 0 ? _roomTemp : 25.0,
-        humidityPct: _humidityLive,
-      ).timeout(const Duration(seconds: 6));
-
+      final result = await MlService.assess(data);
       if (!mounted) return;
-      final condition = result['condition'] ?? '';
-      final recs = List<String>.from(result['recommendations'] ?? []);
-      if (condition.isNotEmpty && recs.isNotEmpty) {
-        setState(() {
-          _mlCondition = condition;
-          _mlRecommendations = recs;
-          _mlLoading = false;
-        });
-      } else {
-        setState(() => _mlLoading = false);
-      }
-    } catch (e) {
+      setState(() {
+        if (result.isThermalStatus) {
+          _mlCondition = result.status;
+          _mlRecommendations = result.insightTexts;
+        } else {
+          _mlCondition = "Unavailable";
+          _mlRecommendations = [_unavailableMessage(result)];
+        }
+        _mlLoading = false;
+      });
+    } on MlUnavailable catch (e) {
       if (!mounted) return;
       setState(() {
         _mlCondition = "Unavailable";
-        _mlRecommendations = [e.toString()];
+        _mlRecommendations = [e.message];
         _mlLoading = false;
       });
     }
   }
+
+  /// Message shown in the recommendation card when there is no model-based
+  /// status (the backend returned an operational state).
+  String _unavailableMessage(AssessmentResult result) {
+    switch (result.status) {
+      case "Classification Unavailable":
+        return "Recommendations unavailable at this moment. Model is not yet "
+            "trained using real farm data.";
+      case "Insufficient Data":
+      case "Sensor Check Required":
+        return result.dataQualityMessages.isNotEmpty
+            ? "Recommendations unavailable at this moment. "
+                  "${result.dataQualityMessages.first}"
+            : "Recommendations unavailable at this moment. Check the sensor connection.";
+      default: // Uncertain
+        return "Recommendations unavailable at this moment. The current "
+            "readings cannot be assessed reliably.";
+    }
+  }
+
 
   // ── Sprinkler toggle ─────────────────────────
   bool _isSprinklerDialogOpen = false;
@@ -2193,7 +2209,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               [
                 "Max Temperature Today: ${_tempMaxToday == 0 ? '…' : '${_tempMaxToday.toStringAsFixed(1)}°C'}",
                 "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
-                "Pig Status: $_pigStatus",
+                "Room Temp: ${_roomTemp == 0 ? '…' : '${_roomTemp.toStringAsFixed(1)}°C (${ThermalThresholds.airTempStatus(_roomTemp)})'}",
               ],
               const Color(0xFFE53935),
             ),

@@ -1,0 +1,27 @@
+{
+  "contract_version": "1.0.0",
+  "_comment": "Single source of truth for the inputs the PRISM thermal-status classifier may use. Training (prism_ml.models.train) and inference (prism_ml.models.inference) both build features through prism_ml.features.contract from this file. Changing anything here requires a new contract_version and retraining.",
+  "reading_fields": {
+    "observed_at": {"type": "datetime", "unit": "UTC ISO-8601", "source": "ESP32 NTP clock (slot timestamp)", "required": true},
+    "air_temp_c": {"type": "float", "unit": "degC", "source": "DHT22 temperature channel", "required": true, "valid_flag": "air_temp_valid", "sensor_range": [-40.0, 80.0], "sensor_accuracy": "+/-0.5 degC (Adafruit DHT guide)"},
+    "relative_humidity_pct": {"type": "float", "unit": "% RH", "source": "DHT22 humidity channel", "required": true, "valid_flag": "humidity_valid", "sensor_range": [0.0, 100.0], "sensor_accuracy": "2-5 % RH (Adafruit DHT guide)"},
+    "thermal_pixels_c": {"type": "float[64]", "unit": "degC", "source": "AMG8833 8x8 frame, row-major", "required": true, "valid_flag": "thermal_valid", "sensor_range": [0.0, 80.0], "sensor_accuracy": "+/-2.5 degC (Adafruit AMG8833 guide)", "invalid_marker": 0.0, "invalid_marker_note": "Current firmware writes 0.0 for NaN/out-of-range pixels; exactly 0.0 is therefore treated as invalid."},
+    "water_level_pct": {"type": "float", "unit": "% of usable tank height", "source": "HC-SR04 ultrasonic", "required": false, "valid_flag": "water_valid", "sensor_range": [0.0, 100.0], "model_feature": false, "note": "Operational only (drinking/misting water availability). Never a classifier input."},
+    "calibration_profile": {"type": "string", "required": false, "note": "Identifier of the sensor calibration (offset) profile active on the device. Models record the profiles present in their training data."}
+  },
+  "features": [
+    {"name": "air_temp_c", "unit": "degC", "definition": "DHT22 air temperature as reported"},
+    {"name": "relative_humidity_pct", "unit": "% RH", "definition": "DHT22 relative humidity as reported"},
+    {"name": "thi", "unit": "index", "definition": "(1.8*T+32) - (0.55-0.0055*RH)*(1.8*T-26); formula as printed in Vermeer & Aarnink (2023), p.8, doi:10.5281/zenodo.7620726"},
+    {"name": "thermal_max_c", "unit": "degC", "definition": "Maximum of the 64 AMG8833 pixels"},
+    {"name": "thermal_top4_mean_c", "unit": "degC", "definition": "Mean of the 4 hottest pixels (less sensitive to a single noisy pixel than the maximum)"},
+    {"name": "thermal_median_c", "unit": "degC", "definition": "Median of the 64 pixels (approximates scene/background level)"},
+    {"name": "thermal_std_c", "unit": "degC", "definition": "Population standard deviation of the 64 pixels"},
+    {"name": "thermal_hot_minus_air_c", "unit": "degC", "definition": "thermal_top4_mean_c - air_temp_c"}
+  ],
+  "excluded_features": [
+    {"name": "core_body_temperature", "reason": "Not measured by PRISM. AMG8833 readings are apparent surface temperatures and are not interchangeable with core temperature."},
+    {"name": "water_level_pct", "reason": "Reflects tank level, not the pigs' thermal condition."},
+    {"name": "feed_intake / weight_change", "reason": "Not available at the time scale of a sensor reading and not linked to readings in the current Firestore schema."}
+  ]
+}

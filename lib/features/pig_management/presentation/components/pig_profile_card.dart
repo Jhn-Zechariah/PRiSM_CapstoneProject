@@ -105,12 +105,11 @@ class _PigProfileCardState extends State<PigProfileCard>
         _mlRecommendation = result['recommendation'] as String?;
         _mlLoading = false;
       });
-    } catch (e) {
-      debugPrint('ML pig error: $e'); // ✅ stripped in release builds automatically
+    } on MlUnavailable catch (e) {
       if (!mounted) return;
       setState(() {
         _mlLoading = false;
-        _mlInsight = 'ML analysis unavailable. Check server connection.';
+        _mlInsight = e.message;
       });
     }
   }

@@ -1,0 +1,25 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.local
+# Raw/derived data are reproducible via scripts/ and may be large or restricted.
+data/raw/**
+data/interim/**
+data/processed/**
+!data/**/.gitkeep
+# Provenance and audit outputs are small and part of the record.
+!data/metadata/
+# Model binaries are deployment artifacts (see docs/DEPLOYMENT.md); registry metadata may be versioned.
+artifacts/models/
+*.joblib
+*.pkl
+*.part
+reports/training_*.json
+# Service-account keys
+*service-account*.json
+*credentials*.json
+data/local_store/
+secrets/

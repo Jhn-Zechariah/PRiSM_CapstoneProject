@@ -1,0 +1,13 @@
+# Runtime dependencies for training AND the API (same versions so serialized models load identically).
+# Tested with Python 3.14.5 and the versions in requirements.lock.txt.
+fastapi>=0.115,<1
+pydantic>=2.7,<3
+uvicorn[standard]>=0.30,<1
+scikit-learn>=1.6,<1.10
+numpy>=2.0,<3
+pandas>=2.2,<4
+joblib>=1.4,<2
+firebase-admin>=6.5,<8      # Firestore repository + export script (server-side only)
+google-auth>=2.30,<3        # Firebase ID-token verification
+requests>=2.32,<3
+cachecontrol>=0.14,<1     # caches Google token-signing certificates

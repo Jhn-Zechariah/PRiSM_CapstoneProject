@@ -1,0 +1,72 @@
+{
+ "api_version": "1",
+ "status": "Classification Unavailable",
+ "status_kind": "operational",
+ "reason": "no_approved_model",
+ "observed_at": "2026-10-12T03:52:21.875872+00:00",
+ "reading_age_seconds": 0.1,
+ "measurements": {
+  "air_temp_c": 30.1,
+  "relative_humidity_pct": 81.0,
+  "thermal_max_c": 35.72,
+  "water_level_pct": 55.0
+ },
+ "data_quality": {
+  "ok": true,
+  "operational_status": null,
+  "reading_age_seconds": 0.1,
+  "issues": []
+ },
+ "model": null,
+ "confidence": null,
+ "probabilities": null,
+ "details": {},
+ "insights": [
+  {
+   "text": "No Good / Needs Attention / High Risk status is shown because PRISM's thermal-status model has not yet been validated with expert-labelled data from the farm.",
+   "kind": "status",
+   "references": []
+  },
+  {
+   "text": "Latest readings: air temperature 30.1 \u00b0C, humidity 81 %, warmest thermal-camera reading 35.7 \u00b0C. The thermal camera measures apparent surface temperature (about \u00b12.5 \u00b0C accuracy), which is not the same as the pigs' body (core) temperature.",
+   "kind": "observation",
+   "references": [
+    "ADAFRUIT_DHT",
+    "ADAFRUIT_AMG8833"
+   ]
+  },
+  {
+   "text": "Look at the pigs: fast breathing (more than about 50 breaths per minute at rest), panting or open-mouth breathing, lying apart from each other, wallowing in dung or a fouled pen, and low activity are signs that pigs are struggling with heat.",
+   "kind": "action",
+   "references": [
+    "VERMEER2023"
+   ]
+  },
+  {
+   "text": "Keep clean drinking water available and the pen well ventilated during hot periods.",
+   "kind": "action",
+   "references": [
+    "VERMEER2023"
+   ]
+  }
+ ],
+ "references": [
+  {
+   "id": "ADAFRUIT_AMG8833",
+   "citation": "Adafruit Industries. Adafruit AMG8833 8x8 Thermal Camera Sensor - Overview.",
+   "url": "https://learn.adafruit.com/adafruit-amg8833-8x8-thermal-camera-sensor/overview"
+  },
+  {
+   "id": "ADAFRUIT_DHT",
+   "citation": "Adafruit Industries. DHT11, DHT22 and AM2302 Sensors - Overview.",
+   "url": "https://learn.adafruit.com/dht/overview"
+  },
+  {
+   "id": "VERMEER2023",
+   "citation": "Vermeer, H. M. & Aarnink, A. J. A. (2023). Review on heat stress in pigs on farm. EURCAW-Pigs, version 1.0. CC-BY-4.0.",
+   "url": "https://doi.org/10.5281/zenodo.7620726"
+  }
+ ],
+ "disclaimer": "PRISM is a monitoring aid. It does not diagnose disease or heat stroke and does not replace assessment by a veterinarian.",
+ "feature_contract_version": "1.0.0"
+}

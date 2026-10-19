@@ -1,0 +1,1 @@
+label_session_id,farm_id,pen_id,window_start,window_end,status,label_confidence,reviewer_id,reviewer_role,reviewer_blinded,assessment_method,respiration_rate_bpm,panting,lying_apart,pen_fouling,rectal_temp_c,protocol_version,labeled_at,notes

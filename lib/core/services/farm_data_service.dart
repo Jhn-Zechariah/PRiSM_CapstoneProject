@@ -1,8 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// FarmDataService
-/// Fetches and computes farm-level data from Firestore
-/// to feed into the PRISM ML (MlService.analyzeFarm)
+/// Fetches and computes farm-level summaries from Firestore.
+///
+/// The former getFarmMLInputs() was removed: it substituted invented values
+/// (28 degC / 75 % RH) when no readings existed and fed them to the ML
+/// service. The thermal-status assessment now uses the live reading only
+/// (see MlService.assess).
 class FarmDataService {
   static final _db = FirebaseFirestore.instance;
 
@@ -167,39 +171,5 @@ class FarmDataService {
       print('>>> FarmDataService weight error: $e');
       return 0.0;
     }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // 5. MAIN METHOD — fetch everything at once for the ML
-  //    Returns all values needed by MlService.analyzeFarm()
-  // ─────────────────────────────────────────────────────────────────────────
-  static Future<Map<String, double>> getFarmMLInputs({
-    required String userId,
-    double fallbackTemp = 28.0,
-    double fallbackHumidity = 75.0,
-  }) async {
-    // Fetch all in parallel for speed
-    final results = await Future.wait([
-      getLast24hrAvgTemperature(),
-      getLast24hrAvgHumidity(),
-      getTodayTotalFeedIntake(userId),
-      getAvgWeightChange(userId),
-    ]);
-
-    final temp = results[0] > 0 ? results[0] : fallbackTemp;
-    final humidity = results[1] > 0 ? results[1] : fallbackHumidity;
-    final feed = results[2]; // 0.0 is valid (no feeding today)
-    final weightDelta = results[3]; // ADG across all pigs
-
-    print(
-      '>>> FarmMLInputs — temp: $temp, humidity: $humidity, feed: $feed, weightΔ: $weightDelta',
-    );
-
-    return {
-      'temperatureC': double.parse(temp.toStringAsFixed(1)),
-      'humidityPct': double.parse(humidity.toStringAsFixed(1)),
-      'feedIntakeKg': double.parse(feed.toStringAsFixed(2)),
-      'weightChangeKg': double.parse(weightDelta.toStringAsFixed(3)),
-    };
   }
 }

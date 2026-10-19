@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:prism_app/core/constants/thermal_thresholds.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
-import '../../../../core/services/ml_service.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 
@@ -131,11 +131,6 @@ class TemperatureMonitoring extends StatefulWidget {
 
 class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     with WidgetsBindingObserver {
-  //added for ML insights
-  String? _mlInsight;
-  String? _mlRecommendation;
-  String? _mlCondition;
-  bool _mlLoading = false;
 
   int _selectedTab = 0;
   int _selectedTimeRange = 2;
@@ -345,24 +340,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       _minuteBufferToday.isNotEmpty &&
       _minuteBufferDayKey == SensorMemory.todayKey();
 
-  String get _tempStatus {
-    if (_currentTemp == null) return "";
-    final t = _currentTemp!;
+  // AMG8833 skin-surface bands (see ThermalThresholds / docs/SENSOR_THRESHOLDS.md).
+  String get _tempStatus =>
+      _currentTemp == null ? "" : ThermalThresholds.skinTempStatus(_currentTemp!);
 
-    if (t < 38.7) return "Low";
-    if (t <= 39.8) return "Normal";
-    return "High";
-  }
-
-  Color _tempStatusColor() {
-    if (_currentTemp == null) return Colors.grey;
-
-    final t = _currentTemp!;
-
-    if (t < 38.7) return Colors.blue;
-    if (t <= 39.8) return Colors.green;
-    return Colors.red;
-  }
+  Color _tempStatusColor() => _currentTemp == null
+      ? Colors.grey
+      : ThermalThresholds.skinTempColor(_currentTemp!);
 
   final List<Map<String, double>> _chartData = _tempCacheIsToday()
       ? List.of(SensorMemory.lastTempChartData)
@@ -504,8 +488,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       }
     });
   }
-
-  DateTime? _lastMlFetch;
 
   static final List<Map<String, double>> _livePoints = [];
 
@@ -1354,8 +1336,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       return;
     }
 
-    final humLive = (data['ambientHumidity'] as num?)?.toDouble();
-
     setState(() {
       _currentTemp = tempLive;
       _isLoading = false;
@@ -1368,17 +1348,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     if (tempLive > SensorMemory.lastTempMaxToday) {
       SensorMemory.setTempMaxToday(tempLive);
       SensorMemory.save();
-    }
-
-    final now = DateTime.now();
-
-    if (_lastMlFetch == null ||
-        now.difference(_lastMlFetch!) > const Duration(minutes: 1)) {
-      _lastMlFetch = now;
-
-      if (humLive != null) {
-        _fetchTemperatureMLInsight(tempLive, humLive);
-      }
     }
   }
 
@@ -1825,8 +1794,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                 _buildChart(isDark),
                 const SizedBox(height: 16),
                 _buildTemperatureReview(isDark),
-                const SizedBox(height: 16),
-                _buildInsights(isDark),
                 const SizedBox(height: 24),
               ],
             ),
@@ -2470,177 +2437,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     );
   }
 
-  Widget _buildInsights(bool isDark) {
-    Color conditionColor = const Color(0xFFE8A020); // amber default
-    if (_mlCondition == 'Good') conditionColor = Colors.green;
-    if (_mlCondition == 'High Risk') conditionColor = Colors.red;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFFE8A020).withValues(alpha: 0.12)
-            : const Color(0xFFFFF9C4),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(
-            0xFFE8A020,
-          ).withValues(alpha: isDark ? 0.25 : 0.15),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(
-              0xFFE8A020,
-            ).withValues(alpha: isDark ? 0.12 : 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8A020).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.lightbulb_outline,
-                  color: Color(0xFFE8A020),
-                  size: 16,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Insights',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: _textPrimary(isDark),
-                ),
-              ),
-              const Spacer(),
-              // Condition badge
-              if (_mlCondition != null && !_mlLoading)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: conditionColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: conditionColor, width: 1),
-                  ),
-                  child: Text(
-                    _mlCondition!,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: conditionColor,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Body
-          if (_mlLoading)
-            Row(
-              children: [
-                SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    color: const Color(0xFFE8A020),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Analyzing temperature data...',
-                  style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
-                ),
-              ],
-            )
-          else if (_currentTemp == null)
-            Text(
-              'Connect sensor to receive temperature insights.',
-              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
-            )
-          else if (_mlInsight == null)
-            Text(
-              'Waiting for analysis...',
-              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
-            )
-          else ...[
-            Text(
-              _mlInsight!,
-              style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
-            ),
-            if (_mlRecommendation != null) ...[
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.arrow_right, size: 16, color: conditionColor),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      _mlRecommendation!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _textSecondary(isDark),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
-
-  //ml part
-  Future<void> _fetchTemperatureMLInsight(
-    double temperature,
-    double humidity,
-  ) async {
-    if (temperature <= 0) return;
-    setState(() => _mlLoading = true);
-    try {
-      final result = await MlService.analyzeFarm(
-        temperatureC: temperature,
-        humidityPct: humidity, // neutral humidity — not the focus here
-        weightChangeKg: 0.0,
-        feedIntakeKg: 0.0,
-      );
-      if (!mounted) return;
-      setState(() {
-        _mlCondition = result['condition'] as String?;
-        _mlInsight = (result['insights'] as List?)?.join(' ');
-        _mlRecommendation =
-            ((result['recommendations'] as List?)?.isNotEmpty ?? false)
-            ? (result['recommendations'] as List).first as String?
-            : null;
-        _mlLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Temperature ML error: $e');
-      if (!mounted) return;
-      setState(() => _mlLoading = false);
-    }
-  }
 }
 
 // ── Custom Range Bottom Sheet ─────────────────────────────────────────────────

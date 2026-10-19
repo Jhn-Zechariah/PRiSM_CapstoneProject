@@ -1,0 +1,32 @@
+{
+ "_comment": "Fields read by AssessmentResult.fromJson() in lib/core/services/ml_service.dart (checked by ml/tests/test_api.py and test/ml_service_test.dart). assessment_request_example.json is a synthetic TEST FIXTURE in the shape MlService.requestFromSensorData() produces; assessment_response_example.json is the real API response to it with no approved model.",
+ "top_level": [
+  "status",
+  "status_kind",
+  "reason",
+  "observed_at",
+  "confidence",
+  "insights",
+  "data_quality",
+  "disclaimer"
+ ],
+ "insight": [
+  "text",
+  "kind",
+  "references"
+ ],
+ "reference": [
+  "id",
+  "citation",
+  "url"
+ ],
+ "status_values": [
+  "Good",
+  "Needs Attention",
+  "High Risk",
+  "Insufficient Data",
+  "Sensor Check Required",
+  "Classification Unavailable",
+  "Uncertain"
+ ]
+}

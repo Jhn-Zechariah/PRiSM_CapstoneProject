@@ -1,0 +1,11 @@
+{
+  "_comment": "Data-integrity rules for the data-quality layer (prism_ml.data.quality). These protect against faulty or stale inputs; they are NOT the thermal-status classifier and never output Good / Needs Attention / High Risk. Values are operational settings derived from the firmware's 10-second push interval and the sensor datasheet ranges; review them after calibration.",
+  "max_reading_age_seconds": 120,
+  "max_future_skew_seconds": 60,
+  "min_valid_epoch_year": 2024,
+  "thermal_pixel_count": 64,
+  "thermal_min_std_c": 0.05,
+  "thermal_min_std_note": "A frame whose 64 pixels are (almost) identical indicates a disconnected, covered or frozen sensor.",
+  "water_low_pct": 25.0,
+  "water_low_note": "Mirrors the firmware's computeWaterStatus() 'Low' band (<25 %). Used only to add a water-availability sentence."
+}

@@ -1,0 +1,105 @@
+{
+  "_comment": "External candidate datasets. Checksums are the values published by the hosting repository; scripts/acquire_external.py refuses files that do not match. 'decision' records the outcome of the feasibility audit (docs/DATASETS_AND_PROVENANCE.md).",
+  "datasets": [
+    {
+      "key": "hotpig",
+      "title": "HotPig: a behavioural dataset of pigs under heat stress",
+      "authors": [
+        "Bonneau de Beaufort, Louis",
+        "Xavier, Caroline",
+        "Renaudeau, David",
+        "Largouët, Christine",
+        "Gondret, Florence"
+      ],
+      "doi": "10.5281/zenodo.17090997",
+      "landing_page": "https://zenodo.org/records/17090997",
+      "license": "CC-BY-4.0",
+      "publication_date": "2025-09-10",
+      "files": [
+        {
+          "name": "series.zip",
+          "url": "https://zenodo.org/api/records/17090997/files/series.zip/content",
+          "md5": "ecd7562d5288974a009c1f3f7873f41f",
+          "size": 2603605
+        },
+        {
+          "name": "metadata.txt",
+          "url": "https://zenodo.org/api/records/17090997/files/metadata.txt/content",
+          "md5": "df6dfe2f7de4bd94ca49643d77d5755e",
+          "size": 1117
+        }
+      ],
+      "not_downloaded": [
+        "frames.zip (621 MB, YOLO training images)",
+        "demo.mp4 (4.2 GB)",
+        "excerpt.mp4",
+        "weights.zip"
+      ],
+      "decision": "excluded_from_primary_classifier",
+      "decision_reason": "Contains only video-derived behaviour frame counts, feed intake and the experimental condition (TN/HS/TU/TD). No air temperature, humidity, thermal-array or body-temperature values, so it shares no input feature with PRISM. Used only for auxiliary descriptive analysis."
+    },
+    {
+      "key": "inrae_core_bt",
+      "title": "Data related to the paper dealing with the evaluation of pigs' susceptibility to summer heat waves based on continuous measurement of body temperature",
+      "authors": [
+        "Renaudeau, David"
+      ],
+      "doi": "10.57745/GPW3E1",
+      "landing_page": "https://entrepot.recherche.data.gouv.fr/dataset.xhtml?persistentId=doi:10.57745/GPW3E1",
+      "license": "etalab-2.0",
+      "version": "3.1 (released 2025-12-19)",
+      "files": [
+        {
+          "name": "bt_raw.tab",
+          "original_name": "File 2 - Core body temperature_raw data.tab",
+          "url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/708536",
+          "md5": "6c3a0ac6da3898649218f6388ed5efb7",
+          "size": null,
+          "size_note": "Dataverse lists filesize 185261834 but serves 185261961 bytes whose MD5 matches the published checksum; the MD5 is used as the integrity check."
+        },
+        {
+          "name": "bt_metadata.tab",
+          "original_name": "File 1 - Core body temperature_metadata.tab",
+          "url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/708541",
+          "md5": null,
+          "md5_published": "112528316d07d440655910c8b75d42ed",
+          "md5_note": "The Dataverse access API serves a re-serialised copy of this ingested tabular file (17,835 bytes vs 17,750 published), so its MD5 differs from the published value. The SHA-256 of the served bytes is recorded in data/metadata/provenance.json at download time.",
+          "size": null
+        },
+        {
+          "name": "metadata.docx",
+          "original_name": "File- 0 - metadata.docx",
+          "url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/708542",
+          "md5": "9dd54e8805746f52b50eae2e5c989244",
+          "size": 18370
+        }
+      ],
+      "decision": "excluded_from_primary_classifier",
+      "decision_reason": "Measures implanted-sensor CORE body temperature, not surface temperature. The ambient column takes only three values (22, 24, 32 degC), which are the room setpoints of the experimental periods, not continuous sensor readings. There is no humidity and no thermal-array data. A classifier on PRISM inputs cannot be trained or validated from it. Used only for auxiliary descriptive analysis of core-temperature responses to a 32 degC challenge."
+    }
+  ],
+  "searched_not_downloaded": [
+    {
+      "title": "Enviromental pig barn dataset",
+      "doi": "10.5281/zenodo.17853650",
+      "reason": "CO2, NH3 and ambient temperature only; no animal measurements or labels."
+    },
+    {
+      "title": "Datasets for: Identification of non-invasive indicators of LPS-induced inflammation in the saliva of pigs",
+      "doi": "10.5281/zenodo.18955503",
+      "reason": "Inflammation/saliva study; not heat exposure and no PRISM-compatible sensors."
+    },
+    {
+      "title": "TIRPigEar thermal infrared pig ear dataset (PMC11718892)",
+      "doi": null,
+      "reason": "Image segmentation masks for ear detection; no thermal-status labels. Not verified as downloadable."
+    },
+    {
+      "title": "Estimation of respiratory frequency and rectal temperature on pigs in heat stress by fuzzy logic (Eng. Agric. 38(4):457-470, 2018)",
+      "doi": "10.6084/m9.figshare.7020404",
+      "article_doi": "10.1590/1809-4430-eng.agric.v38n4p457-470/2018",
+      "license": "CC-BY-4.0",
+      "reason": "Inputs match PRISM (air dry-bulb temperature + infrared average surface temperature), but the deposit holds only article figures and Tables 1-5 (feed composition, fuzzy input sets, rules, condition-level means of experimental vs simulated RF/RT). No raw observations and no data-availability statement. Summary statistics cannot be used as training data. Lead: request raw data from the authors (free)."
+    }
+  ]
+}
