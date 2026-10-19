@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
+import 'package:flutter/services.dart';
 
 class IoTControlsDialog extends StatefulWidget {
   const IoTControlsDialog({super.key});
@@ -16,6 +17,20 @@ class IoTControlsDialog extends StatefulWidget {
 class _IoTControlsDialogState extends State<IoTControlsDialog> {
   bool isIotEnabled = true;
   bool isSprinklerAuto = true;
+
+  // Allowed ranges for the IoT thresholds. Adjust these with your adviser.
+  static const double _minTemp = 35.0;
+  static const double _maxTempLimit = 38.0;
+  static const double _minHumidity = 70.0;
+  static const double _maxHumidityLimit = 80.0;
+
+  // Only digits with at most 3 before and 1 after the decimal point
+  // (e.g. "39", "39.5", "100"). Anything else is rejected as it is typed.
+  static final _decimalFormatter = TextInputFormatter.withFunction(
+    (oldValue, newValue) => RegExp(r'^\d{0,3}(\.\d?)?$').hasMatch(newValue.text)
+        ? newValue
+        : oldValue,
+  );
 
   final TextEditingController _tempController = TextEditingController();
   final TextEditingController _humidityController = TextEditingController();
@@ -82,12 +97,13 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     });
   }
 
-    // Opens a clock picker and writes the time like "6:00 PM"
+  // Opens a clock picker and writes the time like "6:00 PM"
   Future<void> _pickScheduleTime() async {
     TimeOfDay initial = TimeOfDay.now();
 
-    final m = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$')
-        .firstMatch(_scheduleController.text.trim().toUpperCase());
+    final m = RegExp(
+      r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+    ).firstMatch(_scheduleController.text.trim().toUpperCase());
     if (m != null) {
       int h = int.parse(m.group(1)!);
       final min = int.parse(m.group(2)!);
@@ -109,7 +125,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     }
   }
 
-    // Shows the current schedule at the top of the sprinkler section
+  // Shows the current schedule at the top of the sprinkler section
   Widget _buildScheduleSummary(ThemeData theme) {
     final schedule = _scheduleController.text.trim();
     final duration = _durationController.text.trim();
@@ -118,7 +134,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     final text = schedule.isEmpty
         ? 'No schedule set'
         : 'Daily at $schedule • ${duration.isEmpty ? '5' : duration} mins • '
-            '${active ? 'Active' : 'Paused'}';
+              '${active ? 'Active' : 'Paused'}';
 
     return Container(
       width: double.infinity,
@@ -154,8 +170,9 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   Future<void> _savePreferences() async {
     // Validate schedule: format like 6:00 PM or 11:30 AM
     final scheduleRaw = _scheduleController.text.trim().toUpperCase();
-    final match = RegExp(r'^(0?[1-9]|1[0-2]):([0-5]\d)\s*(AM|PM)$')
-        .firstMatch(scheduleRaw);
+    final match = RegExp(
+      r'^(0?[1-9]|1[0-2]):([0-5]\d)\s*(AM|PM)$',
+    ).firstMatch(scheduleRaw);
 
     if (scheduleRaw.isNotEmpty && match == null) {
       if (mounted) {
@@ -164,6 +181,36 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
           message: "Schedule must look like 6:00 PM",
         );
       }
+      return;
+    }
+
+    // Validate thresholds (empty = no limit)
+    final tempText = _tempController.text.trim();
+    final humidityText = _humidityController.text.trim();
+    final tempValue = double.tryParse(tempText);
+    final humidityValue = double.tryParse(humidityText);
+
+    if (tempText.isNotEmpty &&
+        (tempValue == null ||
+            tempValue < _minTemp ||
+            tempValue > _maxTempLimit)) {
+      CustomSnackbar.show(
+        context: context,
+        message:
+            "Max body temperature must be between ${_minTemp.toStringAsFixed(0)} and ${_maxTempLimit.toStringAsFixed(0)} °C",
+      );
+      return;
+    }
+
+    if (humidityText.isNotEmpty &&
+        (humidityValue == null ||
+            humidityValue < _minHumidity ||
+            humidityValue > _maxHumidityLimit)) {
+      CustomSnackbar.show(
+        context: context,
+        message:
+            "Max humidity must be between ${_minHumidity.toStringAsFixed(0)} and ${_maxHumidityLimit.toStringAsFixed(0)} %",
+      );
       return;
     }
 
@@ -189,11 +236,11 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
         .collection('sprinkler_settings')
         .doc('config')
         .set({
-      'isIotEnabled': isIotEnabled,
-      'isSprinklerAuto': isSprinklerAuto,
-      'schedule': scheduleText,
-      'durationMins': int.tryParse(_durationController.text.trim()) ?? 5,
-    }, SetOptions(merge: true));
+          'isIotEnabled': isIotEnabled,
+          'isSprinklerAuto': isSprinklerAuto,
+          'schedule': scheduleText,
+          'durationMins': int.tryParse(_durationController.text.trim()) ?? 5,
+        }, SetOptions(merge: true));
 
     // 🔹 Synchronize thresholds to Firestore so the backend (Cloud
     // Functions) can compare incoming live sensor readings against them.
@@ -285,6 +332,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               controller: _tempController,
               hintText: '°C',
               enabled: isIotEnabled,
+              inputFormatters: [_decimalFormatter],
             ),
             const SizedBox(height: 12),
             _buildInputRow(
@@ -294,6 +342,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               controller: _humidityController,
               hintText: '%',
               enabled: isIotEnabled,
+              inputFormatters: [_decimalFormatter],
             ),
             _buildDivider(isDark),
 
@@ -338,14 +387,10 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 _buildActionButton(
                   'Cancel',
                   textColor,
-                      () => Navigator.pop(context),
+                  () => Navigator.pop(context),
                 ),
                 const SizedBox(width: 8),
-                _buildActionButton(
-                  'Save',
-                  textColor,
-                  _savePreferences,
-                ),
+                _buildActionButton('Save', textColor, _savePreferences),
               ],
             ),
           ],
@@ -374,10 +419,10 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   }
 
   Widget _buildActionButton(
-      String label,
-      Color? color,
-      VoidCallback onPressed,
-      ) {
+    String label,
+    Color? color,
+    VoidCallback onPressed,
+  ) {
     return TextButton(
       onPressed: onPressed,
       child: Text(
@@ -429,6 +474,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     String? hintText,
     bool readOnly = false,
     VoidCallback? onTap,
+    List<TextInputFormatter>? inputFormatters,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -471,18 +517,19 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 boxShadow: isDark
                     ? []
                     : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 2,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 2,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
               ),
               child: TextField(
                 controller: controller,
                 enabled: enabled,
                 readOnly: readOnly,
                 onTap: onTap,
+                inputFormatters: inputFormatters,
                 style: TextStyle(
                   color: theme.textTheme.bodyLarge?.color,
                   fontSize: 13,
@@ -498,7 +545,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                 ),
                 keyboardType: label.contains("schedule")
                     ? TextInputType.text
-                    : TextInputType.number,
+                    : const TextInputType.numberWithOptions(decimal: true),
               ),
             ),
           ),
