@@ -1,0 +1,69 @@
+{
+  "_comment": "Canonical schema for PRISM sensor observations. Maps Firestore field names (as written by the ESP32) to canonical export columns. Legacy (v1) field names are kept unchanged because the Flutter monitoring screens read them. Fields marked status=proposed are NOT sent by the current firmware; see docs/FIRMWARE_PROPOSAL_sensor_v2.md.",
+  "schema_version": 2,
+  "collection": "sensor_readings_seconds",
+  "corrections_collection": "sensor_corrections",
+  "default_source": "sensor",
+  "record_fields": {
+    "device_id":      {"firestore": "deviceId",      "type": "string", "status": "proposed"},
+    "pen_id":         {"firestore": "penId",         "type": "string", "status": "proposed"},
+    "schema_version": {"firestore": "schemaVersion", "type": "int",    "status": "proposed", "default_when_absent": 1},
+    "source":         {"firestore": "source",        "type": "string", "status": "proposed", "allowed": ["sensor", "manual"]},
+    "timestamp_utc":  {"firestore": "timestamp",     "type": "timestamp", "status": "existing", "description": "Device time (NTP). Firestore Timestamp; the app queries and orders by it."},
+    "ntp_synced":     {"firestore": "ntpSynced",     "type": "bool",   "status": "proposed"},
+    "buffered":       {"firestore": "buffered",      "type": "bool",   "status": "proposed", "description": "true when the record was replayed from the on-device offline buffer"},
+    "wifi_rssi_dbm":  {"firestore": "wifiRssi",      "type": "number", "unit": "dBm", "status": "proposed"},
+    "uptime_s":       {"firestore": "uptimeSec",     "type": "number", "unit": "s",   "status": "proposed"}
+  },
+  "channels": {
+    "dht_temp_c": {
+      "firestore": "ambientTemp", "valid_field": "ambientTempValid",
+      "type": "number", "unit": "degC", "sensor": "DHT22", "status": "existing_in_live_doc",
+      "description": "Pen air temperature (DHT22)."
+    },
+    "dht_humidity_pct": {
+      "firestore": "ambientHumidity", "valid_field": "ambientHumidityValid",
+      "type": "number", "unit": "%RH", "sensor": "DHT22", "status": "existing",
+      "description": "Pen relative humidity (DHT22)."
+    },
+    "amg_summary_c": {
+      "firestore": "pigBodyTemp", "valid_field": "pigBodyTempValid",
+      "type": "number", "unit": "degC", "sensor": "AMG8833", "status": "existing",
+      "description": "PEN-LEVEL surface-temperature summary of the AMG8833 frame, computed by firmware (method unverified). The legacy Firestore name 'pigBodyTemp' is kept for app compatibility; this is NOT a per-pig or core body temperature."
+    },
+    "amg_pixels_c": {
+      "firestore": "thermalPixels",
+      "type": "number_array", "length": 64, "unit": "degC", "sensor": "AMG8833", "status": "existing_in_live_doc",
+      "description": "Raw 8x8 frame, row-major. Currently only in live_sensor/latest, not in history."
+    },
+    "amg_thermistor_c": {
+      "firestore": "amgThermistor",
+      "type": "number", "unit": "degC", "sensor": "AMG8833", "status": "proposed",
+      "description": "AMG8833 on-chip thermistor (sensor board temperature)."
+    },
+    "water_level_pct": {
+      "firestore": "waterPct",
+      "type": "number", "unit": "%", "sensor": "HC-SR04", "status": "existing_in_live_doc"
+    },
+    "water_distance_cm": {
+      "firestore": "waterDistanceCm",
+      "type": "number", "unit": "cm", "sensor": "HC-SR04", "status": "proposed"
+    },
+    "water_status": {
+      "firestore": "waterStatus",
+      "type": "string", "sensor": "HC-SR04", "status": "existing_in_live_doc"
+    },
+    "sprinkler_on": {
+      "firestore": "sprinkler",
+      "type": "bool", "sensor": "relay", "status": "existing_in_live_doc"
+    },
+    "sprinkler_active_s": {
+      "firestore": "sprinklerActiveSec",
+      "type": "number", "unit": "s", "sensor": "relay", "status": "proposed",
+      "description": "Seconds the sprinkler has been ON in the current activation (0 when OFF)."
+    }
+  },
+  "correctable_fields": ["dht_temp_c", "dht_humidity_pct", "amg_summary_c", "amg_thermistor_c",
+                         "water_level_pct", "water_distance_cm", "sprinkler_on", "sprinkler_active_s",
+                         "timestamp_utc", "device_id", "pen_id"]
+}

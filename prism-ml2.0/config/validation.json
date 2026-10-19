@@ -1,0 +1,85 @@
+{
+  "_comment": "Data-quality rules for sensor observations. Validation only FLAGS records; it never deletes or edits them. 'basis' records where each number comes from. Values marked project-defined must be reviewed against pilot-farm data.",
+  "version": 1,
+  "timestamp": {
+    "min_valid_utc": "2020-01-01T00:00:00Z",
+    "min_valid_basis": "Matches the app's NTP-failure rule (year < 2020) in Dashboard_Screen.dart; firmware sends 1970-01-01 when NTP fails.",
+    "max_future_s": 120,
+    "max_ingest_lag_s": 300,
+    "ingest_lag_basis": "project-defined: device time vs Firestore create_time. Records marked buffered=true are exempt and get late_arrival instead."
+  },
+  "gaps": {
+    "expected_interval_s": 10,
+    "expected_interval_basis": "Code comment in Dashboard_Screen.dart ('pushes ... every 10s'); unverified against firmware.",
+    "missed_readings_after_s": 30,
+    "offline_after_s": 300,
+    "basis": "project-defined: gap > 3x interval = missed readings; gap > 5 min = device offline period."
+  },
+  "channels": {
+    "dht_temp_c": {
+      "impossible": [-40.0, 80.0], "impossible_basis": "DHT22 datasheet measuring range -40..80 degC",
+      "plausible": [10.0, 45.0],   "plausible_basis": "project-defined pen air range",
+      "sentinels": [],
+      "stuck": {"min_duration_s": 3600, "min_count": 6, "decimals": 1}
+    },
+    "dht_humidity_pct": {
+      "impossible": [0.0, 100.0], "impossible_basis": "relative humidity is bounded 0..100 %",
+      "plausible": [20.0, 100.0], "plausible_basis": "project-defined pen range",
+      "sentinels": [0.0], "sentinels_basis": "app treats humidity <= 0 as no reading (Dashboard_Screen.dart)",
+      "stuck": {"min_duration_s": 3600, "min_count": 6, "decimals": 1}
+    },
+    "amg_summary_c": {
+      "impossible": [-20.0, 100.0], "impossible_basis": "project-defined margin around AMG8833 datasheet object range 0..80 degC",
+      "plausible": [10.0, 50.0],    "plausible_basis": "project-defined pen surface range",
+      "sentinels": [0.0], "sentinels_basis": "app treats values <= 0 as no reading",
+      "stuck": {"min_duration_s": 1800, "min_count": 6, "decimals": 2}
+    },
+    "amg_pixels_c": {
+      "impossible": [-20.0, 100.0], "impossible_basis": "same as amg_summary_c, applied per pixel",
+      "plausible": [0.0, 80.0],     "plausible_basis": "AMG8833 datasheet object range",
+      "length": 64,
+      "stuck": {"min_duration_s": 300, "min_count": 5, "decimals": 2}
+    },
+    "amg_thermistor_c": {
+      "impossible": [-20.0, 100.0], "impossible_basis": "project-defined",
+      "plausible": [0.0, 60.0],     "plausible_basis": "project-defined board temperature range",
+      "sentinels": [],
+      "stuck": {"min_duration_s": 3600, "min_count": 6, "decimals": 2}
+    },
+    "water_level_pct": {
+      "impossible": [0.0, 100.0], "impossible_basis": "percentage",
+      "plausible": [0.0, 100.0],
+      "sentinels": [],
+      "stuck": null, "stuck_basis": "a constant tank level is normal"
+    },
+    "water_distance_cm": {
+      "impossible": [0.0, 500.0], "impossible_basis": "HC-SR04 datasheet range 2..400 cm, with margin",
+      "plausible": [2.0, 400.0],  "plausible_basis": "HC-SR04 datasheet range",
+      "sentinels": [0.0],
+      "stuck": null
+    },
+    "sprinkler_active_s": {
+      "impossible": [0.0, 86400.0], "impossible_basis": "cannot be negative or longer than a day",
+      "plausible": [0.0, 3600.0],   "plausible_basis": "project-defined: one activation longer than 60 min is unusual",
+      "sentinels": [],
+      "stuck": null
+    }
+  },
+  "severity": {
+    "missing_timestamp": "bad",
+    "stale_timestamp": "bad",
+    "duplicate": "bad",
+    "impossible": "bad",
+    "invalid_frame": "bad",
+    "sensor_offline": "warn",
+    "out_of_range": "warn",
+    "sentinel": "warn",
+    "stuck": "warn",
+    "after_offline": "warn",
+    "late_arrival": "info",
+    "missed_readings": "info",
+    "missing": "info",
+    "timestamp_not_firestore_type": "info",
+    "unknown_source": "warn"
+  }
+}
