@@ -1991,9 +1991,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       children: List.generate(kTimeRanges.length, (index) {
         final isSelected = _selectedTimeRange == index;
         final isCustom = index == 3;
+        // Only Today is enabled; This Month, This Week, and Custom are disabled.
+        final isDisabled = index != 2;
         return Expanded(
           child: GestureDetector(
-            onTap: () async {
+            onTap: isDisabled ? null : () async {
               // Clear stale stats immediately on tap so the Temperature
               // Review never shows values from the previous range while
               // the new range's data is loading.
@@ -2035,6 +2037,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                       ]
                     : [],
               ),
+              foregroundDecoration: isDisabled
+                  ? BoxDecoration(
+                      color: _cardBg(isDark).withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(20),
+                    )
+                  : null,
               alignment: Alignment.center,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
