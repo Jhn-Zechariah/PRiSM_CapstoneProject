@@ -1,0 +1,130 @@
+rules_version = '2';
+
+// PRISM Firestore rules: PROPOSED, NOT WIRED INTO firebase.json.
+// Derived from the app's actual reads/writes (see docs/FIRESTORE_RULES_REVIEW.md).
+// Before deploying:
+//   1. Export the currently deployed rules from the Firebase console and compare.
+//   2. Confirm how the ESP32 signs in and adjust isDevice() (see the review doc).
+//      Deploying with a wrong isDevice() STOPS SENSOR LOGGING.
+//   3. Run tests_firestore_rules/run.mjs against the emulator.
+// Cloud Functions and the Python pipeline use the Admin SDK and are not affected.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function isAdmin() { return signedIn() && request.auth.token.get('role', '') == 'admin'; }
+    // ESP32 identity. Placeholder: a Firebase account carrying the custom claim device=true.
+    function isDevice() { return signedIn() && request.auth.token.get('device', false) == true; }
+    function ownsNew() { return signedIn() && request.resource.data.userId == uid(); }
+    function ownsExisting() { return signedIn() && resource.data.userId == uid(); }
+    function ownsPig(pigId) {
+      return signedIn() && get(/databases/$(database)/documents/pigs/$(pigId)).data.userId == uid();
+    }
+    // getAfter(): the parent may be created in the same transaction (firestore_pig_repo.dart addPig)
+    function ownsPigAfter(pigId) {
+      return signedIn() && getAfter(/databases/$(database)/documents/pigs/$(pigId)).data.userId == uid();
+    }
+    function ownsMedicine(medId) {
+      return signedIn() && get(/databases/$(database)/documents/medicines/$(medId)).data.userId == uid();
+    }
+    function ownsMedicineAfter(medId) {
+      return signedIn() && getAfter(/databases/$(database)/documents/medicines/$(medId)).data.userId == uid();
+    }
+    // Limits which keys a write CHANGES (merge-safe: other fields already in the doc are untouched).
+    function changesOnly(keys) {
+      return resource == null
+        ? request.resource.data.keys().hasOnly(keys)
+        : request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // ---------------- users (the app calls this collection "admins"; it holds EVERY user)
+    match /admins/{userId} {
+      allow read, create, update: if signedIn() && userId == uid();
+      allow delete: if false;
+    }
+    match /counters/{userId} {
+      allow read, write: if signedIn() && userId == uid();
+    }
+
+    // ---------------- manual farm records (owner only)
+    match /pigs/{pigId} {
+      allow read, update, delete: if ownsExisting();
+      allow create: if ownsNew();
+      match /weight_history/{id}   { allow read: if ownsPig(pigId); allow write: if ownsPigAfter(pigId); }
+      match /feeding_records/{id}  { allow read: if ownsPig(pigId); allow write: if ownsPigAfter(pigId); }
+      match /medicine_intakes/{id} { allow read: if ownsPig(pigId); allow write: if ownsPigAfter(pigId); }
+    }
+    // collection-group queries used by the app always filter on userId
+    match /{path=**}/feeding_records/{id}  { allow read: if ownsExisting(); }
+    match /{path=**}/medicine_intakes/{id} { allow read: if ownsExisting(); }
+
+    match /medicines/{medId} {
+      allow read, update, delete: if ownsExisting();
+      allow create: if ownsNew();
+      match /medicine_stock/{id} { allow read: if ownsMedicine(medId); allow write: if ownsMedicineAfter(medId); }
+    }
+
+    // ---------------- raw sensor observations: device writes once, nobody edits
+    match /sensor_readings_seconds/{id} {
+      allow read: if signedIn();
+      allow create: if isDevice();
+      allow update, delete: if false;
+    }
+    match /sensor_readings_hourly/{id} {
+      allow read: if signedIn();
+      allow create, update: if isDevice();      // hourly aggregate may be finalised by the device
+      allow delete: if false;
+    }
+    match /sprinkler_logs/{id} {
+      allow read: if signedIn();
+      allow create: if isDevice();
+      allow update, delete: if false;
+    }
+    match /live_sensor/{doc} {
+      allow read: if signedIn();
+      allow write: if isDevice();
+    }
+    // legacy hourly collections read by lib/core/services/farm_data_service.dart
+    match /temperature_hourly/{id} { allow read: if signedIn(); allow write: if isDevice(); }
+    match /humidity_hourly/{id}    { allow read: if signedIn(); allow write: if isDevice(); }
+
+    // ---------------- sprinkler control: behaviour unchanged, payloads limited to what the app sends
+    match /sprinkler_command/{doc} {
+      allow read: if signedIn();
+      allow write: if (signedIn() && changesOnly(['state']) && request.resource.data.state in ['on', 'off'])
+                   || isDevice();
+    }
+    match /sprinkler_settings/{doc} {
+      allow read: if signedIn() || isDevice();
+      allow write: if signedIn()
+        && changesOnly(['isIotEnabled', 'isSprinklerAuto', 'schedule', 'durationMins']);
+    }
+    match /sprinkler_state/{doc} {
+      allow read: if signedIn();
+      allow write: if signedIn() || isDevice();
+    }
+    match /sensor_memory/{doc} {
+      allow read, write: if signedIn();
+    }
+
+    // ---------------- derived results (never raw data)
+    match /assessment_results/{id} {
+      allow read: if ownsExisting();
+      allow create: if ownsNew()
+        && request.resource.data.origin == 'api'
+        && request.resource.data.method in ['rule', 'statistical', 'rule+ML']
+        && request.resource.data.keys().hasAll(['component', 'method', 'modelVersion', 'inputSummary',
+                                                 'assessedAt', 'rawRef', 'userId']);
+      allow update, delete: if false;           // results are append-only
+    }
+    match /sensor_corrections/{id} {
+      allow read: if signedIn();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // everything else: denied
+  }
+}

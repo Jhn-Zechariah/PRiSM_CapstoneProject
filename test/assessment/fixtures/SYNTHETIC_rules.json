@@ -1,0 +1,85 @@
+{
+  "config_version": "assessment-1.0.0/labels-1.1.0+91c2c7e0",
+  "thi": {
+    "formula": "(1.8*T + 32) - (0.55 - 0.0055*RH) * (1.8*T - 26)",
+    "formula_status": "placeholder_pending_confirmation",
+    "band_keys": [
+      "comfort",
+      "watch",
+      "heat_risk"
+    ],
+    "default_category": "Grower",
+    "categories": {
+      "Piglet": {
+        "thresholds": null,
+        "hysteresis": null
+      },
+      "Nursery": {
+        "thresholds": null,
+        "hysteresis": null
+      },
+      "Grower": {
+        "thresholds": [
+          74.0,
+          79.0
+        ],
+        "hysteresis": 1.0
+      },
+      "Finisher": {
+        "thresholds": null,
+        "hysteresis": null
+      },
+      "Mature": {
+        "thresholds": null,
+        "hysteresis": null
+      }
+    }
+  },
+  "impossible": {
+    "dht_temp_c": [
+      -40.0,
+      80.0
+    ],
+    "dht_humidity_pct": [
+      0.0,
+      100.0
+    ]
+  },
+  "labels": {
+    "status": {
+      "comfort": "Comfort",
+      "watch": "Watch",
+      "heat_risk": "Heat risk",
+      "insufficient_data": "Insufficient data",
+      "insufficient_baseline": "Insufficient baseline",
+      "not_configured": "Not configured",
+      "unavailable": "Unavailable",
+      "flags_raised": "Check growth",
+      "no_flags": "No growth flags",
+      "unusual": "Unusual thermal reading",
+      "typical": "Typical for current conditions"
+    },
+    "recommendations": {
+      "comfort": [
+        "Conditions are in the comfort band. Continue regular monitoring."
+      ],
+      "watch": [
+        "THI is in the watch band. Check ventilation, shade and drinking water."
+      ],
+      "heat_risk": [
+        "THI is in the heat-risk band. Check the pigs, ventilation, shade and water, and follow your farm's cooling routine."
+      ],
+      "not_configured": [
+        "THI bands are not configured yet; ask the farm administrator to set them."
+      ],
+      "insufficient_data": [
+        "Not enough sensor data for an assessment. Check that the sensor is online."
+      ],
+      "unavailable": [
+        "The latest reading failed data-quality checks. Check the sensor before relying on it."
+      ]
+    },
+    "disclaimer": "Advisory decision support only. This is not a veterinary diagnosis."
+  },
+  "_synthetic": "SYNTHETIC test fixture generated from the real API code; not real data"
+}

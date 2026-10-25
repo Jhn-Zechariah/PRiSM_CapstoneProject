@@ -1,0 +1,37 @@
+{
+  "_comment": "User-facing wording for the assessment components. Advisory decision support, not veterinary diagnosis.",
+  "version": "1.1.0",
+  "disclaimer": "Advisory decision support only. This is not a veterinary diagnosis.",
+  "status": {
+    "comfort": "Comfort",
+    "watch": "Watch",
+    "heat_risk": "Heat risk",
+    "insufficient_data": "Insufficient data",
+    "insufficient_baseline": "Insufficient baseline",
+    "not_configured": "Not configured",
+    "unavailable": "Unavailable",
+    "flags_raised": "Check growth",
+    "no_flags": "No growth flags",
+    "unusual": "Unusual thermal reading",
+    "typical": "Typical for current conditions"
+  },
+  "flags": {
+    "weight_loss": "Weight dropped between the last two weigh-ins.",
+    "stalled_gain": "Daily gain has stayed at or below the configured minimum for the configured number of weigh-ins.",
+    "relative_drop": "Latest daily gain is well below this pig's own earlier average."
+  },
+  "pen_thermal_message": "unusual thermal reading in this pen; check the pigs",
+  "pen_comparison_note": "Comparison with the pen median only; not a verdict on the pig.",
+  "benchmark_label": "Commercial benchmark for optimized PIC-sired pigs (PIC Wean to Finish Guidelines 2019). Context only; not a standard for this farm.",
+  "no_reference": "no reference available",
+  "forecast_note": "Point forecast of the measured value. It is not a probability of heat stress or disease.",
+  "recommendations": {
+    "comfort": ["Conditions are in the comfort band. Continue regular monitoring."],
+    "watch": ["THI is in the watch band. Check ventilation, shade and drinking water."],
+    "heat_risk": ["THI is in the heat-risk band. Check the pigs, ventilation, shade and water, and follow your farm's cooling routine."],
+    "not_configured": ["THI bands are not configured yet; ask the farm administrator to set them."],
+    "insufficient_data": ["Not enough sensor data for an assessment. Check that the sensor is online."],
+    "unavailable": ["The latest reading failed data-quality checks. Check the sensor before relying on it."]
+  },
+  "compat_pig_insight": "Growth checks now use this pig's own weight history. Open Weight History to see its daily gain and any flags."
+}

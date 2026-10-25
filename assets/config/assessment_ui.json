@@ -1,0 +1,87 @@
+{
+  "_comment": "Wording for the assessment screens. Advisory decision support only: never use diagnostic words. Status labels, reasons and recommendations themselves come from the API (prism-ml2.0/config/labels.json).",
+  "version": "1.0.0",
+  "refresh_seconds": 60,
+  "role": {
+    "admin_claim": "role",
+    "admin_value": "admin",
+    "_comment": "Only hides admin screens in the UI. The API checks the role on every request."
+  },
+  "sections": {
+    "screen_title": "Assessments",
+    "live": "Live sensor readings",
+    "environment": "Pen environment (THI)",
+    "forecast": "Forecast",
+    "thermal": "Pen thermal check",
+    "growth": "Growth trend",
+    "manual_data": "Pig profile data",
+    "model_info": "Forecast model (admin)"
+  },
+  "fields": {
+    "method": "Method",
+    "model_version": "Model version",
+    "no_model": "none (rule-based only)",
+    "assessed_at": "Assessed",
+    "observed_at": "Reading time",
+    "reasons": "Why",
+    "warnings": "Data notes",
+    "inputs": "Inputs used",
+    "source": "Source",
+    "source_sensor": "Sensor",
+    "source_manual": "Manual entry",
+    "status": "Status",
+    "dataset": "Dataset version",
+    "metrics": "Test error (MAE)",
+    "load_error": "Load problem"
+  },
+  "methods": {
+    "rule": "Rule-based",
+    "statistical": "Statistical check",
+    "rule+ML": "Rule-based + ML forecast",
+    "ML": "ML forecast"
+  },
+  "data_quality": {
+    "ok": "Data OK",
+    "warning": "Check the data notes",
+    "stale": "Reading is out of date",
+    "offline": "Sensor offline",
+    "invalid": "Reading failed data checks",
+    "insufficient": "Not enough data"
+  },
+  "states": {
+    "loading": "Checking…",
+    "api_unavailable": "Assessment service unavailable. Live sensor readings are still shown.",
+    "local_fallback": "Computed on this phone from the last saved rules because the assessment service is unavailable.",
+    "no_local_rules": "No saved rules on this phone yet. Connect once to download them.",
+    "no_reading": "Waiting for a sensor reading.",
+    "forecast_none": "No forecast: no approved model is active, or the data is not good enough.",
+    "admin_required": "Admin access required. Model information is restricted.",
+    "rejected_input": "The reading was rejected by the assessment service's range checks.",
+    "phone_time": "Device clock not synced; the phone's receive time was used."
+  },
+  "live": {
+    "air_temp": "Pen air temperature (DHT22)",
+    "humidity": "Humidity (DHT22)",
+    "pen_surface": "Pen surface temperature (thermal camera, whole pen)",
+    "unit_c": "°C",
+    "unit_pct": "%"
+  },
+  "pig": {
+    "age": "Age",
+    "days": "days",
+    "latest_weight": "Latest weight",
+    "weighins": "Weigh-ins"
+  },
+  "card": {
+    "title": "Growth trend",
+    "analyzing": "Checking growth…",
+    "adg_latest": "Latest daily gain",
+    "adg_rolling": "recent average",
+    "unit_g_day": "g/day",
+    "unavailable": "Growth check unavailable: cannot reach the assessment service.",
+    "auth_rejected": "Growth check unavailable: the assessment service did not accept the sign-in. Sign out and in again, or check the server's Firebase settings.",
+    "rejected_input": "Growth check unavailable: the weight records were rejected by the service's checks.",
+    "service_error": "Growth check unavailable: the assessment service reported an error.",
+    "weights_unavailable": "Growth check unavailable: this pig's weight records could not be read."
+  }
+}

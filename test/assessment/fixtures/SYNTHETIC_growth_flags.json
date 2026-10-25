@@ -1,0 +1,120 @@
+{
+  "output": {
+    "component": "growth_trend",
+    "status": "flags_raised",
+    "status_label": "Check growth",
+    "details": {
+      "pig_id": "SYN",
+      "pen_id": null,
+      "intervals": [
+        {
+          "from": "2026-07-01",
+          "to": "2026-07-08",
+          "days": 7.0,
+          "gain_kg": 3.5,
+          "adg_g_per_day": 500.0
+        },
+        {
+          "from": "2026-07-08",
+          "to": "2026-07-15",
+          "days": 7.0,
+          "gain_kg": 3.5,
+          "adg_g_per_day": 500.0
+        },
+        {
+          "from": "2026-07-15",
+          "to": "2026-07-22",
+          "days": 7.0,
+          "gain_kg": -1.0,
+          "adg_g_per_day": -142.9
+        }
+      ],
+      "rolling_adg_g_per_day": 178.6,
+      "latest_adg_g_per_day": -142.9,
+      "flags": [
+        {
+          "flag": "weight_loss",
+          "message": "Weight dropped between the last two weigh-ins."
+        },
+        {
+          "flag": "relative_drop",
+          "message": "Latest daily gain is well below this pig's own earlier average."
+        }
+      ],
+      "rolling_window_intervals": 2,
+      "age_days_at_latest_weighin": 51,
+      "benchmark": {
+        "shown": false,
+        "message": "no reference available",
+        "reason": "benchmark file not present"
+      }
+    }
+  },
+  "method": "rule",
+  "reasons": [
+    "Weight fell 1.00 kg between 2026-07-15 and 2026-07-22 (rule: loss >= 0.5 kg).",
+    "Latest ADG -143 g/day is more than 30% below this pig's earlier average 500 g/day."
+  ],
+  "inputs_summary": [
+    {
+      "name": "birth_date",
+      "value": "2026-06-01",
+      "unit": null,
+      "source": "manual",
+      "observed_at": null
+    },
+    {
+      "name": "sex",
+      "value": null,
+      "unit": null,
+      "source": "manual",
+      "observed_at": null
+    },
+    {
+      "name": "breed",
+      "value": null,
+      "unit": null,
+      "source": "manual",
+      "observed_at": null
+    },
+    {
+      "name": "weight_kg",
+      "value": 10.0,
+      "unit": "kg",
+      "source": "manual",
+      "observed_at": "2026-07-01T00:00:00+00:00"
+    },
+    {
+      "name": "weight_kg",
+      "value": 13.5,
+      "unit": "kg",
+      "source": "manual",
+      "observed_at": "2026-07-08T00:00:00+00:00"
+    },
+    {
+      "name": "weight_kg",
+      "value": 17.0,
+      "unit": "kg",
+      "source": "manual",
+      "observed_at": "2026-07-15T00:00:00+00:00"
+    },
+    {
+      "name": "weight_kg",
+      "value": 16.0,
+      "unit": "kg",
+      "source": "manual",
+      "observed_at": "2026-07-22T00:00:00+00:00"
+    }
+  ],
+  "data_quality_status": "ok",
+  "data_quality_warnings": [],
+  "config_warnings": [],
+  "config_version": "assessment-1.0.0/labels-1.1.0+91c2c7e0",
+  "model_version": null,
+  "forecast": null,
+  "timestamp": "2026-10-19T06:00:00Z",
+  "reference_type": null,
+  "advisory": true,
+  "disclaimer": "Advisory decision support only. This is not a veterinary diagnosis.",
+  "_synthetic": "SYNTHETIC test fixture generated from the real API code; not real data"
+}

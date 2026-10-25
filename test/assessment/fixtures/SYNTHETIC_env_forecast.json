@@ -1,0 +1,68 @@
+{
+  "output": {
+    "component": "thi_band",
+    "status": "heat_risk",
+    "status_label": "Heat risk",
+    "details": {
+      "category": "Grower",
+      "thi": 82.92,
+      "formula": "(1.8*T + 32) - (0.55 - 0.0055*RH) * (1.8*T - 26)",
+      "thresholds": [
+        74.0,
+        79.0
+      ],
+      "hysteresis": 1.0,
+      "previous_band": null,
+      "raw_band": "heat_risk",
+      "held_by_hysteresis": false
+    }
+  },
+  "method": "rule+ML",
+  "reasons": [
+    "THI 82.9 is at or above 79.0."
+  ],
+  "inputs_summary": [
+    {
+      "name": "dht_temp_c",
+      "value": 30.0,
+      "unit": "degC",
+      "source": "sensor",
+      "observed_at": "2026-10-19T05:59:50+00:00"
+    },
+    {
+      "name": "dht_humidity_pct",
+      "value": 80.0,
+      "unit": "%RH",
+      "source": "sensor",
+      "observed_at": "2026-10-19T05:59:50+00:00"
+    },
+    {
+      "name": "pig_category",
+      "value": "Grower",
+      "unit": null,
+      "source": "manual",
+      "observed_at": null
+    }
+  ],
+  "data_quality_status": "ok",
+  "data_quality_warnings": [],
+  "config_warnings": [
+    "THI formula is a placeholder pending confirmation: (1.8*T + 32) - (0.55 - 0.0055*RH) * (1.8*T - 26)"
+  ],
+  "config_version": "assessment-1.0.0/labels-1.1.0+91c2c7e0",
+  "model_version": "SYN-v1",
+  "forecast": {
+    "target": "thi",
+    "horizon_minutes": 30,
+    "value": 84.42,
+    "projected_band": "heat_risk",
+    "method": "ML",
+    "model_version": "SYN-v1",
+    "note": "Point forecast of the measured value. It is not a probability of heat stress or disease."
+  },
+  "timestamp": "2026-10-19T06:00:00Z",
+  "reference_type": null,
+  "advisory": true,
+  "disclaimer": "Advisory decision support only. This is not a veterinary diagnosis.",
+  "_synthetic": "SYNTHETIC test fixture generated from the real API code; not real data"
+}

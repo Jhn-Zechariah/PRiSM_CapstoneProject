@@ -1,0 +1,7 @@
+age_days,expected_kg,use,synthetic
+21,6.0,context_only,true
+49,15.0,context_only,true
+77,35.0,context_only,true
+196,140.0,context_only,true
+100,999.0,standard,true
+60,1.0,,true

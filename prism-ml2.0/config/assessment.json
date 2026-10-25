@@ -1,0 +1,69 @@
+{
+  "_comment": "Rule-based and statistical assessment settings (B1 THI band, A1 growth trend, A2 pen thermal flag). These are NOT trained models. null = not supplied yet: the component returns status not_configured instead of guessing. Wording lives in labels.json. PROPOSED VALUES (2026-10-19): THI formula and Grower/Finisher thresholds are sourced; growth values are starting defaults and design choices, not published standards. All need team and adviser approval.",
+  "version": "1.0.0",
+
+  "thi": {
+    "formula": {
+      "expression": "(1.8*T + 32) - (0.55 - 0.0055*RH) * (1.8*T - 26)",
+      "variables": {"T": "DHT22 air temperature, degC", "RH": "DHT22 relative humidity, %"},
+      "status": "confirmed_against_source",
+      "source": "Vermeer & Aarnink (2023), EURCAW-Pigs review on heat stress in pigs on farm, section 4.1, https://doi.org/10.5281/zenodo.7620726. The same relation reproduces the THI values in PIC Wean to Finish Guidelines 2019, Figure 8.1 (all but 2 of 410 table cells within 0.75 THI; the 2 outliers within 0.85, consistent with rounding)."
+    },
+    "band_keys": ["comfort", "watch", "heat_risk"],
+    "_categories_comment": "Category names reuse the stage names from lib/features/pig_management/domain/model/app_pig.dart. thresholds = ascending list with len(band_keys)-1 values: THI >= thresholds[i] enters band i+1. hysteresis = how far THI must fall below a threshold before the band drops (rises are immediate). Grower and Finisher use the Livestock Weather Safety Index boundaries in PIC 2019 Fig. 8.1 (Alert from 75, Danger from 79; Emergency from 84 is not a separate band here). Piglet, Nursery and Mature are left null because no category-specific source was found and these thresholds would misclassify them.",
+    "default_category": "Grower",
+    "categories": {
+      "Piglet":   {"thresholds": null, "hysteresis": null},
+      "Nursery":  {"thresholds": null, "hysteresis": null},
+      "Grower":   {"thresholds": [75, 79], "hysteresis": 1.0},
+      "Finisher": {"thresholds": [75, 79], "hysteresis": 1.0},
+      "Mature":   {"thresholds": null, "hysteresis": null}
+    }
+  },
+
+  "growth": {
+    "min_weighins": 2,
+    "min_interval_days": 7,
+    "rolling_window_intervals": 3,
+    "weight_loss_min_kg": 1.0,
+    "stall_adg_max_g_per_day": 100,
+    "stall_consecutive_intervals": 2,
+    "relative_drop_pct": 30,
+    "relative_drop_min_prior_intervals": 2,
+    "accepted_sources": ["manual"],
+    "exclude_records_with_notes": ["Birth weight"],
+    "exclude_records_with_notes_basis": "firestore_pig_repo.dart addPig() writes a hard-coded 1.4 kg 'Birth weight' entry for every pig (REPO_AUDIT.md G8); it is not a measurement. Empty this list once that is fixed.",
+    "pen_comparison_min_pigs": 2,
+    "pen_comparison_min_pigs_basis": "structural: a median comparison needs at least two pigs",
+    "benchmark": {
+      "path": "config/pic_2019_commercial_benchmark.csv",
+      "required_use": "context_only",
+      "columns": {"age_days": "age_days", "weight_kg": "expected_kg", "use": "use"},
+      "_comment": "Optional file, not in the repo. Display-only; never used by any flag or status. The supplied CSV names its weight column expected_kg, so weight_kg maps to expected_kg here."
+    }
+  },
+
+  "pen_thermal": {
+    "status": "default_pending_review",
+    "summary_field": "amg_summary_c",
+    "ambient_field": "dht_temp_c",
+    "bin_width_c": 2.0,
+    "bin_origin_c": 0.0,
+    "window_days": 14,
+    "min_baseline_samples": 30,
+    "robust_z_threshold": 3.5,
+    "mad_scale": 1.4826,
+    "mad_floor_c": 0.25,
+    "flag_direction": "both",
+    "time_of_day_block_hours": null,
+    "basis": {
+      "robust_z_threshold": "Iglewicz & Hoaglin (1993) modified z-score cut-off 3.5",
+      "mad_scale": "1.4826 makes MAD a consistent estimator of the standard deviation for normal data",
+      "mad_floor_c": "AMG8833 output resolution 0.25 degC; stops a zero MAD giving infinite z",
+      "bin_width_c": "project default, pending review",
+      "window_days": "project default, pending review",
+      "min_baseline_samples": "project default, pending review",
+      "time_of_day_block_hours": "null = do not condition on time of day; e.g. 6 = four blocks per day"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Data pipeline (pipeline/export.py --firestore, pipeline/corrections.py).
+# Not needed by the API service. Version taken from the repo-root requirements.txt.
+-r requirements.txt
+# Optional, only for --format parquet:
+# pyarrow

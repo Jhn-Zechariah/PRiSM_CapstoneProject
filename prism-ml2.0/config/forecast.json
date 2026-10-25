@@ -1,0 +1,96 @@
+{
+  "_comment": "B2 offline forecasting experiment. Every setting here must be fixed BEFORE results are seen. Values marked default_pending_review were proposed by the developer and need team sign-off; the acceptance rule is deliberately null until the team sets it.",
+  "version": "1.0.0",
+  "status": "default_pending_review",
+  "seed": 42,
+  "seed_basis": "same seed as the existing ml/train.py",
+
+  "target": "thi",
+  "target_options": ["thi", "dht_temp_c"],
+  "predict": "delta",
+  "predict_basis": "models predict change from the current value (delta); level = current + delta. Trees cannot extrapolate levels.",
+  "timezone": "Asia/Manila",
+  "timezone_basis": "same zone as the scheduled Cloud Functions in functions/index.js",
+  "resample_minutes": 5,
+  "horizons_minutes": [30, 60, 120],
+
+  "usable_records": {
+    "require_time_basis": "device",
+    "exclude_duplicates": true,
+    "usable_channel_state": "normal",
+    "fault_channel_states": ["flagged", "sensor_offline"]
+  },
+
+  "features": {
+    "variables": ["dht_temp_c", "dht_humidity_pct", "thi"],
+    "lags_minutes": [5, 10, 15, 30, 60],
+    "rate_of_change_minutes": [15, 60],
+    "rolling_windows_minutes": [30, 60, 180],
+    "rolling_stats": ["mean", "std", "min", "max"],
+    "time_of_day": true,
+    "misting": true,
+    "misting_window_minutes": 60
+  },
+
+  "sufficiency": {
+    "min_day_coverage_pct": 50,
+    "_comment": "A day counts as independent when at least this % of its 5-min bins have a usable target. Required days are derived from the split settings below."
+  },
+
+  "splits": {
+    "min_train_days": 14,
+    "n_folds": 3,
+    "val_days": 3,
+    "test_days": 7,
+    "min_gap_minutes": 0,
+    "_comment": "Gap between train and validation/test = max(horizon, min_gap_minutes). The final test period is the last test_days local calendar days and is used once."
+  },
+
+  "models": {
+    "baselines": ["persistence", "same_time_yesterday", "ridge"],
+    "candidates": ["decision_tree", "random_forest", "gradient_boosting"],
+    "grids": {
+      "ridge":             {"alpha": [0.1, 1.0, 10.0, 100.0]},
+      "decision_tree":     {"max_depth": [3, 5, 8], "min_samples_leaf": [20, 50]},
+      "random_forest":     {"n_estimators": [100], "max_depth": [8, 16], "min_samples_leaf": [10]},
+      "gradient_boosting": {"learning_rate": [0.05, 0.1], "max_depth": [3, 6], "max_iter": [200]}
+    },
+    "tuning_metric": "mae"
+  },
+
+  "alert": {
+    "applies_to_target": "thi",
+    "threshold_from": "config/assessment.json thi.categories[category].thresholds for band_key",
+    "category": "Grower",
+    "band_key": "watch"
+  },
+
+  "hottest_hours": {"k": 4, "_comment": "the k local hours with the highest mean target in the TRAINING data"},
+
+  "error_analysis": {
+    "hour_bucket_hours": 4,
+    "condition_quantiles": [0.3333, 0.6667],
+    "fault_lookback_minutes": 60
+  },
+
+  "bootstrap": {"n_resamples": 1000, "ci_pct": 95, "block": "local_calendar_day"},
+
+  "retrain": {
+    "schedule": null,
+    "_comment": "null = retrain only on an admin request. To schedule, have an external scheduler (cron, Railway cron, Cloud Scheduler) run `python -m forecast.retrain run --latest`. A run never deploys a model."
+  },
+
+  "acceptance_rule": null,
+  "acceptance_rule_template": {
+    "_comment": "Copy to acceptance_rule and fill in BEFORE running on real data. null fields are not checked.",
+    "set_by": "<team member>",
+    "set_on": "<YYYY-MM-DD>",
+    "horizon_minutes": "<one of horizons_minutes>",
+    "metric": "<mae | rmse>",
+    "compare_to": "<best_baseline | persistence | same_time_yesterday | ridge>",
+    "min_improvement_pct": null,
+    "require_ci_excludes_zero": null,
+    "min_alert_recall": null,
+    "max_alerts_per_day": null
+  }
+}

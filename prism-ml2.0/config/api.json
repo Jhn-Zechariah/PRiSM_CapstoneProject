@@ -1,0 +1,43 @@
+{
+  "_comment": "FastAPI serving settings. Input bounds for sensor values come from config/validation.json (impossible ranges); thresholds and wording come from config/assessment.json and labels.json.",
+  "version": "1.0.0",
+  "auth": {
+    "provider": "firebase",
+    "admin_claim": "role",
+    "admin_value": "admin",
+    "admin_basis": "Firebase custom claim set with the Admin SDK (app/admin_claims.py). The Firestore 'admins' collection holds EVERY app user, so it cannot be used as the admin role.",
+    "clock_skew_seconds": 10,
+    "clock_skew_basis": "same allowance as the previous API (prism-ml/prism_api.py verify_id_token(..., clock_skew_seconds=10)); this PC's clock measured 3 s behind Google on 2026-10-19, which makes freshly issued tokens fail as 'used too early' without it. Firebase allows at most 60."
+  },
+  "limits": {
+    "max_request_bytes": 1048576,
+    "max_readings": 500,
+    "max_pen_history": 5000,
+    "max_weighins": 500,
+    "max_quality_flags": 50,
+    "max_text_len": 120,
+    "max_weight_kg": 400,
+    "max_weight_basis": "same upper bound as the existing PigGrowthIn schema in app/main.py"
+  },
+  "freshness": {
+    "max_reading_age_s": 30,
+    "max_reading_age_basis": "same limit the app uses to trust a one-shot Firestore read (Dashboard_Screen.dart _oneShotGetFreshnessLimitSeconds)",
+    "max_future_s_from": "config/validation.json timestamp.max_future_s"
+  },
+  "forecast": {
+    "min_history_coverage_pct": 80,
+    "min_history_coverage_basis": "project default, pending review: share of the model's look-back bins that must hold a usable reading before a forecast is returned"
+  },
+  "registry": {
+    "path": "models/registry",
+    "pointer_file": "ACTIVE.json",
+    "servable_status": "approved",
+    "allow_synthetic_models": false,
+    "lock_stale_after_s": 21600,
+    "lock_stale_basis": "project default: a lock older than 6 h is assumed to belong to a crashed job"
+  },
+  "retrain": {
+    "exports_dir": "exports",
+    "_comment": "POST /admin/retrain reads exports/<dataset_version>/ written by python -m pipeline.export"
+  }
+}
