@@ -287,7 +287,7 @@ exports.dailyIntakeScheduleCheck = onSchedule({
 
 /**
  * Real-time trigger on live_sensor/latest. Fires whenever the ESP32 pushes
- * a new live reading. Compares tempAvg/humidity against each admin's saved
+ * a new live reading. Compares pigBodyTemp/ambientHumidity against each admin's saved
  * IoT thresholds (admins/{uid}.iotThresholds) and sends a push if a metric
  * is at or above its configured max.
  *
@@ -305,15 +305,23 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         const after = event.data?.after?.data();
         if (!after) return; // doc deleted, nothing to check
 
-        const tempAvg = parseFloat(after.tempAvg);
-        const humidity = parseFloat(after.humidity);
+        // Field names as written by the ESP32 firmware. A reading flagged
+        // invalid (sensor read failed) is treated as missing.
+        const tempAvg = after.pigBodyTempValid === false ? NaN : parseFloat(after.pigBodyTemp);
+        const humidity = after.ambientHumidityValid === false ? NaN : parseFloat(after.ambientHumidity);
 
         const hasTemp = !Number.isNaN(tempAvg);
         const hasHumidity = !Number.isNaN(humidity);
         if (!hasTemp && !hasHumidity) return;
 
+        // This runs on every ESP32 push (~8,640/day), so only read admins
+        // who have IoT alerts on instead of the whole collection. The app
+        // always writes isIotEnabled together with the thresholds.
         const firestore = admin.firestore();
-        const adminsSnapshot = await firestore.collection("admins").get();
+        const adminsSnapshot = await firestore
+            .collection("admins")
+            .where("iotThresholds.isIotEnabled", "==", true)
+            .get();
 
         for (const adminDoc of adminsSnapshot.docs) {
             const userId = adminDoc.id;
