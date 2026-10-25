@@ -1,0 +1,2121 @@
+/*
+ * ============================================================================
+ *  PRISM - Pig Raising Intelligent Sprinkler & Monitoring
+ *  ESP32 firmware
+ * ============================================================================
+ *
+ *  WHAT IT DOES
+ *    - Reads pig skin temperature (AMG8833 thermal camera, 8x8 pixels)
+ *    - Reads air temperature + humidity (DHT22)
+ *    - Reads water tank level (HC-SR04 style ultrasonic sensor)
+ *    - Controls a sprinkler (solenoid valve + pump) through 2 relays
+ *    - Uploads everything to Firebase Firestore (cloud) every 10 seconds
+ *    - Also serves the live data on the local network (GET /sensor)
+ *      and accepts local sprinkler commands (POST /sprinkler)
+ *
+ *  WIRING SUMMARY
+ *    DHT22        -> GPIO 14
+ *    Ultrasonic   -> TRIG GPIO 5, ECHO GPIO 18
+ *    AMG8833      -> SDA GPIO 21, SCL GPIO 22 (I2C 0x69 or 0x68)
+ *    Relay 1 pump -> GPIO 25 (ACTIVE LOW)
+ *    Relay 2 valve-> GPIO 26 (ACTIVE LOW)
+ *    SD card      -> CS GPIO 4, SCK GPIO 27, MOSI GPIO 23, MISO GPIO 19
+ *
+ *  SERIAL MONITOR
+ *    Baud rate: 115200
+ *    Every line starts with a [TAG] so you can quickly filter it:
+ *      [BOOT] [WIFI] [NTP] [SENSOR] [STATUS] [WATER] [HISTORY] [PUSH]
+ *      [SPRINKLER] [SAFETY] [SCHEDULE] [SETTINGS] [CLOUD] [LOG] [LAN]
+ *      [HB] (heartbeat) [RECOVER] [PROBE] [SD]
+ * ============================================================================
+ */
+
+#include <Wire.h>
+#include <Adafruit_AMG88xx.h>
+#include <DHT.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <time.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <WebServer.h>
+#include <SPI.h>
+#include <SD.h>
+
+// ============================================================================
+// PIN DEFINITIONS
+// Relays are ACTIVE LOW:  LOW = relay ON,  HIGH = relay OFF
+// ============================================================================
+#define DHT_PIN 14
+#define DHT_TYPE DHT22
+
+// Ultrasonic sensor (kept off GPIO25/26 because the relays use those pins)
+#define TRIG_PIN 5
+#define ECHO_PIN 18
+
+// Relay outputs
+#define RELAY_SOLENOID 26  // IN2 -> GPIO26 (relay 2 = solenoid valve)
+#define RELAY_PUMP 25      // IN1 -> GPIO25 (relay 1 = pump)
+
+// SD card module (custom SPI pins, clear of the DHT22, ultrasonic, I2C and relays)
+#define SD_SCK  27
+#define SD_MISO 19
+#define SD_MOSI 23
+#define SD_CS   4
+
+// ============================================================================
+// SERIAL LOG HELPERS
+// Small helpers so the Serial Monitor output looks consistent.
+// ============================================================================
+
+// Prints a visible section header, e.g.  ===== PUSH TO FIREBASE =====
+void logSection(const char* title) {
+  Serial.println();
+  Serial.printf("===== %s =====\n", title);
+}
+
+// Converts a bool to text for log lines.
+const char* yesNo(bool v) {
+  return v ? "YES" : "NO";
+}
+
+// ============================================================================
+// NETWORK: HOME WIFI
+// ============================================================================
+const char* ssid = "YOTC-E26AE7-2.4G-ext";
+const char* password = "53857950";
+
+// Starts (or restarts) the WiFi connection.
+// Called at boot, and again when cloud uploads keep failing.
+void startWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);       // do not wear out flash by saving credentials
+  WiFi.setSleep(false);         // keep the radio awake for stable connection
+  WiFi.setAutoReconnect(true);  // reconnect automatically if the router drops
+
+  // Static IP is disabled for testing (DHCP assigns the address).
+  // WiFi.config(IPAddress(192, 168, 1, 8),
+  //             IPAddress(192, 168, 1, 1),
+  //             IPAddress(255, 255, 255, 0),
+  //             IPAddress(8, 8, 8, 8),
+  //             IPAddress(1, 1, 1, 1));
+
+  WiFi.begin(ssid, password);
+}
+
+// ============================================================================
+// FIREBASE SETTINGS
+// ============================================================================
+const char* FIREBASE_PROJECT_ID = "prism-3cd2c";
+const char* FIREBASE_API_KEY = "AIzaSyC5vjNWD5eHZOSD9-GdcW9yCJqqcg6e0Wo";
+
+// ============================================================================
+// AMG8833 THERMAL CAMERA (8x8 = 64 pixels)
+// ============================================================================
+Adafruit_AMG88xx amg;
+float amgPixels[AMG88xx_PIXEL_ARRAY_SIZE];  // raw frame straight from the sensor
+bool amgReady = false;                      // true when the sensor was found at boot
+
+// Provisional calibration: calibrated = raw * SLOPE + OFFSET
+const float AMG_CALIBRATION_SLOPE = 1.0f;
+const float AMG_CALIBRATION_OFFSET = -3.110f;
+
+// Latest full frame, used for the app heatmap (values are CALIBRATED,
+// same numbers as pigBodyTemp)
+float thermalPixels[AMG88xx_PIXEL_ARRAY_SIZE];
+bool thermalValid = false;                        // true only if all 64 pixels are good
+unsigned long lastThermalReadMs = 0;              // when the last frame was read
+const unsigned long THERMAL_REFRESH_MS = 1000UL;  // minimum gap between I2C frame reads
+
+// Reads all 64 pixels and applies the calibration to each one.
+// Bad pixels (NaN / out of range) are replaced with 0 so the JSON stays valid.
+// thermalValid becomes true only if every pixel was good.
+bool readThermalFrame() {
+  if (!amgReady) {
+    thermalValid = false;
+    return false;
+  }
+
+  amg.readPixels(amgPixels);
+
+  bool allGood = true;
+  for (int i = 0; i < AMG88xx_PIXEL_ARRAY_SIZE; i++) {
+    float v = amgPixels[i];
+    if (isnan(v) || v < -20.0 || v > 100.0) {
+      thermalPixels[i] = 0;
+      allGood = false;
+    } else {
+      thermalPixels[i] = v * AMG_CALIBRATION_SLOPE + AMG_CALIBRATION_OFFSET;
+    }
+  }
+
+  thermalValid = allGood;
+  lastThermalReadMs = millis();
+  return allGood;
+}
+
+// Returns the hottest-pixel pig skin temperature (deg C).
+// The pixels are already calibrated, so no offset is applied again here.
+// 'ok' is set to true only when the result is a believable value.
+float readAmgSurfaceTemp(bool& ok) {
+  ok = false;
+
+  if (!amgReady || !readThermalFrame()) {
+    return 0;
+  }
+
+  // Find the hottest pixel in the frame
+  float maxTemp = -1000.0f;
+  for (int i = 0; i < AMG88xx_PIXEL_ARRAY_SIZE; i++) {
+    if (thermalPixels[i] > maxTemp) {
+      maxTemp = thermalPixels[i];
+    }
+  }
+
+  // Reject nonsense values
+  if (!isfinite(maxTemp) || maxTemp <= 0.0f || maxTemp >= 80.0f) {
+    return 0;
+  }
+
+  Serial.printf("[SENSOR] AMG8833 calibrated max=%.2f C (offset %+.3f C applied)\n",
+                maxTemp, AMG_CALIBRATION_OFFSET);
+
+  ok = true;
+  return maxTemp;
+}
+
+// ============================================================================
+// DHT22 (AMBIENT TEMPERATURE + HUMIDITY)
+// ============================================================================
+DHT dht(DHT_PIN, DHT_TYPE);
+
+const float DHT_TEMP_CALIBRATION_OFFSET = -1.515f;  // added to raw temperature (C)
+const float DHT_HUM_CALIBRATION_OFFSET = 9.970f;    // added to raw humidity (%RH)
+
+// ============================================================================
+// LOW / NORMAL / HIGH BANDS
+// Same values as the PRISM app (sources in docs/SENSOR_THRESHOLDS.md)
+// ============================================================================
+
+// AMG8833 pig SKIN SURFACE temperature (deg C). Normal 32-35.
+//   Comfort skin temperature 32-35 C (Huynh, 2005, Wageningen Univ.;
+//   Huynh et al., 2005, J. Anim. Sci. 83:1385).
+//   36 C is reported as the heat-stress threshold (Vermeer & Aarnink, 2023).
+//   Note: this is NOT rectal temperature (rectal norm 38.7-39.8 C).
+#define PIG_SKIN_LOW_NORMAL 32.0
+#define PIG_SKIN_HIGH_NORMAL 35.0
+
+// DHT22 air temperature (deg C). Normal 15.6-23.9 (= 60-75 F).
+//   Grower pig comfort zone (Liu, 2025, Univ. of Guam Extension EXT-02-2025).
+//   PAES 401:2001 maximum for housed pigs is 30 C.
+#define PIG_AIR_LOW_NORMAL 15.6
+#define PIG_AIR_HIGH_NORMAL 23.9
+
+// DHT22 relative humidity (percent). Normal 50-70.
+//   (Fehr & Huhnke, 1984, MSU Extension Bulletin E-1760;
+//   Huynh et al., 2005, J. Anim. Sci. 83:1385).
+#define PIG_HUM_LOW_NORMAL 50.0
+#define PIG_HUM_HIGH_NORMAL 70.0
+
+// Returns "Low", "Normal" or "High" (Normal includes both limits),
+// or "--" when the reading is not valid.
+String rangeStatus(float value, bool valid, float lowNormal, float highNormal) {
+  if (!valid) return "--";
+  if (value < lowNormal) return "Low";
+  if (value > highNormal) return "High";
+  return "Normal";
+}
+
+// ============================================================================
+// WATER TANK SETTINGS (centimeters)
+// The ultrasonic distance is converted into a water percentage (waterPct)
+// and a status text (waterStatus) for the app.
+// ============================================================================
+#define TANK_HEIGHT_CM 76.0f      // sensor to tank bottom
+#define FULL_DIST_CM 3.0f         // sensor to water surface when the tank is full
+#define EMPTY_THRESHOLD_CM 1.0f   // within this of the bottom = empty
+
+const bool USE_ULTRASONIC_CALIBRATION = false;
+const float ULTRASONIC_OFFSET_CM = 1.597f;
+const float ULTRASONIC_MAX_DISTANCE_CM = 79.0f;
+const int ULTRASONIC_SAMPLES = 10;   // pings per reading
+const int ULTRASONIC_MIN_VALID = 8;  // good pings needed to trust a reading
+
+// ============================================================================
+// LATEST SENSOR VALUES (and whether each one is valid)
+// ============================================================================
+float lastHumidity = 0;
+float lastAmbientTemp = 0;
+float lastPigSurfaceTemp = 0;
+bool currentHumidityValid = false;
+bool currentAmbientTempValid = false;
+bool currentPigSurfaceTempValid = false;
+
+float lastWaterPct = 0;
+bool waterValid = true;
+
+// ============================================================================
+// SPRINKLER STATE
+// ============================================================================
+String lastActivatedTime = "--";  // shown in the app, e.g. "08:30 AM"
+String lastActivatedDate = "--";  // shown in the app, e.g. "Oct 11"
+unsigned long sprinklerOnEpoch = 0;
+bool lastSprinklerOn = false;
+unsigned long sprinklerOnMs = 0;  // millis() when the sprinkler turned on
+
+// Maximum sprinkler run time (5 minutes) for manual runs
+const unsigned long MAX_SPRINKLER_MS = 5UL * 60UL * 1000UL;
+
+// Turn the sprinkler OFF if WiFi is lost for this long (60 seconds)
+const unsigned long WIFI_LOST_OFF_MS = 60UL * 1000UL;
+unsigned long wifiDownSince = 0;
+
+// ============================================================================
+// SCHEDULE SETTINGS (loaded from Firestore)
+// ============================================================================
+bool schedEnabled = false;
+int schedHour = -1;  // 24-hour clock
+int schedMin = -1;
+unsigned long schedDurationMs = 5UL * 60UL * 1000UL;
+unsigned long lastSettingsFetch = 0;
+const unsigned long SETTINGS_FETCH_INTERVAL = 120000UL;  // fetch every 2 minutes
+int lastScheduleDayKey = -1;                             // makes sure the schedule runs once per day
+const int SCHEDULE_CATCHUP_MIN = 5;                      // still start if up to 5 minutes late
+unsigned long currentRunLimitMs = MAX_SPRINKLER_MS;      // limit for the run in progress
+
+// ============================================================================
+// FIRESTORE COMMAND SYNC
+// Tells the cloud when the sprinkler was switched locally
+// ============================================================================
+bool pendingCloudSync = false;
+String pendingCloudState = "off";
+unsigned long lastCloudSyncTry = 0;
+const unsigned long CLOUD_SYNC_RETRY_MS = 2000UL;
+
+// ============================================================================
+// SENSOR TIMING
+// One reading every 10 seconds (called a "slot")
+// ============================================================================
+unsigned long lastSensorRead = 0;
+const unsigned long SENSOR_INTERVAL = 10000;
+long lastSlotId = -1;
+time_t currentSlot = 0;  // epoch seconds of the current 10-second slot
+
+// ============================================================================
+// UPLOAD BATCH (rows read back from the SD card)
+// The SD card is the retry queue. A few unsent rows are loaded here
+// for each Firebase push, with their ORIGINAL timestamps.
+// ============================================================================
+#define UPLOAD_BATCH_SIZE 25  // readings uploaded per push
+
+struct PendingReading {
+  time_t slot;  // original 10-second timestamp
+
+  float temp;      // pig skin temperature
+  float humidity;  // ambient humidity
+  float ambient;   // ambient temperature
+
+  bool tempOk;
+  bool humidityOk;
+  bool ambientOk;
+};
+
+PendingReading uploadBatch[UPLOAD_BATCH_SIZE];
+int uploadBatchCount = 0;            // rows loaded for the current push
+unsigned long uploadNextOffset = 0;  // file position just after the last row loaded
+unsigned long sdSentOffset = 0;      // file position up to which everything is uploaded
+unsigned long sdLogSize = 0;         // size of readings.csv (only used for the "waiting" count)
+
+// ============================================================================
+// MEMORY BACKLOG (backup when the SD card is not working)
+// If a reading could not be saved on the SD card and could not be uploaded
+// (WiFi down or push failed), it is kept here in ESP32 RAM and uploaded later
+// with its ORIGINAL timestamp. Holds about 2 hours (720 x 10 s).
+// Lost if the ESP32 reboots or loses power.
+// ============================================================================
+#define RAM_BACKLOG_SIZE 720
+PendingReading ramBacklog[RAM_BACKLOG_SIZE];
+int ramHead = 0;   // index of the oldest stored reading
+int ramCount = 0;  // number of readings stored
+
+// Stores the current reading in the memory backlog.
+void ramBacklogAddCurrent() {
+  if (currentSlot < 100000) return;  // no valid clock, cannot timestamp it
+  if (!(currentPigSurfaceTempValid || currentAmbientTempValid || currentHumidityValid)) return;
+
+  // Do not store the same slot twice
+  if (ramCount > 0) {
+    int last = (ramHead + ramCount - 1) % RAM_BACKLOG_SIZE;
+    if (ramBacklog[last].slot == currentSlot) return;
+  }
+
+  // Full: drop the oldest reading
+  if (ramCount >= RAM_BACKLOG_SIZE) {
+    ramHead = (ramHead + 1) % RAM_BACKLOG_SIZE;
+    ramCount--;
+  }
+
+  PendingReading& r = ramBacklog[(ramHead + ramCount) % RAM_BACKLOG_SIZE];
+  r.slot = currentSlot;
+  r.tempOk = currentPigSurfaceTempValid;
+  r.ambientOk = currentAmbientTempValid;
+  r.humidityOk = currentHumidityValid;
+  r.temp = currentPigSurfaceTempValid ? lastPigSurfaceTemp : 0;
+  r.ambient = currentAmbientTempValid ? lastAmbientTemp : 0;
+  r.humidity = currentHumidityValid ? lastHumidity : 0;
+  ramCount++;
+}
+
+// ============================================================================
+// HOURLY SUMMARY (pig body temperature + ambient humidity)
+// Tracks min / max / sum / count for each hour
+// ============================================================================
+struct HourAgg {
+  long hourId;  // epoch seconds / 3600
+  float minV;   // pig body temp
+  float maxV;
+  double sum;
+  int count;
+  float hMinV;  // ambient humidity
+  float hMaxV;
+  double hSum;
+  int hCount;
+  float aMinV;  // ambient (air) temperature
+  float aMaxV;
+  double aSum;
+  int aCount;
+};
+
+HourAgg curHour = { -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };  // the hour being collected now
+
+#define HOUR_Q_SIZE 4
+HourAgg hourQ[HOUR_Q_SIZE];  // finished hours waiting to be uploaded
+int hourQCount = 0;
+
+// Moves to a new hour when needed. Returns false if NTP time is not valid yet.
+bool rollHour() {
+  if (currentSlot < 100000) return false;
+  long hid = (long)(currentSlot / 3600);
+
+  // A new hour started: save the finished hour in the queue
+  if (curHour.hourId != hid) {
+    if (curHour.hourId >= 0 && (curHour.count > 0 || curHour.hCount > 0 || curHour.aCount > 0)) {
+      if (hourQCount >= HOUR_Q_SIZE) {  // queue full: drop the oldest
+        for (int i = 1; i < HOUR_Q_SIZE; i++) hourQ[i - 1] = hourQ[i];
+        hourQCount--;
+      }
+      hourQ[hourQCount++] = curHour;
+    }
+    curHour = { hid, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  }
+  return true;
+}
+
+// Adds one pig body temperature reading to the current hour
+void addPigTempToHour(float t) {
+  if (!rollHour()) return;
+  if (curHour.count == 0 || t < curHour.minV) curHour.minV = t;
+  if (curHour.count == 0 || t > curHour.maxV) curHour.maxV = t;
+  curHour.sum += t;
+  curHour.count++;
+}
+
+// Adds one humidity reading to the current hour
+void addHumToHour(float h) {
+  if (!rollHour()) return;
+  if (curHour.hCount == 0 || h < curHour.hMinV) curHour.hMinV = h;
+  if (curHour.hCount == 0 || h > curHour.hMaxV) curHour.hMaxV = h;
+  curHour.hSum += h;
+  curHour.hCount++;
+}
+
+// Adds one ambient (air) temperature reading to the current hour
+void addAmbientToHour(float t) {
+  if (!rollHour()) return;
+  if (curHour.aCount == 0 || t < curHour.aMinV) curHour.aMinV = t;
+  if (curHour.aCount == 0 || t > curHour.aMaxV) curHour.aMaxV = t;
+  curHour.aSum += t;
+  curHour.aCount++;
+}
+
+// ============================================================================
+// NTP (INTERNET TIME)
+// ============================================================================
+unsigned long lastNtpRetry = 0;
+const unsigned long NTP_RETRY_INTERVAL = 15000UL;
+
+// Prints a reminder every 15 s while the clock is not synced yet.
+// (The ESP32 keeps retrying NTP by itself in the background.)
+void ensureNtpSynced() {
+  time_t now = time(nullptr);
+  if (now > 100000) return;
+  if (millis() - lastNtpRetry < NTP_RETRY_INTERVAL) return;
+  lastNtpRetry = millis();
+  Serial.println("[NTP] Clock not synced yet - retrying in background...");
+}
+
+// ============================================================================
+// WIFI RECONNECT CHECK
+// ============================================================================
+unsigned long lastWifiCheck = 0;
+const unsigned long WIFI_CHECK_INTERVAL = 15000UL;
+
+// Checks WiFi every 15 seconds and reconnects if it dropped.
+void ensureWifiConnected() {
+  if (millis() - lastWifiCheck < WIFI_CHECK_INTERVAL) return;
+  lastWifiCheck = millis();
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WIFI] Connection dropped - reconnecting...");
+    WiFi.reconnect();
+  }
+}
+
+// ============================================================================
+// WEB SERVER (local network access on port 80)
+// ============================================================================
+WebServer server(80);
+
+// ============================================================================
+// HEARTBEAT (one status line printed every 5 seconds)
+// ============================================================================
+unsigned long lastHeartbeat = 0;
+const unsigned long HEARTBEAT_INTERVAL = 5000UL;
+unsigned long lastLoopMs = 0;
+unsigned long maxLoopGapMs = 0;  // longest time the loop was stuck since last heartbeat
+unsigned long lastPushOkMs = 0;
+unsigned int pushOkCount = 0;
+unsigned int pushFailCount = 0;
+unsigned int consecutiveFails = 0;
+
+extern bool sdReady;  // defined in the SD CARD section below
+
+// Prints a one-line health summary.
+// Example:
+// [HB] ALIVE | up 00:12:05 | WiFi OK -58dBm | NTP OK | SD OK | heap 182KB | push ok=70 fail=0 | last ok 4s ago | max stall 120ms | sprinkler off
+void printHeartbeat() {
+  if (millis() - lastHeartbeat < HEARTBEAT_INTERVAL) return;
+  lastHeartbeat = millis();
+
+  unsigned long s = millis() / 1000;
+  bool wifiOk = (WiFi.status() == WL_CONNECTED);
+  bool ntpOk = (time(nullptr) > 100000);
+  long sinceOk = lastPushOkMs ? (long)((millis() - lastPushOkMs) / 1000) : -1;
+  bool healthy = wifiOk && ntpOk && sinceOk >= 0 && sinceOk < 30;
+
+  Serial.printf(
+    "[HB] %s | up %02lu:%02lu:%02lu | WiFi %s %ddBm | NTP %s | SD %s | heap %luKB | push ok=%u fail=%u | last ok %lds ago | max stall %lums | sprinkler %s\n",
+    healthy ? "ALIVE" : "WARN ",
+    s / 3600, (s % 3600) / 60, s % 60,
+    wifiOk ? "OK" : "DOWN",
+    wifiOk ? WiFi.RSSI() : 0,
+    ntpOk ? "OK" : "FAIL",
+    sdReady ? "OK" : "FAIL",
+    (unsigned long)(ESP.getFreeHeap() / 1024),
+    pushOkCount, pushFailCount,
+    sinceOk, maxLoopGapMs,
+    lastSprinklerOn ? "ON" : "off");
+
+  maxLoopGapMs = 0;
+}
+
+// ============================================================================
+// TIMESTAMP HELPERS (UTC, format: 2026-10-11T03:45:00Z)
+// ============================================================================
+
+// Current time as a UTC timestamp (falls back to 1970 if NTP is not synced).
+void getUtcTimestamp(char* buf, size_t bufSize) {
+  time_t now = time(nullptr);
+  if (now < 100000) {
+    strncpy(buf, "1970-01-01T00:00:00Z", bufSize);
+    return;
+  }
+  struct tm utcTime;
+  gmtime_r(&now, &utcTime);
+  strftime(buf, bufSize, "%Y-%m-%dT%H:%M:%SZ", &utcTime);
+}
+
+// Timestamp of the current 10-second slot.
+void getSlotTimestamp(char* buf, size_t bufSize) {
+  if (currentSlot < 100000) {
+    getUtcTimestamp(buf, bufSize);
+    return;
+  }
+  struct tm utcTime;
+  gmtime_r(&currentSlot, &utcTime);
+  strftime(buf, bufSize, "%Y-%m-%dT%H:%M:%SZ", &utcTime);
+}
+
+// ============================================================================
+// SD CARD STORAGE + UPLOAD QUEUE
+// Every 10-second reading is saved to /readings.csv, whether WiFi is up or down.
+// The rows are uploaded to Firebase in order. /sent.txt remembers how far the
+// upload got, so nothing is uploaded twice and nothing is lost if WiFi drops
+// or the ESP32 reboots. A blank cell means that sensor reading was not valid.
+// ============================================================================
+SPIClass sdSPI(VSPI);
+bool sdReady = false;
+unsigned long lastSdRetry = 0;
+const unsigned long SD_RETRY_MS = 60000UL;
+const char* SD_LOG_FILE = "/readings.csv";
+const char* SD_SENT_FILE = "/sent.txt";
+long lastSdLoggedSlot = -1;  // slot of the newest reading actually saved on the card
+
+// Approximate number of rows still waiting to be uploaded (a row is ~53 bytes)
+unsigned long sdPendingRows() {
+  if (sdLogSize <= sdSentOffset) return 0;
+  return (sdLogSize - sdSentOffset) / 53UL;
+}
+
+// Saves the upload progress marker to the card.
+void saveSentOffset() {
+  if (!sdReady) return;
+  File f = SD.open(SD_SENT_FILE, FILE_WRITE);
+  if (!f) {
+    Serial.println("[SD] Could not save upload progress");
+    return;
+  }
+  f.print(sdSentOffset);
+  f.close();
+}
+
+// Starts the SD card. Returns true if the card is ready.
+bool initSD() {
+  SD.end();     // safe to call even if it was never started
+  sdSPI.end();  // so begin() below really restarts the SPI bus
+
+  // A reset or a code upload restarts the ESP32 but NOT the SD card (it keeps
+  // its power). A card that was in the middle of a write can stay stuck and
+  // ignore SD.begin() until it is unplugged. Holding CS high and sending
+  // dummy clock pulses puts it back into a known state first.
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+  sdSPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  sdSPI.beginTransaction(SPISettings(400000, MSBFIRST, SPI_MODE0));
+  for (int i = 0; i < 20; i++) sdSPI.transfer(0xFF);
+  sdSPI.endTransaction();
+
+  // 4 MHz is slower than default but much more reliable with jumper wires.
+  // If the card does not answer, try again at lower speeds.
+  const uint32_t speeds[] = { 4000000, 1000000, 400000 };
+  for (uint32_t hz : speeds) {
+    sdReady = SD.begin(SD_CS, sdSPI, hz);
+    if (sdReady) {
+      Serial.printf("[SD] Card started at %lu kHz\n", (unsigned long)(hz / 1000));
+      break;
+    }
+    SD.end();
+    delay(50);
+  }
+
+  if (!sdReady) {
+    Serial.println("[SD] ERROR: card not found - check wiring / FAT32 format");
+    return false;
+  }
+
+  Serial.printf("[SD] Card OK | size %llu MB\n", SD.cardSize() / (1024ULL * 1024ULL));
+
+  // Create the CSV with its header line if it does not exist yet
+  if (!SD.exists(SD_LOG_FILE)) {
+    File f = SD.open(SD_LOG_FILE, FILE_WRITE);
+    if (f) {
+      f.println("slot,timestamp_utc,pig_skin_c,ambient_c,humidity_pct,water_pct,sprinkler");
+      f.close();
+    }
+  }
+
+  // Size of the log. If power was lost in the middle of a write,
+  // finish the last line so the next row does not get glued onto it.
+  sdLogSize = 0;
+  File lf = SD.open(SD_LOG_FILE, FILE_READ);
+  if (lf) {
+    sdLogSize = lf.size();
+    bool needNewline = false;
+    if (sdLogSize > 0 && lf.seek(sdLogSize - 1)) {
+      needNewline = (lf.read() != '\n');
+    }
+    lf.close();
+
+    if (needNewline) {
+      File af = SD.open(SD_LOG_FILE, FILE_APPEND);
+      if (af) {
+        af.println();
+        af.close();
+        sdLogSize += 2;
+      }
+    }
+  }
+
+  // Load how much of the log was already uploaded
+  sdSentOffset = 0;
+  if (SD.exists(SD_SENT_FILE)) {
+    File s = SD.open(SD_SENT_FILE, FILE_READ);
+    if (s) {
+      sdSentOffset = (unsigned long)s.readStringUntil('\n').toInt();
+      s.close();
+    }
+  }
+
+  // Marker is beyond the end of the log (e.g. the log was deleted): start over
+  if (sdSentOffset > sdLogSize) {
+    Serial.println("[SD] Progress marker is ahead of the log - restarting from the beginning");
+    sdSentOffset = 0;
+    saveSentOffset();
+  }
+
+  Serial.printf("[SD] Waiting to upload: ~%lu row(s)\n", sdPendingRows());
+  return true;
+}
+
+// Appends the current reading as one CSV row.
+void logToSD() {
+  // Card missing: try again once a minute
+  if (!sdReady) {
+    if (millis() - lastSdRetry >= SD_RETRY_MS) {
+      lastSdRetry = millis();
+      Serial.println("[SD] Retrying card...");
+      initSD();
+    }
+    if (!sdReady) return;
+  }
+
+  char ts[25];
+  getSlotTimestamp(ts, sizeof(ts));
+
+  File f = SD.open(SD_LOG_FILE, FILE_APPEND);
+  if (!f) {
+    Serial.println("[SD] Open failed - card removed? Will retry");
+    sdReady = false;
+    lastSdRetry = millis();
+    return;
+  }
+
+  String row = String((long)currentSlot) + ',' + ts + ',';
+  if (currentPigSurfaceTempValid) row += String(lastPigSurfaceTemp, 1);
+  row += ',';
+  if (currentAmbientTempValid) row += String(lastAmbientTemp, 1);
+  row += ',';
+  if (currentHumidityValid) row += String(lastHumidity, 1);
+  row += ',';
+  if (waterValid) row += String(lastWaterPct, 0);
+  row += ',';
+  row += lastSprinklerOn ? "1" : "0";
+  row += "\r\n";
+
+  // Check that the row really reached the card. Opening the file can succeed
+  // while the write itself fails, which used to print "Reading logged" even
+  // though nothing was saved (and so nothing was ever uploaded).
+  // The size is re-read after close(), when the card has really committed it.
+  const size_t before = f.size();
+  const size_t written = f.print(row);
+  f.close();
+
+  File chk = SD.open(SD_LOG_FILE, FILE_READ);
+  const size_t after = chk ? chk.size() : 0;
+  if (chk) chk.close();
+
+  if (written != row.length() || after < before + row.length()) {
+    Serial.println("[SD] Write failed - row NOT saved (it will be uploaded directly). Restarting card...");
+    sdReady = false;
+    lastSdRetry = 0;  // retry on the next reading, not in a minute
+    return;
+  }
+
+  sdLogSize = (unsigned long)after;
+  lastSdLoggedSlot = (long)currentSlot;
+  Serial.printf("[SD] Reading logged | ~%lu row(s) waiting to upload\n", sdPendingRows());
+}
+
+// Turns one CSV row into uploadBatch[idx]. Returns false for the header line,
+// damaged rows, rows saved before the clock was synced, and rows where
+// every sensor failed. Those rows are skipped.
+bool parseRowInto(const String& line, int idx) {
+  String field[7];
+  int count = 0;
+  int start = 0;
+
+  for (int i = 0; i <= (int)line.length() && count < 7; i++) {
+    if (i == (int)line.length() || line.charAt(i) == ',') {
+      field[count++] = line.substring(start, i);
+      start = i + 1;
+    }
+  }
+
+  if (count < 7) return false;
+
+  long slot = field[0].toInt();
+  if (slot < 100000) return false;  // header line, or no clock when it was saved
+
+  PendingReading& r = uploadBatch[idx];
+  r.slot = (time_t)slot;
+
+  r.tempOk = field[2].length() > 0;
+  r.ambientOk = field[3].length() > 0;
+  r.humidityOk = field[4].length() > 0;
+
+  r.temp = r.tempOk ? field[2].toFloat() : 0;
+  r.ambient = r.ambientOk ? field[3].toFloat() : 0;
+  r.humidity = r.humidityOk ? field[4].toFloat() : 0;
+
+  if (!r.tempOk && !r.ambientOk && !r.humidityOk) return false;
+  return true;
+}
+
+// Loads the next unsent rows (oldest first) from the SD card into uploadBatch.
+// Nothing is marked as sent here. That happens only after Firebase says OK.
+void loadUploadBatch() {
+  uploadBatchCount = 0;
+  uploadNextOffset = sdSentOffset;
+
+  if (!sdReady) return;
+
+  File f = SD.open(SD_LOG_FILE, FILE_READ);
+  if (!f) {
+    Serial.println("[SD] Could not open log for upload - card removed?");
+    sdReady = false;
+    lastSdRetry = millis();
+    return;
+  }
+
+  sdLogSize = f.size();
+
+  // Nothing waiting
+  if (sdSentOffset >= sdLogSize) {
+    f.close();
+    return;
+  }
+
+  // Could not jump to the upload position: the card is in trouble
+  if (!f.seek(sdSentOffset)) {
+    Serial.printf("[SD] Seek to %lu failed (log size %lu) - restarting card\n", sdSentOffset, sdLogSize);
+    f.close();
+    sdReady = false;
+    lastSdRetry = 0;
+    return;
+  }
+
+  int scanned = 0;
+  while (f.available() && uploadBatchCount < UPLOAD_BATCH_SIZE && scanned < 200) {
+    String line = f.readStringUntil('\n');
+    uploadNextOffset = (unsigned long)f.position();
+    scanned++;
+
+    line.trim();
+    if (line.length() == 0) continue;
+
+    if (parseRowInto(line, uploadBatchCount)) {
+      uploadBatchCount++;
+    }
+  }
+
+  f.close();
+}
+
+// ============================================================================
+// WATER STATUS (percentage -> text)
+// ============================================================================
+String computeWaterStatus(float pct, bool valid) {
+  if (!valid) return "Error";
+  if (pct <= 0) return "Empty";
+  else if (pct < 25) return "Low";
+  else if (pct < 75) return "Normal";
+  else return "Full";
+}
+
+// ============================================================================
+// ULTRASONIC SENSOR (water level distance)
+// Takes several pings, corrects the speed of sound for air temperature,
+// and returns the average distance in cm.
+// Returns -1 if there are not enough valid echoes.
+// ============================================================================
+float readDistanceCompensated(float tempC) {
+  // Use 25 C if the temperature is unknown or unrealistic
+  if (!isfinite(tempC) || tempC < 0.0f || tempC > 50.0f) {
+    tempC = 25.0f;
+  }
+
+  float speedOfSound = 331.4f + (0.606f * tempC);  // m/s
+  float speedCmPerUs = speedOfSound * 0.0001f;     // cm per microsecond
+  float total = 0.0f;
+  int valid = 0;
+
+  for (int i = 0; i < ULTRASONIC_SAMPLES; i++) {
+    // Send a 10 microsecond trigger pulse
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    // Measure how long the echo pin stays HIGH (30 ms timeout)
+    unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000UL);
+
+    if (duration > 0) {
+      float distance = (duration * speedCmPerUs) / 2.0f;  // there and back
+
+      if (isfinite(distance) && distance > 1.0f && distance < ULTRASONIC_MAX_DISTANCE_CM) {
+        total += distance;
+        valid++;
+      }
+    }
+
+    delay(100);  // let the echo fade before the next ping
+  }
+
+  if (valid < ULTRASONIC_MIN_VALID) {
+    Serial.printf("[WATER] Ultrasonic failed - only %d/%d valid pings\n", valid, ULTRASONIC_SAMPLES);
+    return -1.0f;
+  }
+
+  float rawDistance = total / valid;
+  float correctedDistance = rawDistance;
+
+  if (USE_ULTRASONIC_CALIBRATION) {
+    correctedDistance += ULTRASONIC_OFFSET_CM;
+  }
+
+  Serial.printf("[WATER] Ultrasonic raw=%.3f cm | corrected=%.3f cm | valid pings=%d/%d\n",
+                rawDistance, correctedDistance, valid, ULTRASONIC_SAMPLES);
+
+  if (!isfinite(correctedDistance) || correctedDistance <= 0.0f || correctedDistance > TANK_HEIGHT_CM) {
+    return -1.0f;
+  }
+
+  return correctedDistance;
+}
+
+// ============================================================================
+// SPRINKLER RUN LOGS
+// One entry per run, queued when the sprinkler turns OFF and
+// uploaded to Firestore (sprinkler_logs) when WiFi is available.
+// ============================================================================
+#define LOG_Q_SIZE 8
+
+struct LogEntry {
+  char ts[25];    // start time (UTC)
+  char type[10];  // "manual" or "schedule"
+  unsigned long durSec;
+};
+
+LogEntry logQ[LOG_Q_SIZE];  // circular queue
+int logHead = 0;
+int logCount = 0;
+unsigned long lastLogFlush = 0;
+
+char runType[10] = "manual";                     // how the current run was started
+char runStartTs[25] = "1970-01-01T00:00:00Z";    // when the current run started (UTC)
+
+// Adds a finished sprinkler run to the log queue.
+void queueRunLog(unsigned long durSec) {
+  if (logCount >= LOG_Q_SIZE) {  // queue full: drop the oldest
+    logHead = (logHead + 1) % LOG_Q_SIZE;
+    logCount--;
+  }
+  LogEntry& e = logQ[(logHead + logCount) % LOG_Q_SIZE];
+  strncpy(e.ts, runStartTs, sizeof(e.ts) - 1);
+  e.ts[sizeof(e.ts) - 1] = 0;
+  strncpy(e.type, runType, sizeof(e.type) - 1);
+  e.type[sizeof(e.type) - 1] = 0;
+  e.durSec = durSec;
+  logCount++;
+}
+
+// Uploads ONE queued log entry to Firestore.
+// The entry is removed from the queue only when the upload succeeds.
+void flushLogs() {
+  if (logCount == 0) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastLogFlush < 2000UL) return;
+  lastLogFlush = millis();
+
+  LogEntry& e = logQ[logHead];
+
+  String url = "https://firestore.googleapis.com/v1/projects/";
+  url += FIREBASE_PROJECT_ID;
+  url += "/databases/(default)/documents/sprinkler_logs?key=";
+  url += FIREBASE_API_KEY;
+
+  String body = "{\"fields\":{";
+  body += "\"type\":{\"stringValue\":\"" + String(e.type) + "\"},";
+  body += "\"durationSec\":{\"integerValue\":\"" + String(e.durSec) + "\"},";
+  body += "\"timestamp\":{\"timestampValue\":\"" + String(e.ts) + "\"}";
+  body += "}}";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(3);
+
+  HTTPClient http;
+  http.setConnectTimeout(3000);
+  http.begin(client, url);
+  http.setTimeout(3000);
+  http.addHeader("Content-Type", "application/json");
+
+  int code = http.POST(body);
+  Serial.printf("[LOG] Upload run log (%s, %lus) -> HTTP %d %s\n",
+                e.type, e.durSec, code, code == 200 ? "OK" : "FAILED (will retry)");
+  http.end();
+
+  // Success: remove this entry from the queue
+  if (code == 200) {
+    logHead = (logHead + 1) % LOG_Q_SIZE;
+    logCount--;
+  }
+}
+
+// ============================================================================
+// SPRINKLER CONTROL
+// ON  order: solenoid first, then pump
+// OFF order: pump first,     then solenoid
+// (so the pump never runs against a closed valve)
+// Returns true if the state changed, false if it was already in that state.
+// ============================================================================
+bool setSprinkler(bool on, const char* source) {
+
+  // ---------- TURN SPRINKLER ON ----------
+  if (on && !lastSprinklerOn) {
+    Serial.printf("[SPRINKLER] >>> TURNING ON  (source: %s)\n", source);
+
+    // FIRST: IN2 / GPIO26 / SOLENOID ON
+    digitalWrite(RELAY_SOLENOID, LOW);
+    delay(500);  // wait 0.5 second for the valve to open
+    // SECOND: IN1 / GPIO25 / PUMP ON
+    digitalWrite(RELAY_PUMP, LOW);
+
+    lastSprinklerOn = true;
+    sprinklerOnMs = millis();
+    strncpy(runType, strcmp(source, "schedule") == 0 ? "schedule" : "manual", sizeof(runType) - 1);
+    runType[sizeof(runType) - 1] = 0;
+    getUtcTimestamp(runStartTs, sizeof(runStartTs));
+    currentRunLimitMs = MAX_SPRINKLER_MS;
+
+    // Save the local start time and date for the app
+    if (time(nullptr) > 100000) {
+      struct tm timeinfo;
+      if (getLocalTime(&timeinfo, 100)) {
+        char timeBuf[12];
+        char dateBuf[12];
+        strftime(timeBuf, sizeof(timeBuf), "%I:%M %p", &timeinfo);
+        strftime(dateBuf, sizeof(dateBuf), "%b %d", &timeinfo);
+        lastActivatedTime = String(timeBuf);
+        lastActivatedDate = String(dateBuf);
+        sprinklerOnEpoch = (unsigned long)mktime(&timeinfo);
+      }
+    }
+    return true;
+  }
+
+  // ---------- TURN SPRINKLER OFF ----------
+  else if (!on && lastSprinklerOn) {
+    Serial.printf("[SPRINKLER] <<< TURNING OFF (source: %s)\n", source);
+
+    // FIRST: IN1 / GPIO25 / PUMP OFF
+    digitalWrite(RELAY_PUMP, HIGH);
+    delay(500);  // wait 0.5 second before closing the valve
+    // SECOND: IN2 / GPIO26 / SOLENOID OFF
+    digitalWrite(RELAY_SOLENOID, HIGH);
+
+    lastSprinklerOn = false;
+    sprinklerOnEpoch = 0;
+
+    unsigned long ranSec = (millis() - sprinklerOnMs) / 1000UL;
+    queueRunLog(ranSec);  // save how long it ran
+    Serial.printf("[SPRINKLER] Run finished - lasted %lus\n", ranSec);
+
+    currentRunLimitMs = MAX_SPRINKLER_MS;
+    return true;
+  }
+
+  // Nothing changed (already in the requested state)
+  return false;
+}
+
+// ============================================================================
+// SPRINKLER SAFETY
+// Turns the sprinkler OFF when it runs too long
+// or when WiFi is lost for too long.
+// ============================================================================
+void enforceSprinklerSafety() {
+  // Track how long WiFi has been down
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiDownSince = 0;
+  } else if (wifiDownSince == 0) {
+    wifiDownSince = millis();
+  }
+
+  if (!lastSprinklerOn) return;
+
+  // Maximum run time
+  if (currentRunLimitMs > 0 && millis() - sprinklerOnMs >= currentRunLimitMs) {
+    Serial.println("[SAFETY] Maximum run time reached - stopping sprinkler");
+    setSprinkler(false, "max run time");
+    pendingCloudState = "off";
+    pendingCloudSync = true;
+    lastCloudSyncTry = 0;
+    return;
+  }
+
+  // WiFi safety
+  if (WIFI_LOST_OFF_MS > 0 && wifiDownSince != 0 && millis() - wifiDownSince >= WIFI_LOST_OFF_MS) {
+    Serial.println("[SAFETY] WiFi lost for too long - stopping sprinkler");
+    setSprinkler(false, "wifi lost");
+    pendingCloudState = "off";
+    pendingCloudSync = true;
+  }
+}
+
+// ============================================================================
+// LOCAL SENSOR REQUEST  (GET /sensor)
+// Returns all live values as JSON for the app on the local network.
+// ============================================================================
+void handleSensorRequest() {
+  Serial.printf("[LAN] GET /sensor from %s\n", server.client().remoteIP().toString().c_str());
+
+  // Refresh the thermal frame for the heatmap (rate-limited).
+  // This does NOT change lastPigSurfaceTemp (the value sent to Firebase).
+  if (amgReady && (lastThermalReadMs == 0 || millis() - lastThermalReadMs >= THERMAL_REFRESH_MS)) {
+    readThermalFrame();
+  }
+
+  // Low / Normal / High status text for each sensor reading
+  String humidityStatusStr = rangeStatus(lastHumidity, currentHumidityValid, PIG_HUM_LOW_NORMAL, PIG_HUM_HIGH_NORMAL);
+  String ambientTempStatusStr = rangeStatus(lastAmbientTemp, currentAmbientTempValid, PIG_AIR_LOW_NORMAL, PIG_AIR_HIGH_NORMAL);
+  String pigBodyTempStatusStr = rangeStatus(lastPigSurfaceTemp, currentPigSurfaceTempValid, PIG_SKIN_LOW_NORMAL, PIG_SKIN_HIGH_NORMAL);
+
+  String waterStatusStr = computeWaterStatus(lastWaterPct, waterValid);
+
+  // How long the sprinkler has been running (only while it is ON)
+  String durationStr = "--";
+  if (lastSprinklerOn && sprinklerOnEpoch > 0) {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo, 100)) {
+      unsigned long nowEpoch = (unsigned long)mktime(&timeinfo);
+      if (nowEpoch > sprinklerOnEpoch) {
+        unsigned long elapsed = nowEpoch - sprinklerOnEpoch;
+        unsigned long mins = elapsed / 60;
+        unsigned long secs = elapsed % 60;
+        char buf[16];
+        if (mins > 0) snprintf(buf, sizeof(buf), "%lum %lus", mins, secs);
+        else snprintf(buf, sizeof(buf), "%lus", secs);
+        durationStr = String(buf);
+      }
+    }
+  }
+
+  char timeBuf[30];
+  getSlotTimestamp(timeBuf, sizeof(timeBuf));
+
+  // Build the JSON response
+  String json;
+  json.reserve(1300);
+  json = "{";
+  json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+  json += "\"humidityStatus\":\"" + humidityStatusStr + "\",";
+  json += "\"ambientTempStatus\":\"" + ambientTempStatusStr + "\",";
+  json += "\"pigBodyTempStatus\":\"" + pigBodyTempStatusStr + "\",";
+  json += "\"ambientHumidity\":" + String(lastHumidity, 1) + ",";
+  json += "\"ambientHumidityValid\":" + String(currentHumidityValid ? "true" : "false") + ",";
+  json += "\"ambientTemp\":" + String(lastAmbientTemp, 1) + ",";
+  json += "\"ambientTempValid\":" + String(currentAmbientTempValid ? "true" : "false") + ",";
+  json += "\"pigBodyTemp\":" + String(lastPigSurfaceTemp, 1) + ",";
+  json += "\"pigBodyTempValid\":" + String(currentPigSurfaceTempValid ? "true" : "false") + ",";
+  json += "\"waterPct\":" + String(lastWaterPct, 0) + ",";
+  json += "\"waterValid\":" + String(waterValid ? "true" : "false") + ",";
+  json += "\"waterStatus\":\"" + waterStatusStr + "\",";
+  json += "\"sprinkler\":" + String(lastSprinklerOn ? "true" : "false") + ",";
+  json += "\"lastActivated\":\"" + lastActivatedTime + "\",";
+  json += "\"date\":\"" + lastActivatedDate + "\",";
+  json += "\"duration\":\"" + durationStr + "\",";
+
+  // 64 thermal pixels (row-major, 8x8) for the heatmap
+  json += "\"thermalValid\":" + String(thermalValid ? "true" : "false") + ",";
+  json += "\"thermalPixels\":[";
+  for (int i = 0; i < AMG88xx_PIXEL_ARRAY_SIZE; i++) {
+    json += String(thermalPixels[i], 1);
+    if (i < AMG88xx_PIXEL_ARRAY_SIZE - 1) json += ",";
+  }
+  json += "],";
+
+  json += "\"timestamp\":\"" + String(timeBuf) + "\"";
+  json += "}";
+
+  server.sendHeader("Access-Control-Allow-Origin", "*");  // allow the app to call us
+  server.send(200, "application/json", json);
+}
+
+// ============================================================================
+// FIRESTORE SENSOR PUSH
+// Sends everything to Firestore in ONE commit:
+//   1) live_sensor/latest          (current values + heatmap)
+//   2) sensor_readings_seconds     (unsent rows from the SD card, up to 25)
+//   3) sensor_readings_hourly      (finished hourly summaries)
+// ============================================================================
+void pushAllToFirestore() {
+  char timeBuf[30];
+  getSlotTimestamp(timeBuf, sizeof(timeBuf));
+
+  String waterStatusStr = computeWaterStatus(lastWaterPct, waterValid);
+  String humidityStatusStr = rangeStatus(lastHumidity, currentHumidityValid, PIG_HUM_LOW_NORMAL, PIG_HUM_HIGH_NORMAL);
+  String ambientTempStatusStr = rangeStatus(lastAmbientTemp, currentAmbientTempValid, PIG_AIR_LOW_NORMAL, PIG_AIR_HIGH_NORMAL);
+  String pigBodyTempStatusStr = rangeStatus(lastPigSurfaceTemp, currentPigSurfaceTempValid, PIG_SKIN_LOW_NORMAL, PIG_SKIN_HIGH_NORMAL);
+
+  // Document id for this slot (only used for the log line)
+  String docId;
+  if (currentSlot > 100000) docId = "s" + String((long)currentSlot);
+  else docId = "m" + String(millis());
+
+  // Base path of all documents in this project
+  String base = "projects/";
+  base += FIREBASE_PROJECT_ID;
+  base += "/databases/(default)/documents/";
+
+  String tsField = "\"timestamp\":{\"timestampValue\":\"";
+  tsField += timeBuf;
+  tsField += "\"}";
+
+  String body;
+
+  // Large buffer: live data + 25 history readings + hourly summaries
+  body.reserve(12000);
+
+  body = "{\"writes\":[";
+
+  // ---------- 1) live_sensor/latest ----------
+  body += "{\"update\":{\"name\":\"";
+  body += base;
+  body += "live_sensor/latest\",\"fields\":{";
+  body += "\"ambientHumidity\":{\"doubleValue\":" + String(lastHumidity, 1) + "},";
+  body += "\"ambientHumidityValid\":{\"booleanValue\":" + String(currentHumidityValid ? "true" : "false") + "},";
+  body += "\"ambientTemp\":{\"doubleValue\":" + String(lastAmbientTemp, 1) + "},";
+  body += "\"ambientTempValid\":{\"booleanValue\":" + String(currentAmbientTempValid ? "true" : "false") + "},";
+  body += "\"pigBodyTemp\":{\"doubleValue\":" + String(lastPigSurfaceTemp, 1) + "},";
+  body += "\"pigBodyTempValid\":{\"booleanValue\":" + String(currentPigSurfaceTempValid ? "true" : "false") + "},";
+  body += "\"waterPct\":{\"doubleValue\":" + String(lastWaterPct, 0) + "},";
+  body += "\"waterValid\":{\"booleanValue\":" + String(waterValid ? "true" : "false") + "},";
+  body += "\"waterStatus\":{\"stringValue\":\"" + waterStatusStr + "\"},";
+  body += "\"humidityStatus\":{\"stringValue\":\"" + humidityStatusStr + "\"},";
+  body += "\"ambientTempStatus\":{\"stringValue\":\"" + ambientTempStatusStr + "\"},";
+  body += "\"pigBodyTempStatus\":{\"stringValue\":\"" + pigBodyTempStatusStr + "\"},";
+  body += "\"sprinkler\":{\"booleanValue\":" + String(lastSprinklerOn ? "true" : "false") + "},";
+  body += "\"ip\":{\"stringValue\":\"" + WiFi.localIP().toString() + "\"},";
+
+  // 64 thermal pixels for the heatmap (same doc, so no extra writes)
+  body += "\"thermalPixels\":{\"arrayValue\":{\"values\":[";
+  for (int i = 0; i < AMG88xx_PIXEL_ARRAY_SIZE; i++) {
+    body += "{\"doubleValue\":" + String(thermalPixels[i], 1) + "}";
+    if (i < AMG88xx_PIXEL_ARRAY_SIZE - 1) body += ",";
+  }
+  body += "]}},";
+  body += "\"thermalValid\":{\"booleanValue\":" + String(thermalValid ? "true" : "false") + "},";
+
+  body += tsField;
+  body += "}}}";
+
+  // ---------- 2) UNSENT READINGS FROM THE SD CARD ----------
+  // Upload up to 25 unsent rows in one atomic Firestore commit.
+  // Each reading keeps its ORIGINAL timestamp.
+  loadUploadBatch();
+
+  // Fill the remaining batch slots with readings kept in ESP32 memory
+  int fromRam = 0;
+  while (uploadBatchCount < UPLOAD_BATCH_SIZE && fromRam < ramCount) {
+    uploadBatch[uploadBatchCount++] = ramBacklog[(ramHead + fromRam) % RAM_BACKLOG_SIZE];
+    fromRam++;
+  }
+
+  const int sendingCount = uploadBatchCount;
+
+  for (int i = 0; i < sendingCount; i++) {
+    const PendingReading& r = uploadBatch[i];
+
+    struct tm utc;
+    gmtime_r(&r.slot, &utc);
+
+    char slotTs[25];
+    strftime(slotTs, sizeof(slotTs), "%Y-%m-%dT%H:%M:%SZ", &utc);
+
+    body += ",{\"update\":{\"name\":\"";
+    body += base;
+    body += "sensor_readings_seconds/s";
+    body += String((long)r.slot);
+    body += "\",\"fields\":{";
+
+    // Only include the values that were valid at that time
+    if (r.tempOk) {
+      body += "\"pigBodyTemp\":{\"doubleValue\":";
+      body += String(r.temp, 1);
+      body += "},";
+    }
+
+    if (r.ambientOk) {
+      body += "\"ambientTemp\":{\"doubleValue\":";
+      body += String(r.ambient, 1);
+      body += "},";
+    }
+
+    if (r.humidityOk) {
+      body += "\"ambientHumidity\":{\"doubleValue\":";
+      body += String(r.humidity, 1);
+      body += "},";
+    }
+
+    body += "\"timestamp\":{\"timestampValue\":\"";
+    body += String(slotTs);
+    body += "\"}";
+
+    body += "}}}";
+  }
+
+  // ---------- 2b) CURRENT READING, IF THE SD CARD DID NOT SAVE IT ----------
+  // History normally comes only from the SD card. If the card is missing or
+  // the write failed, send the current reading directly so it is not lost.
+  // (A reading that IS on the card is not sent here, so nothing is doubled.)
+  const bool sendLiveRow = currentSlot > 100000 &&
+                           lastSdLoggedSlot != (long)currentSlot &&
+                           (currentPigSurfaceTempValid || currentAmbientTempValid || currentHumidityValid);
+
+  if (sendLiveRow) {
+    body += ",{\"update\":{\"name\":\"";
+    body += base;
+    body += "sensor_readings_seconds/s";
+    body += String((long)currentSlot);
+    body += "\",\"fields\":{";
+    if (currentPigSurfaceTempValid) body += "\"pigBodyTemp\":{\"doubleValue\":" + String(lastPigSurfaceTemp, 1) + "},";
+    if (currentAmbientTempValid) body += "\"ambientTemp\":{\"doubleValue\":" + String(lastAmbientTemp, 1) + "},";
+    if (currentHumidityValid) body += "\"ambientHumidity\":{\"doubleValue\":" + String(lastHumidity, 1) + "},";
+    body += tsField;
+    body += "}}}";
+  }
+
+  // ---------- 3) sensor_readings_hourly ----------
+  // Completed hours only; they stay queued until a push succeeds
+  for (int i = 0; i < hourQCount; i++) {
+    HourAgg& ha = hourQ[i];
+    time_t hs = (time_t)ha.hourId * 3600;
+    struct tm hu;
+    gmtime_r(&hs, &hu);
+    char hts[25];
+    strftime(hts, sizeof(hts), "%Y-%m-%dT%H:%M:%SZ", &hu);
+
+    body += ",{\"update\":{\"name\":\"";
+    body += base;
+    body += "sensor_readings_hourly/h" + String(ha.hourId) + "\",\"fields\":{";
+    body += "\"timestamp\":{\"timestampValue\":\"" + String(hts) + "\"}";
+
+    // Pig body temperature summary
+    if (ha.count > 0) {
+      body += ",\"min\":{\"doubleValue\":" + String(ha.minV, 1) + "}";
+      body += ",\"max\":{\"doubleValue\":" + String(ha.maxV, 1) + "}";
+      body += ",\"sum\":{\"doubleValue\":" + String(ha.sum, 2) + "}";
+      body += ",\"count\":{\"integerValue\":\"" + String(ha.count) + "\"}";
+    }
+
+    // Humidity summary
+    if (ha.hCount > 0) {
+      body += ",\"humMin\":{\"doubleValue\":" + String(ha.hMinV, 1) + "}";
+      body += ",\"humMax\":{\"doubleValue\":" + String(ha.hMaxV, 1) + "}";
+      body += ",\"humSum\":{\"doubleValue\":" + String(ha.hSum, 2) + "}";
+      body += ",\"humCount\":{\"integerValue\":\"" + String(ha.hCount) + "\"}";
+    }
+
+    // Ambient (air) temperature summary
+    if (ha.aCount > 0) {
+      body += ",\"tempMin\":{\"doubleValue\":" + String(ha.aMinV, 1) + "}";
+      body += ",\"tempMax\":{\"doubleValue\":" + String(ha.aMaxV, 1) + "}";
+      body += ",\"tempSum\":{\"doubleValue\":" + String(ha.aSum, 2) + "}";
+      body += ",\"tempCount\":{\"integerValue\":\"" + String(ha.aCount) + "\"}";
+    }
+    body += "}}}";
+  }
+
+  body += "]}";
+
+  // ---------- SEND THE COMMIT ----------
+  String url = "https://firestore.googleapis.com/v1/projects/";
+  url += FIREBASE_PROJECT_ID;
+  url += "/databases/(default)/documents:commit?key=";
+  url += FIREBASE_API_KEY;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(6);
+
+  HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.begin(client, url);
+  http.setTimeout(6000);
+  http.addHeader("Content-Type", "application/json");
+
+  logSection("PUSH TO FIREBASE (single commit)");
+
+  Serial.printf("[PUSH] WiFi : %s (%s) | RSSI %d dBm | IP %s\n",
+                WiFi.status() == WL_CONNECTED ? "OK" : "DOWN",
+                WiFi.SSID().c_str(),
+                WiFi.RSSI(),
+                WiFi.localIP().toString().c_str());
+
+  Serial.printf("[PUSH] Time : NTP synced=%s | timestamp=%s | doc id=%s\n",
+                time(nullptr) > 100000 ? "YES" : "NO (1970!)",
+                timeBuf,
+                docId.c_str());
+
+  Serial.printf("[PUSH] Data : hum=%.1f%% (ok=%s) | pig=%.1f C (ok=%s) | water=%.0f%% (ok=%s)\n",
+                lastHumidity, yesNo(currentHumidityValid),
+                lastPigSurfaceTemp, yesNo(currentPigSurfaceTempValid),
+                lastWaterPct, yesNo(waterValid));
+
+  Serial.printf("[PUSH] Batch: %d history reading(s) from SD%s + %d hourly summary(ies) | SD %s\n",
+                sendingCount,
+                sendLiveRow ? " + current reading (not on SD)" : "",
+                hourQCount,
+                sdReady ? "OK" : "NOT READY");
+
+  unsigned long t0 = millis();
+  int code = http.POST(body);
+
+  // ---------- RESULT: SUCCESS ----------
+  // The current reading is already on the SD card, so it is
+  // counted in the hourly summary by the loop below.
+  if (code == 200) {
+
+    // Hourly summaries included in this commit were delivered
+    hourQCount = 0;
+
+    // Save the live slot before replaying historical readings
+    const time_t savedSlot = currentSlot;
+
+    // Update hourly statistics using the ORIGINAL timestamps
+    // of the readings that were just uploaded.
+    for (int i = 0; i < sendingCount; i++) {
+      const PendingReading& r = uploadBatch[i];
+
+      currentSlot = r.slot;
+
+      if (r.humidityOk) {
+        addHumToHour(r.humidity);
+      }
+
+      if (r.tempOk) {
+        addPigTempToHour(r.temp);
+      }
+
+      if (r.ambientOk) {
+        addAmbientToHour(r.ambient);
+      }
+    }
+
+    // Restore the live sensor timestamp
+    currentSlot = savedSlot;
+
+    // The current reading was sent directly (not from SD): count it in the hour too
+    if (sendLiveRow) {
+      if (currentHumidityValid) addHumToHour(lastHumidity);
+      if (currentPigSurfaceTempValid) addPigTempToHour(lastPigSurfaceTemp);
+      if (currentAmbientTempValid) addAmbientToHour(lastAmbientTemp);
+    }
+
+    // Mark these SD rows as uploaded (saved on the card, survives a reboot)
+    sdSentOffset = uploadNextOffset;
+    saveSentOffset();
+
+    // Memory backlog rows included in this commit were delivered
+    ramHead = (ramHead + fromRam) % RAM_BACKLOG_SIZE;
+    ramCount -= fromRam;
+
+    pushOkCount++;
+    lastPushOkMs = millis();
+    consecutiveFails = 0;
+
+    Serial.printf("[PUSH] Result: SUCCESS (HTTP %d, %lu ms)\n", code, millis() - t0);
+    Serial.printf("[HISTORY] Committed=%d from SD | still waiting on SD: ~%lu row(s)\n",
+                  sendingCount, sdPendingRows());
+  }
+  // ---------- RESULT: FAILED ----------
+  else {
+    pushFailCount++;
+
+    if (code <= 0) {
+      consecutiveFails++;
+    }
+
+    Serial.printf("[PUSH] Result: FAILED (HTTP %d, %lu ms)\n", code, millis() - t0);
+
+    // The current reading was not on the SD card: keep it in memory for the next push
+    if (sendLiveRow) {
+      ramBacklogAddCurrent();
+      Serial.printf("[HISTORY] Current reading kept in ESP32 memory | backlog=%d reading(s)\n", ramCount);
+    }
+    // Nothing is lost: the rows stay on the SD card and are retried next time
+    Serial.printf("[HISTORY] Upload failed - ~%lu row(s) stay on the SD card for retry\n", sdPendingRows());
+
+    // Show the server error (or the connection error)
+    Serial.printf("[PUSH] Error: %s\n",
+                  code > 0 ? http.getString().c_str() : HTTPClient::errorToString(code).c_str());
+  }
+
+  http.end();
+
+  // ---------- CONNECTION PROBE ----------
+  // If we could not even reach the server, test DNS and TCP to find the cause.
+  if (code <= 0) {
+    IPAddress ip;
+    unsigned long d0 = millis();
+    bool dnsOk = WiFi.hostByName("firestore.googleapis.com", ip);
+
+    Serial.printf("[PROBE] DNS %s (%s) in %lu ms | RSSI %d dBm\n",
+                  dnsOk ? "OK" : "FAIL",
+                  dnsOk ? ip.toString().c_str() : "-",
+                  millis() - d0,
+                  WiFi.RSSI());
+
+    if (dnsOk) {
+      WiFiClient plain;
+      unsigned long t1 = millis();
+      bool tcpOk = plain.connect(ip, 443, 3000);
+      Serial.printf("[PROBE] TCP:443 %s in %lu ms\n", tcpOk ? "OK" : "FAIL", millis() - t1);
+      plain.stop();
+    }
+  }
+
+  // ---------- AUTO RECOVERY ----------
+  // After 3 failed pushes in a row, restart WiFi
+  if (consecutiveFails == 3) {
+    Serial.println("[RECOVER] 3 failed pushes in a row - restarting WiFi");
+    WiFi.disconnect();
+    delay(300);
+    startWifi();
+  }
+
+  // After 8 failed pushes in a row, restart WiFi again
+  // (the ESP32 itself is NOT restarted; unsent data stays on the SD card)
+  if (consecutiveFails >= 8) {
+    Serial.println("[RECOVER] Repeated upload failures - restarting WiFi (unsent data stays on SD)");
+
+    WiFi.disconnect();
+    delay(300);
+    startWifi();
+
+    consecutiveFails = 0;
+  }
+}
+
+// ============================================================================
+// WRITE SPRINKLER COMMAND TO FIRESTORE
+// Updates sprinkler_command/pending so the cloud matches
+// the real sprinkler state.
+// ============================================================================
+bool writeSprinklerCommand(const char* state) {
+  String url = "https://firestore.googleapis.com/v1/projects/";
+  url += FIREBASE_PROJECT_ID;
+  url += "/databases/(default)/documents/sprinkler_command/pending";
+  url += "?updateMask.fieldPaths=state&key=";
+  url += FIREBASE_API_KEY;
+
+  String body = "{\"fields\":{\"state\":{\"stringValue\":\"";
+  body += state;
+  body += "\"}}}";
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(3);
+
+  HTTPClient http;
+  http.setConnectTimeout(3000);
+  http.begin(client, url);
+  http.setTimeout(3000);
+  http.addHeader("Content-Type", "application/json");
+
+  int code = http.sendRequest("PATCH", body);
+
+  Serial.printf("[CLOUD] Write command state=%s -> HTTP %d %s\n",
+                state, code, code == 200 ? "OK" : "FAILED (will retry)");
+
+  http.end();
+  return code == 200;
+}
+
+// ============================================================================
+// SYNC COMMAND
+// Retries writing the pending command until it succeeds.
+// ============================================================================
+void syncCommandToCloud() {
+  if (!pendingCloudSync) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastCloudSyncTry < CLOUD_SYNC_RETRY_MS) return;
+
+  lastCloudSyncTry = millis();
+
+  if (writeSprinklerCommand(pendingCloudState.c_str())) {
+    pendingCloudSync = false;
+  }
+}
+
+// ============================================================================
+// POLL SPRINKLER COMMAND
+// Reads sprinkler_command/pending from Firestore and
+// turns the sprinkler ON/OFF to match.
+// ============================================================================
+void pollSprinklerCommand() {
+  if (pendingCloudSync) return;  // do not overwrite a local change not yet synced
+
+  String url = "https://firestore.googleapis.com/v1/projects/";
+  url += FIREBASE_PROJECT_ID;
+  url += "/databases/(default)/documents/sprinkler_command/pending?key=";
+  url += FIREBASE_API_KEY;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(2);
+
+  HTTPClient http;
+  http.setConnectTimeout(3000);
+  http.begin(client, url);
+  http.setTimeout(2000);
+
+  int code = http.GET();
+
+  if (code == 200) {
+    String payload = http.getString();
+    StaticJsonDocument<1024> doc;
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error) {
+      Serial.printf("[CLOUD] Command poll: JSON parse failed (%s)\n", error.c_str());
+      http.end();
+      return;
+    }
+
+    const char* state = doc["fields"]["state"]["stringValue"];
+
+    if (state == nullptr) {
+      Serial.println("[CLOUD] Command poll: 'state' field not found in response");
+      http.end();
+      return;
+    }
+
+    Serial.printf("[CLOUD] Command poll: HTTP 200 | cloud state = %s | local sprinkler = %s\n",
+                  state, lastSprinklerOn ? "ON" : "off");
+
+    setSprinkler(String(state) == "on", "cloud");
+  } else {
+    Serial.printf("[CLOUD] Command poll FAILED (HTTP %d)\n", code);
+  }
+
+  http.end();
+}
+
+// ============================================================================
+// FETCH SPRINKLER SETTINGS
+// Reads sprinkler_settings/config (auto mode, schedule time, duration)
+// from Firestore.
+// ============================================================================
+void fetchSprinklerSettings() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  String url = "https://firestore.googleapis.com/v1/projects/";
+  url += FIREBASE_PROJECT_ID;
+  url += "/databases/(default)/documents/sprinkler_settings/config?key=";
+  url += FIREBASE_API_KEY;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(2);
+
+  HTTPClient http;
+  http.setConnectTimeout(3000);
+  http.begin(client, url);
+  http.setTimeout(2000);
+
+  int code = http.GET();
+
+  if (code == 200) {
+    String payload = http.getString();
+    StaticJsonDocument<1024> doc;
+
+    if (!deserializeJson(doc, payload)) {
+      JsonObject f = doc["fields"];
+
+      bool iotOn = f["isIotEnabled"]["booleanValue"] | true;
+      bool autoOn = f["isSprinklerAuto"]["booleanValue"] | false;
+
+      int h = -1;
+      int m = -1;
+      char ap[3] = { 0 };
+
+      // Schedule text looks like "08:30 AM"
+      const char* sch = f["schedule"]["stringValue"];
+
+      if (sch != nullptr && sscanf(sch, "%d:%d %2s", &h, &m, ap) == 3 && h >= 1 && h <= 12 && m >= 0 && m <= 59 && (toupper(ap[0]) == 'A' || toupper(ap[0]) == 'P')) {
+
+        bool pm = (toupper(ap[0]) == 'P');
+
+        // Convert 12-hour time to 24-hour time
+        if (h == 12) h = pm ? 12 : 0;
+        else if (pm) h += 12;
+
+        // Schedule time changed: allow it to run again today
+        if (h != schedHour || m != schedMin) {
+          lastScheduleDayKey = -1;
+        }
+
+        schedHour = h;
+        schedMin = m;
+      } else {
+        schedHour = -1;
+        schedMin = -1;
+      }
+
+      // Duration in minutes (can arrive as text, integer, or decimal)
+      long mins = 5;
+      JsonVariant dv = f["durationMins"]["integerValue"];
+
+      if (dv.is<const char*>()) {
+        mins = atol(dv.as<const char*>());
+      } else if (dv.is<long>()) {
+        mins = dv.as<long>();
+      } else {
+        double d = f["durationMins"]["doubleValue"] | 0.0;
+        if (d > 0) mins = (long)d;
+      }
+
+      // Keep the duration between 1 and 120 minutes
+      if (mins < 1) mins = 1;
+      if (mins > 120) mins = 120;
+
+      schedDurationMs = (unsigned long)mins * 60UL * 1000UL;
+      schedEnabled = iotOn && autoOn && schedHour >= 0;
+
+      Serial.printf("[SETTINGS] HTTP 200 | auto=%s | schedule=\"%s\" (%02d:%02d) | duration=%ld min -> %s\n",
+                    autoOn ? "ON" : "off",
+                    sch ? sch : "",
+                    schedHour, schedMin,
+                    mins,
+                    schedEnabled ? "SCHEDULE ACTIVE" : "schedule inactive");
+    } else {
+      Serial.println("[SETTINGS] JSON parse failed");
+    }
+  } else {
+    Serial.printf("[SETTINGS] Fetch FAILED (HTTP %d)\n", code);
+  }
+
+  http.end();
+}
+
+// ============================================================================
+// SCHEDULE
+// Starts the sprinkler once per day at the scheduled time
+// (up to 5 minutes late is still accepted).
+// ============================================================================
+void checkSchedule() {
+  if (!schedEnabled) return;
+
+  time_t t = time(nullptr);
+  if (t < 100000) return;
+
+  struct tm tmv;
+  localtime_r(&t, &tmv);
+
+  // Already ran today
+  int dayKey = tmv.tm_year * 1000 + tmv.tm_yday;
+  if (dayKey == lastScheduleDayKey) return;
+
+  int nowMin = tmv.tm_hour * 60 + tmv.tm_min;
+  int schedTotal = schedHour * 60 + schedMin;
+  int late = nowMin - schedTotal;  // minutes past the scheduled time
+
+  if (late >= 0 && late < SCHEDULE_CATCHUP_MIN) {
+    lastScheduleDayKey = dayKey;
+
+    if (!lastSprinklerOn) {
+      Serial.printf("[SCHEDULE] Scheduled time %02d:%02d reached (%d min late) - starting for %lu min\n",
+                    schedHour, schedMin, late, schedDurationMs / 60000UL);
+      setSprinkler(true, "schedule");
+      currentRunLimitMs = schedDurationMs;
+      pendingCloudState = "on";
+      pendingCloudSync = true;
+      lastCloudSyncTry = 0;
+    }
+  }
+}
+
+// ============================================================================
+// LOCAL SPRINKLER REQUEST  (POST /sprinkler)
+// Lets the app switch the sprinkler directly over the local network.
+// Expected body: {"state":"on"} or {"state":"off"}
+// ============================================================================
+void handleSprinklerRequest() {
+  String body = server.arg("plain");
+  StaticJsonDocument<128> doc;
+
+  Serial.printf("[LAN] POST /sprinkler from %s | body=%s\n",
+                server.client().remoteIP().toString().c_str(), body.c_str());
+
+  if (deserializeJson(doc, body)) {
+    Serial.println("[LAN] Rejected: bad JSON");
+    server.send(400, "application/json", "{\"error\":\"bad json\"}");
+    return;
+  }
+
+  const char* state = doc["state"];
+
+  if (state == nullptr) {
+    Serial.println("[LAN] Rejected: missing 'state'");
+    server.send(400, "application/json", "{\"error\":\"missing state\"}");
+    return;
+  }
+
+  bool shouldBeOn = (String(state) == "on");
+
+  setSprinkler(shouldBeOn, "LAN");
+
+  server.send(200, "application/json", "{\"ok\":true}");
+
+  // Tell the cloud about the new state
+  pendingCloudState = shouldBeOn ? "on" : "off";
+  pendingCloudSync = true;
+  lastCloudSyncTry = 0;
+}
+
+// ============================================================================
+// WIFI EVENT (prints why the router connection was lost)
+// ============================================================================
+void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 2
+  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    Serial.printf("[WIFI] Lost router connection, reason code=%d\n", info.wifi_sta_disconnected.reason);
+  }
+#else
+  if (event == SYSTEM_EVENT_STA_DISCONNECTED) {
+    Serial.printf("[WIFI] Lost router connection, reason code=%d\n", info.disconnected.reason);
+  }
+#endif
+}
+
+// ============================================================================
+// SETUP (runs once at boot)
+// ============================================================================
+void setup() {
+
+  // RELAYS: make sure both relays start OFF (HIGH = OFF).
+  // Set the level BEFORE switching to OUTPUT so they never glitch ON.
+  digitalWrite(RELAY_SOLENOID, HIGH);
+  digitalWrite(RELAY_PUMP, HIGH);
+
+  pinMode(RELAY_SOLENOID, OUTPUT);
+  pinMode(RELAY_PUMP, OUTPUT);
+
+  digitalWrite(RELAY_SOLENOID, HIGH);
+  digitalWrite(RELAY_PUMP, HIGH);
+
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println();
+  Serial.println("==================================================");
+  Serial.println("  PRISM - Pig Raising Intelligent Sprinkler System");
+  Serial.println("==================================================");
+  Serial.printf("[BOOT] Reset reason: %d (1=power-on, 3=software, 4=panic/crash, 5-7=watchdog, 15=brownout)\n",
+                (int)esp_reset_reason());
+  Serial.println("[BOOT] Relays set to OFF");
+
+  // ULTRASONIC SENSOR
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  digitalWrite(TRIG_PIN, LOW);
+  Serial.println("[BOOT] Ultrasonic sensor ready");
+
+  // SD CARD (also loads the upload progress)
+  initSD();
+
+  // DHT22
+  dht.begin();
+  Serial.println("[BOOT] DHT22 started");
+
+  // AMG8833 (SDA = GPIO21, SCL = GPIO22)
+  Wire.begin(21, 22);
+
+  amgReady = amg.begin(0x69) || amg.begin(0x68);
+  if (!amgReady) {
+    Serial.println("[BOOT] ERROR: AMG8833 NOT FOUND - check wiring!");
+  } else {
+    Serial.println("[BOOT] AMG8833 connected successfully");
+    delay(100);          // let the sensor produce its first frame
+    readThermalFrame();  // initial heatmap frame
+  }
+  delay(100);
+
+  // WIFI
+  Serial.printf("[WIFI] Connecting to \"%s\"", ssid);
+
+  WiFi.onEvent(onWifiEvent);
+  startWifi();
+
+  unsigned long wifiStart = millis();
+
+  // Wait a maximum of 10 seconds for WiFi.
+  // Sensor monitoring continues even if we stay offline.
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 10000UL) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("[WIFI] Connected!");
+  } else {
+    Serial.println("[WIFI] Offline startup - sensor monitoring will continue");
+  }
+
+  Serial.printf("[WIFI] Network : %s\n", WiFi.SSID().c_str());
+  Serial.printf("[WIFI] IP      : %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("[WIFI] Gateway : %s\n", WiFi.gatewayIP().toString().c_str());
+  Serial.printf("[WIFI] DNS     : %s\n", WiFi.dnsIP().toString().c_str());
+  Serial.printf("[WIFI] Signal  : %d dBm\n", WiFi.RSSI());
+
+  // NTP (UTC+8 timezone)
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.google.com", "time.nist.gov");
+
+  Serial.print("[NTP] Waiting for time sync");
+
+  struct tm timeinfo;
+  int ntpRetries = 0;
+
+  while (!getLocalTime(&timeinfo, 1000) && ntpRetries < 20) {
+    Serial.print(".");
+    ntpRetries++;
+  }
+
+  if (ntpRetries >= 20) {
+    Serial.println("\n[NTP] WARNING: sync FAILED - timestamps will be 1970!");
+  } else {
+    Serial.println("\n[NTP] Synced OK");
+  }
+
+  // Reset the cloud sprinkler command to OFF at boot
+  pendingCloudState = "off";
+  pendingCloudSync = true;
+  lastCloudSyncTry = 0;
+
+  Serial.println("[BOOT] Firestore mode - local HTTP server also active");
+
+  // Local web server routes
+  server.on("/sensor", HTTP_GET, handleSensorRequest);
+  server.on("/sprinkler", HTTP_POST, handleSprinklerRequest);
+  server.begin();
+
+  Serial.println("[BOOT] HTTP server started on port 80");
+  Serial.println("[BOOT] Setup complete - entering main loop");
+  Serial.println("--------------------------------------------------");
+}
+
+// ============================================================================
+// COMMAND POLLING
+// Checks Firestore for a sprinkler command every 15 seconds
+// ============================================================================
+bool sprinklerPollDue = false;
+unsigned long lastCommandPoll = 0;
+const unsigned long POLL_INTERVAL = 15000;
+
+// ============================================================================
+// READ SENSORS
+// Reads every sensor, saves the reading on the SD card,
+// and pushes everything to Firestore if WiFi is connected.
+// Runs once per 10-second slot.
+// ============================================================================
+void readSensors() {
+  logSection("SENSOR READING");
+
+  currentHumidityValid = false;
+  currentAmbientTempValid = false;
+  currentPigSurfaceTempValid = false;
+
+  // ---------- DHT22: AMBIENT TEMPERATURE + HUMIDITY ----------
+  float rawHumidity = dht.readHumidity();
+  float rawAmbientTemp = dht.readTemperature();
+
+  // Ambient temperature
+  if (isfinite(rawAmbientTemp) && rawAmbientTemp > -40.0f && rawAmbientTemp < 80.0f) {
+
+    float calibratedTemperature = rawAmbientTemp + DHT_TEMP_CALIBRATION_OFFSET;
+
+    if (isfinite(calibratedTemperature) && calibratedTemperature > -40.0f && calibratedTemperature < 80.0f) {
+      lastAmbientTemp = calibratedTemperature;
+      currentAmbientTempValid = true;
+
+      Serial.printf("[SENSOR] DHT22 temp  raw=%.2f C | calibrated=%.2f C\n",
+                    rawAmbientTemp, lastAmbientTemp);
+    } else {
+      Serial.println("[SENSOR] DHT22 temp  calibrated value invalid");
+    }
+
+  } else {
+    Serial.println("[SENSOR] DHT22 temp  READ FAILED");
+  }
+
+  // Humidity
+  if (isfinite(rawHumidity) && rawHumidity > 0.0f && rawHumidity <= 100.0f) {
+
+    float calibratedHumidity = rawHumidity + DHT_HUM_CALIBRATION_OFFSET;
+    calibratedHumidity = constrain(calibratedHumidity, 0.0f, 100.0f);
+
+    lastHumidity = calibratedHumidity;
+    currentHumidityValid = true;
+
+    Serial.printf("[SENSOR] DHT22 hum   raw=%.2f %%RH | calibrated=%.2f %%RH\n",
+                  rawHumidity, lastHumidity);
+
+  } else {
+    Serial.println("[SENSOR] DHT22 hum   READ FAILED (history reading skipped)");
+  }
+
+  // ---------- AMG8833: PIG BODY SURFACE TEMPERATURE ----------
+  bool tempOk = false;
+  float pigSurfaceTemp = readAmgSurfaceTemp(tempOk);
+
+  if (tempOk) {
+    lastPigSurfaceTemp = pigSurfaceTemp;
+    currentPigSurfaceTempValid = true;
+    Serial.printf("[SENSOR] Pig skin temperature = %.2f C\n", lastPigSurfaceTemp);
+  } else {
+    currentPigSurfaceTempValid = false;
+    Serial.println("[SENSOR] Pig skin temperature READ FAILED");
+  }
+
+  // ---------- ULTRASONIC: WATER LEVEL ----------
+  // Use the measured air temperature for the speed of sound (25 C fallback)
+  float ultrasonicAirTemp = currentAmbientTempValid ? lastAmbientTemp : 25.0f;
+
+  float dist = readDistanceCompensated(ultrasonicAirTemp);
+
+  if (dist > 0.0f && isfinite(dist)) {
+    waterValid = true;
+
+    if (dist >= TANK_HEIGHT_CM - EMPTY_THRESHOLD_CM) {
+      lastWaterPct = 0.0f;  // sensor sees the tank bottom = empty
+    } else {
+      float usableHeight = TANK_HEIGHT_CM - FULL_DIST_CM;
+      float waterLevel = TANK_HEIGHT_CM - dist;
+
+      lastWaterPct = constrain((waterLevel / usableHeight) * 100.0f, 0.0f, 100.0f);
+    }
+  } else {
+    waterValid = false;
+  }
+
+  Serial.printf("[WATER] Distance=%.2f cm | level=%.1f%% | valid=%s\n",
+                dist, lastWaterPct, yesNo(waterValid));
+
+  // ---------- SUMMARY ----------
+  Serial.printf("[SENSOR] Summary: hum=%.1f%% (ok=%s) | pig=%.1f C (ok=%s, frame ok=%s) | water=%.0f%% (ok=%s) | slot=%ld\n",
+                lastHumidity, yesNo(currentHumidityValid),
+                lastPigSurfaceTemp, yesNo(currentPigSurfaceTempValid), yesNo(thermalValid),
+                lastWaterPct, yesNo(waterValid),
+                (long)currentSlot);
+
+  // Low / Normal / High for each reading (same bands as the app)
+  Serial.printf("[STATUS] Pig skin %.1f C: %s | Air %.1f C: %s | Humidity %.1f%%: %s\n",
+                lastPigSurfaceTemp,
+                rangeStatus(lastPigSurfaceTemp, currentPigSurfaceTempValid, PIG_SKIN_LOW_NORMAL, PIG_SKIN_HIGH_NORMAL).c_str(),
+                lastAmbientTemp,
+                rangeStatus(lastAmbientTemp, currentAmbientTempValid, PIG_AIR_LOW_NORMAL, PIG_AIR_HIGH_NORMAL).c_str(),
+                lastHumidity,
+                rangeStatus(lastHumidity, currentHumidityValid, PIG_HUM_LOW_NORMAL, PIG_HUM_HIGH_NORMAL).c_str());
+
+  // Save this reading on the SD card before attempting Firebase.
+  // This runs even when WiFi is disconnected.
+  logToSD();
+
+  // ---------- UPLOAD ----------
+  if (WiFi.status() == WL_CONNECTED) {
+    server.handleClient();
+    enforceSprinklerSafety();
+
+    pushAllToFirestore();
+
+    enforceSprinklerSafety();
+    server.handleClient();
+  } else {
+    // WiFi is down: if the SD card did not save this reading, keep it in ESP32 memory
+    if (lastSdLoggedSlot != (long)currentSlot) {
+      ramBacklogAddCurrent();
+    }
+    Serial.printf("[HISTORY] WiFi offline - reading kept (SD %s) | memory backlog=%d reading(s), will upload when WiFi returns\n",
+                  sdReady ? "OK" : "FAIL", ramCount);
+  }
+}
+
+// ============================================================================
+// LOOP (runs forever)
+// ============================================================================
+void loop() {
+  unsigned long nowMs = millis();
+
+  // Track the longest time the loop was stuck (shown in the heartbeat)
+  if (lastLoopMs != 0 && nowMs - lastLoopMs > maxLoopGapMs) {
+    maxLoopGapMs = nowMs - lastLoopMs;
+  }
+  lastLoopMs = nowMs;
+
+  // ---------- BACKGROUND CHECKS ----------
+  printHeartbeat();
+  ensureWifiConnected();
+  ensureNtpSynced();
+  enforceSprinklerSafety();
+  checkSchedule();
+  syncCommandToCloud();
+  flushLogs();
+
+  // Serve local network requests
+  server.handleClient();
+  server.handleClient();
+
+  unsigned long now = millis();
+  time_t nowT = time(nullptr);
+  bool timeValid = nowT > 100000;
+
+  // ---------- SENSOR SLOT ----------
+  // A new reading is due every 10 seconds
+  bool slotDue = timeValid
+                   ? ((long)(nowT / 10) != lastSlotId)
+                   : (now - lastSensorRead >= SENSOR_INTERVAL);
+
+  if (slotDue) {
+    lastSensorRead = now;
+
+    if (timeValid) {
+      lastSlotId = (long)(nowT / 10);
+      currentSlot = (time_t)(lastSlotId * 10);
+    } else {
+      currentSlot = 0;
+    }
+
+    readSensors();
+  }
+
+  // ---------- REFRESH SPRINKLER SETTINGS ----------
+  if (WiFi.status() == WL_CONNECTED && (lastSettingsFetch == 0 || now - lastSettingsFetch >= SETTINGS_FETCH_INTERVAL)) {
+    lastSettingsFetch = now;
+    fetchSprinklerSettings();
+    enforceSprinklerSafety();
+  }
+
+  // ---------- CLOUD COMMAND ----------
+  if (pendingCloudSync) {
+    // A local change still has to be reported to the cloud first
+    syncCommandToCloud();
+    enforceSprinklerSafety();
+  } else {
+    if (now - lastCommandPoll >= POLL_INTERVAL) {
+      lastCommandPoll = now;
+      sprinklerPollDue = true;
+    }
+
+    if (sprinklerPollDue && WiFi.status() == WL_CONNECTED) {
+      sprinklerPollDue = false;
+      server.handleClient();
+      pollSprinklerCommand();
+      enforceSprinklerSafety();
+      server.handleClient();
+    }
+  }
+}

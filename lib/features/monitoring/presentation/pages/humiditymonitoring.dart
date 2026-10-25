@@ -430,21 +430,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     LiveSensorService.connectionStatus.addListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.addListener(_onSharedStatusChanged);
     // Pull new humidity_second readings into Today's graph every 10s,
-    // matching the ESP32's 10s save interval.
-    int todaySyncCounter = 0;
-
+    // matching the ESP32's 10s save interval. Incremental only — a full
+    // re-read of today's history would cost 360 reads per elapsed hour.
     _todaySyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted || !_wasTickerEnabled) return;
 
       if (_selectedTimeRange == 2) {
-        todaySyncCounter++;
-
-        // Refresh all Today history approximately every 5 minutes.
-        if (todaySyncCounter >= 30) {
-          todaySyncCounter = 0;
-          _todayHistoryFetchedDayKey = '';
-        }
-
         unawaited(_syncToday());
       }
     });

@@ -58,6 +58,8 @@ prism-ml/*.pyc
 firebase_credentials.json
 
 # Local environment variables
+*serviceAccount*.json
+prism-firebase-key.json
 .env
 
 venv/

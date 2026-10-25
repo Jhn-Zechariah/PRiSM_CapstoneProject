@@ -101,6 +101,13 @@ class LiveSensorService {
   /// Wall-clock time this phone last actually received a reading.
   static DateTime? _lastUpdateReceivedAt;
 
+  /// When the Firestore listener last delivered a fresh snapshot. While this
+  /// is recent, polls skip the one-shot GET.
+  static DateTime? _lastListenerEventAt;
+
+  /// ESP32 pushes every 10s; allows for one push of upload latency.
+  static const int _listenerFreshSeconds = 20;
+
   /// Latest raw sensor JSON, however it was sourced (LAN or Firestore).
   /// Screens listen to this directly via ValueListenableBuilder.
   static final ValueNotifier<Map<String, dynamic>?> latestData = ValueNotifier(
@@ -245,6 +252,18 @@ class LiveSensorService {
       );
       connectionStatus.value = "Live";
       _markOnline(data);
+      // On LAN the Firestore listener only costs a read per ESP32 push.
+      await _detachFirestoreFallback();
+      return;
+    }
+
+    // Listener is already delivering fresh pushes — a one-shot GET would
+    // just pay a second read for the same document.
+    if (_firestoreSub != null &&
+        _lastListenerEventAt != null &&
+        DateTime.now().difference(_lastListenerEventAt!).inSeconds <=
+            _listenerFreshSeconds) {
+      debugPrint('[LiveSensorService] Firestore listener fresh — skipping GET');
       return;
     }
 
@@ -319,6 +338,14 @@ class LiveSensorService {
     await _checkStaleness();
   }
 
+  static Future<void> _detachFirestoreFallback() async {
+    if (_firestoreSub == null) return;
+    debugPrint('[LiveSensorService] LAN reachable — detaching Firestore listener');
+    await _firestoreSub?.cancel();
+    _firestoreSub = null;
+    _lastListenerEventAt = null;
+  }
+
   static void _attachFirestoreFallbackIfNeeded() {
     if (_firestoreSub != null) return;
     debugPrint('[LiveSensorService] attaching Firestore fallback listener');
@@ -351,6 +378,7 @@ class LiveSensorService {
             debugPrint(
               '[LiveSensorService] Firestore snapshot received (age ${ageSeconds}s)',
             );
+            _lastListenerEventAt = DateTime.now();
             _markOnline(data);
           },
           onError: (e) {
@@ -665,9 +693,11 @@ class SensorMemory {
 
   static DateTime _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  static Future<void> save() async {
+  static Future<void> save({
+    Duration minInterval = const Duration(seconds: 60),
+  }) async {
     final nowT = DateTime.now();
-    if (nowT.difference(_lastSaveAt) < const Duration(seconds: 60)) return;
+    if (nowT.difference(_lastSaveAt) < minInterval) return;
     _lastSaveAt = nowT;
     try {
       await FirebaseFirestore.instance
@@ -1078,9 +1108,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
 
 
+      // Last-known values only seed the screen on the next launch, so they
+      // are persisted rarely. New maximums above still save within 60s.
       if ((newTempLive != null && newTempLive > 0) ||
           (newHumidity != null && newHumidity > 0)) {
-        SensorMemory.save();
+        SensorMemory.save(minInterval: const Duration(minutes: 10));
       }
 
       final newWaterPct = (data['waterPct'] as num?)?.toDouble();
@@ -1285,43 +1317,96 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── Firestore: sync today's historical max on startup ───────────────
 
-  // One pass over today's sensor_readings_seconds docs gives both maximums.
+  // Hour key of the last scan. The Dashboard remounts on every tab switch,
+  // so this keeps the scan to at most once per hour per app session.
+  static String _lastTodayMaxScanHourKey = '';
+
+  // Completed hours come from sensor_readings_hourly (max / humMax, one doc
+  // per hour). Only hours without a summary yet — normally just the current
+  // one — are scanned from sensor_readings_seconds.
   Future<void> _scanTodayMaxes() async {
+    final hourKey = currentHourKey();
+    if (_lastTodayMaxScanHourKey == hourKey) return;
+    _lastTodayMaxScanHourKey = hourKey;
+
     try {
+      final db = FirebaseFirestore.instance;
       final now = DateTime.now();
-      var cursor = DateTime(
-        now.year,
-        now.month,
-        now.day,
-      ).subtract(const Duration(milliseconds: 1));
+      final midnight = DateTime(now.year, now.month, now.day);
       double maxT = 0;
       double maxH = 0;
 
-      while (true) {
-        final snap = await FirebaseFirestore.instance
-            .collection('sensor_readings_seconds')
-            .orderBy('timestamp')
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
-            .limit(1000)
-            .get();
+      final hourlySnap = await db
+          .collection('sensor_readings_hourly')
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(midnight),
+          )
+          .orderBy('timestamp')
+          .get();
 
-        for (final doc in snap.docs) {
-          final d = doc.data();
-          final ts = (d['timestamp'] as Timestamp?)?.toDate();
-          if (ts == null) continue;
-          cursor = ts;
+      final summarizedHours = <int>{};
+      for (final doc in hourlySnap.docs) {
+        final d = doc.data();
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
+        if (ts == null) continue;
+        summarizedHours.add(ts.millisecondsSinceEpoch);
 
-          final t = (d['pigBodyTemp'] as num?)?.toDouble();
-          if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
+        final t = (d['max'] as num?)?.toDouble();
+        if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
 
-          final h = (d['ambientHumidity'] as num?)?.toDouble();
-          if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
-        }
-
-        if (snap.docs.length < 1000) break;
+        final h = (d['humMax'] as num?)?.toDouble();
+        if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
       }
 
-      if (!mounted) return;
+      // Group consecutive unsummarized hours into one raw range each.
+      final rawRanges = <List<DateTime>>[];
+      var hourStart = midnight;
+      while (hourStart.isBefore(now)) {
+        final nextHour = hourStart.add(const Duration(hours: 1));
+        if (!summarizedHours.contains(hourStart.millisecondsSinceEpoch)) {
+          final end = nextHour.isAfter(now) ? now : nextHour;
+          if (rawRanges.isNotEmpty &&
+              rawRanges.last[1].isAtSameMomentAs(hourStart)) {
+            rawRanges.last[1] = end;
+          } else {
+            rawRanges.add([hourStart, end]);
+          }
+        }
+        hourStart = nextHour;
+      }
+
+      for (final range in rawRanges) {
+        var cursor = range[0].subtract(const Duration(milliseconds: 1));
+
+        while (true) {
+          final snap = await db
+              .collection('sensor_readings_seconds')
+              .orderBy('timestamp')
+              .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
+              .where('timestamp', isLessThan: Timestamp.fromDate(range[1]))
+              .limit(1000)
+              .get();
+
+          for (final doc in snap.docs) {
+            final d = doc.data();
+            final ts = (d['timestamp'] as Timestamp?)?.toDate();
+            if (ts == null) continue;
+            cursor = ts;
+
+            final t = (d['pigBodyTemp'] as num?)?.toDouble();
+            if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
+
+            final h = (d['ambientHumidity'] as num?)?.toDouble();
+            if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
+          }
+
+          if (snap.docs.length < 1000) break;
+        }
+      }
+
+      // Shared memory is updated even if the user already left the
+      // Dashboard, since this scan won't run again until the next hour.
       final todayKey = SensorMemory.todayKey();
       if (maxT > 0) {
         SensorMemory.lastTempMaxDate = todayKey;
@@ -1332,11 +1417,14 @@ class _DashboardScreenState extends State<DashboardScreen>
         SensorMemory.setHumidityMaxToday(maxH);
       }
       if (maxT > 0 || maxH > 0) SensorMemory.save();
+      if (!mounted) return;
       setState(() {
         if (maxT > 0) _tempMaxToday = maxT;
         if (maxH > 0) _humidityMaxToday = maxH;
       });
     } catch (e) {
+      // Allow a retry on the next Dashboard open.
+      _lastTodayMaxScanHourKey = '';
       debugPrint('Error scanning today maxes: $e');
     }
   }
