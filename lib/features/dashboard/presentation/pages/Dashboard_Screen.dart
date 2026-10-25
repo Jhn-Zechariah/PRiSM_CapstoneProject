@@ -1036,10 +1036,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         _tempMax = newTempLive;
         _lastKnownTemp = _tempMax;
         SensorMemory.lastTemp = _tempMax;
-        _pigStatus = newTempLive < 38.7
-            ? "Low"
-            : (newTempLive <= 39.8 ? "Normal" : "High");
-        SensorMemory.lastPigStatus = _pigStatus;
         SensorMemory.resetIfNewDay();
         if (newTempLive > SensorMemory.lastTempMaxToday) {
           SensorMemory.setTempMaxToday(newTempLive);
@@ -1081,15 +1077,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         _duration = data['duration'] as String? ?? _duration;
       }
 
-      final newPigStatus = data['pigStatus'] as String?;
-      if (newPigStatus != null && newPigStatus != "--") {
-        _pigStatus = newPigStatus;
-        SensorMemory.lastPigStatus = newPigStatus;
-      }
 
       if ((newTempLive != null && newTempLive > 0) ||
-          (newHumidity != null && newHumidity > 0) ||
-          (newPigStatus != null && newPigStatus != "--")) {
+          (newHumidity != null && newHumidity > 0)) {
         SensorMemory.save();
       }
 
@@ -1229,9 +1219,6 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       if (SensorMemory.lastHumidityMaxToday > 0) {
         _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
-      }
-      if (SensorMemory.lastPigStatus != "--") {
-        _pigStatus = SensorMemory.lastPigStatus;
       }
 
       if (SprinklerMemory.lastActivated != "--") {
@@ -2193,7 +2180,6 @@ class _DashboardScreenState extends State<DashboardScreen>
               [
                 "Max Temperature Today: ${_tempMaxToday == 0 ? '…' : '${_tempMaxToday.toStringAsFixed(1)}°C'}",
                 "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
-                "Pig Status: $_pigStatus",
               ],
               const Color(0xFFE53935),
             ),
