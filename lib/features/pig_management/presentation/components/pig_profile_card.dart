@@ -6,6 +6,11 @@ import '../pages/update_pig_weight_dialog.dart';
 import '../../domain/model/app_pig.dart';
 import '../cubits/pig_cubit.dart';
 import '../../../../core/services/ml_service.dart';
+import '../../../assessment/domain/growth_request.dart';
+import '../../../assessment/domain/model/assessment.dart';
+import '../../../assessment/domain/model/assessment_ui_config.dart';
+import '../../data/firestore_pig_repo.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseException;
 
 
 enum PigMenuAction { info, updateWeight }
@@ -66,6 +71,7 @@ class _PigProfileCardState extends State<PigProfileCard>
         statusChanged) {
       // No setState needed: build() always runs after didUpdateWidget
       _mlLoading = true;
+      _mlStatus = null;
       _mlClassification = null;
       _mlInsight = null;
       _mlRecommendation = null;
@@ -77,15 +83,22 @@ class _PigProfileCardState extends State<PigProfileCard>
   @override
   bool get wantKeepAlive => true;
 
-  String? _mlClassification;
+  String? _mlStatus; // API status key: no_flags | flags_raised | insufficient_data | not_configured
+  String? _mlClassification; // status label shown on the badge
   String? _mlInsight;
   String? _mlRecommendation;
   bool _mlLoading = true;
+  AssessmentUiConfig? _ui;
+
+  String _uiText(String s, String k) => _ui?.t(s, k) ?? '';
 
 
   @override
   void initState() {
     super.initState();
+    AssessmentUiConfig.cached().then((c) {
+      if (mounted) setState(() => _ui = c);
+    });
     _fetchMLInsights();
   }
 
@@ -98,27 +111,46 @@ class _PigProfileCardState extends State<PigProfileCard>
     }
 
 
+    final ui = await AssessmentUiConfig.cached();
     try {
-      final result = await MlService.analyzePig(
-        pigId: widget.pig.pigId,
-        birthDate: widget.pig.birthDate.toIso8601String().substring(0, 10),
-        currentWeight: widget.pig.currentWeightKg,
-        birthWeight:
-        widget.pig.birthWeightKg, // make sure AppPig has this field
-      );
+      // A1 growth trend from this pig's own MANUAL weigh-ins (rule-based, advisory).
+      final records = await FirebasePigRepo().streamWeightHistory(widget.pig.pigId).first;
+      final a = Assessment.fromApi(
+          await MlService.assessPigGrowth(growthRequestBody(widget.pig, records)));
       if (!mounted) return;
+      final latest = a.details['latest_adg_g_per_day'];
+      final rolling = a.details['rolling_adg_g_per_day'];
+      final unit = ui.t('card', 'unit_g_day');
+      final flags = (a.details['flags'] as List? ?? const [])
+          .map((f) => (f as Map)['message'].toString())
+          .toList();
       setState(() {
-        _mlClassification = result['classification'] as String?;
-        _mlInsight = result['insight'] as String?;
-        _mlRecommendation = result['recommendation'] as String?;
+        _mlStatus = a.status;
+        _mlClassification = a.statusLabel;
+        _mlInsight = latest == null
+            ? (a.reasons.isNotEmpty ? a.reasons.first : null)
+            : '${ui.t('card', 'adg_latest')}: ${(latest as num).round()} $unit'
+                '${rolling == null ? '' : ' (${ui.t('card', 'adg_rolling')} ${(rolling as num).round()} $unit)'}';
+        _mlRecommendation = flags.isNotEmpty ? flags.join(' ') : null;
         _mlLoading = false;
       });
     } catch (e) {
-      debugPrint('ML pig error: $e'); // ✅ stripped in release builds automatically
+      // Say WHY it failed instead of one generic message.
+      final code = e is MlServiceException ? e.statusCode : null;
+      final key = switch (code) {
+        401 || 403 || 503 => 'auth_rejected', // 503 = sign-in checking not configured on the server
+        422 => 'rejected_input',
+        null when e is FirebaseException => 'weights_unavailable',
+        null => e is MlServiceException ? 'unavailable' : 'service_error',
+        _ => 'service_error',
+      };
+      debugPrint('Growth check error: ${e.runtimeType} status=$code');
       if (!mounted) return;
       setState(() {
         _mlLoading = false;
-        _mlInsight = 'ML analysis unavailable. Check server connection.';
+        _mlStatus = null;
+        _mlClassification = null;
+        _mlInsight = ui.t('card', key);
       });
     }
   }
@@ -145,15 +177,12 @@ class _PigProfileCardState extends State<PigProfileCard>
   }
 
 
-  Color _getClassificationColor(String? classification) {
-    if (classification == null) return Colors.grey;
-    switch (classification.toLowerCase()) {
-      case 'normal':
+  Color _getClassificationColor(String? status) {
+    switch (status) {
+      case 'no_flags':
         return widget.isDarkMode ? Colors.greenAccent : Colors.green.shade700;
-      case 'underweight':
+      case 'flags_raised':
         return widget.isDarkMode ? Colors.orangeAccent : Colors.orange.shade800;
-      case 'overweight':
-        return widget.isDarkMode ? Colors.redAccent : Colors.red.shade700;
       default:
         return Colors.grey;
     }
@@ -225,7 +254,7 @@ class _PigProfileCardState extends State<PigProfileCard>
         : widget.accentColor;
 
 
-    final classificationColor = _getClassificationColor(_mlClassification);
+    final classificationColor = _getClassificationColor(_mlStatus);
 
 
     return Container(
@@ -418,7 +447,7 @@ class _PigProfileCardState extends State<PigProfileCard>
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                'Analyzing pig data...',
+                                _uiText('card', 'analyzing'),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: labelColor,
@@ -439,7 +468,7 @@ class _PigProfileCardState extends State<PigProfileCard>
                                   ),
                                   const SizedBox(width: 5),
                                   Text(
-                                    'ML Insight',
+                                    _uiText('card', 'title'),
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,

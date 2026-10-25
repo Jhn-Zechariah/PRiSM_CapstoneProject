@@ -11,6 +11,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
@@ -1356,9 +1357,14 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _loadNextVaccineSchedule() async {
     try {
+      // Only this user's intakes (the query used to read every user's). Filtering by
+      // userId reuses the index firestore_medicine_repo.dart already needs; the
+      // category is then checked here, so no new composite index is required.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
       final snapshot = await FirebaseFirestore.instance
           .collectionGroup('medicine_intakes')
-          .where('category', isEqualTo: 'Vaccine')
+          .where('userId', isEqualTo: uid)
           .get();
 
       DateTime? bestDate;
@@ -1366,6 +1372,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
+        if (data['category'] != 'Vaccine') continue;
         final ts = data['nextSchedule'];
         DateTime? scheduleDate;
         if (ts is Timestamp) {

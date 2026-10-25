@@ -2,9 +2,22 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart'; // Handles user validation credentials
 
+/// Thrown by the assessment calls so screens can tell "rejected input" (422) from
+/// "not allowed" (401/403) and "service down" (null status / 5xx).
+class MlServiceException implements Exception {
+  final int? statusCode;
+  final String message;
+  MlServiceException(this.statusCode, this.message);
+
+  @override
+  String toString() => 'MlServiceException($statusCode): $message';
+}
+
 class MlService {
   // Switch to 'http://127.0.0.1:8000' if you are using ADB USB port forwarding!
-  static const String baseUrl = 'http://192.168.1.130:8000';
+  // Override without editing code: flutter run --dart-define=PRISM_API_URL=http://<pc-ip>:8000
+  static const String baseUrl =
+      String.fromEnvironment('PRISM_API_URL', defaultValue: 'http://127.0.0.1:8000');
   static const Duration _timeout = Duration(seconds: 10);
 
   // Pig results keyed by the inputs that affect them. Futures are cached so
@@ -129,4 +142,42 @@ class MlService {
       );
     }
   }
+
+  // ── Assessment API (prism-ml2.0/app/routes.py). Read-only: no route sends commands. ──
+
+  static Future<Map<String, dynamic>> _authed(String method, String path,
+      [Map<String, dynamic>? body]) async {
+    final token = await _getFirebaseToken();
+    if (token == null) {
+      throw MlServiceException(401, 'Authentication required to use ML analytics.');
+    }
+    final uri = Uri.parse('$baseUrl$path');
+    final headers = {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'};
+    final http.Response res;
+    try {
+      res = method == 'GET'
+          ? await http.get(uri, headers: headers).timeout(_timeout)
+          : await http.post(uri, headers: headers, body: jsonEncode(body ?? const {})).timeout(_timeout);
+    } catch (e) {
+      throw MlServiceException(null, 'Assessment service unreachable');
+    }
+    if (res.statusCode != 200) {
+      throw MlServiceException(res.statusCode, 'Assessment request failed (${res.statusCode})');
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> assessEnvironment(Map<String, dynamic> body) =>
+      _authed('POST', '/assess/environment', body);
+
+  static Future<Map<String, dynamic>> assessPigGrowth(Map<String, dynamic> body) =>
+      _authed('POST', '/assess/pig-growth', body);
+
+  static Future<Map<String, dynamic>> assessPenThermal(Map<String, dynamic> body) =>
+      _authed('POST', '/assess/pen-thermal', body);
+
+  static Future<Map<String, dynamic>> fetchRuleConfig() => _authed('GET', '/config/rules');
+
+  /// Admin-only on the server; the app only displays the result.
+  static Future<Map<String, dynamic>> fetchActiveModel() => _authed('GET', '/models/active');
 }

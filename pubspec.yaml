@@ -63,6 +63,7 @@ flutter:
     - assets/lottie/prism_dark.json
     - assets/LP_darkmode.png
     - assets/LP_lightmode.png
+    - assets/config/assessment_ui.json
 
 flutter_native_splash:
   color: "#ffffff"

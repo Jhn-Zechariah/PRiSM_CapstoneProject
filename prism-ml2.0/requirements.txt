@@ -6,3 +6,5 @@ scikit-learn==1.8.0
 numpy==2.4.4
 pandas==3.0.2
 joblib==1.5.3
+# verifies Firebase ID tokens for the API (app/auth.py); same pin as the repo-root requirements.txt
+firebase_admin==7.4.0

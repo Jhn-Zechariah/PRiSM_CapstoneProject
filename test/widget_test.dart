@@ -21,3 +21,7 @@
 //     expect(find.text('1'), findsOneWidget);
 //   });
 // }
+
+// Placeholder so `flutter test` can load this file; the original counter test above
+// does not apply to this app and stays commented out.
+void main() {}

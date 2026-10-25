@@ -4,3 +4,12 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+
+# exported datasets contain farm data; keep them out of git
+exports/
+# forecast pipeline-test reports are synthetic; never commit them
+reports/forecast/SYNTHETIC-*/
+
+
+# API log file (no tokens/headers are logged)
+logs/

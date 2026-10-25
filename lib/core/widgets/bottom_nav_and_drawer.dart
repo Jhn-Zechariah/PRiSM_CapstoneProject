@@ -23,6 +23,7 @@ import '../../features/pig_management/presentation/pages/pig_profiles.dart';
 import '../../features/auth/presentation/cubits/profile_cubit.dart';
 import '../../features/monitoring/presentation/pages/temperaturemonitoring.dart';
 import '../../features/monitoring/presentation/pages/humiditymonitoring.dart';
+import '../../features/assessment/presentation/pages/assessment_screen.dart';
 
 
 class AppNav extends StatefulWidget {
@@ -176,6 +177,13 @@ class _AppNavState extends State<AppNav> {
                     child: const MyProfile(),
                   ),
                 ),
+              );
+            }),
+            _drawerTile(Icons.insights_outlined, 'Assessments', () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => AssessmentScreen()),
               );
             }),
             _drawerTile(Symbols.barcode_reader, 'IoT Control', () {
