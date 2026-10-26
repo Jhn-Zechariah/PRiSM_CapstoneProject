@@ -1,0 +1,15 @@
+# Runtime dependencies (API on Railway + training). Pinned: a joblib model must be
+# loaded with the same scikit-learn / lightgbm versions it was trained with.
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+numpy==2.5.4
+pandas==3.1.0
+scipy==1.18.1
+scikit-learn==1.9.1
+lightgbm==4.7.0
+joblib==1.6.0
+firebase-admin==7.7.0
+google-cloud-firestore==2.34.1
+PyYAML==6.0.3
+tzdata==2026.5

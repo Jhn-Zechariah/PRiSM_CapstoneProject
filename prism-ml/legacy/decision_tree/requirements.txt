@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+# PIN these to the versions printed at the end of `python -m ml.train`:
+scikit-learn==1.8.0
+numpy==2.4.4
+pandas==3.0.2
+joblib==1.5.3

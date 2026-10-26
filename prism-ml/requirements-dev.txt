@@ -1,0 +1,6 @@
+# Local work: simulation output, real-data export, plots and tests
+-r requirements.txt
+pyarrow==26.0.0
+matplotlib==3.11.2
+pytest==9.1.1
+httpx==0.28.1

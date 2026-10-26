@@ -1,0 +1,253 @@
+# =============================================================================
+# PRISM forecasting model - single source of truth for every range, cutoff and
+# simulator parameter. Nothing range-related is hard-coded in the Python code.
+#
+# Firestore field names used throughout (written by the ESP32, unchanged):
+#   pigBodyTemp      AMG8833 pig SURFACE temperature, deg C (hottest of 64 pixels,
+#                    firmware already applies a -3.11 C calibration offset)
+#   ambientTemp      DHT22 air temperature, deg C
+#   ambientHumidity  DHT22 relative humidity, %
+#   sprinkler        sprinkler ON/OFF (rebuilt from sprinkler_logs for history,
+#                    read from live_sensor/latest for the current state)
+# =============================================================================
+
+project:
+  timezone: Asia/Manila          # Firestore timestamps are UTC; hour-of-day features use local time
+  random_seed: 42
+
+firestore:
+  readings_collection: sensor_readings_seconds   # one doc per 10-second slot, field "timestamp" (Timestamp, UTC)
+  live_collection: live_sensor
+  live_document: latest                          # holds the current "sprinkler" boolean
+  sprinkler_logs_collection: sprinkler_logs      # one doc per finished run: timestamp (start), durationSec, type
+  timestamp_field: timestamp
+
+# -----------------------------------------------------------------------------
+# REFERENCE RANGES
+# -----------------------------------------------------------------------------
+# A. Normal reference ranges (paper / project team).
+#    NOTE: the ESP32 firmware comments state different "normal" values
+#    (pig skin 32-35 C, humidity 50-70 %). The values below are the ones the
+#    team asked us to use; reconcile the firmware comments separately.
+normal_band:
+  ambientTemp:
+    min: 15.6
+    max: 23.9
+    source: "team-provided, citation needed (paper does not cite a source for this range)"
+  ambientHumidity:
+    min: 60.0
+    max: 70.0
+    source: "Kim et al. 2021; Jin et al. 2022; Li et al. 2023"
+  pigBodyTemp:
+    min: 34.0
+    max: 37.0
+    source: "Gomez-Prado et al. 2022; Valavan et al. 2024; Teixeira et al. 2020"
+
+# B. Field-observed ranges from the deployed sensors (real readings so far).
+#    Real readings sit mostly OUTSIDE band A: warmer air, more humid air, and an
+#    AMG8833 that reads LOWER than the 34-37 C literature range (likely sensor
+#    distance and the 8x8 resolution averaging skin with background). This is
+#    kept visible on purpose - see amg8833_reading_bias below and the README.
+observed_band:
+  ambientTemp: {min: 26.0, max: 32.0}
+  ambientHumidity: {min: 67.0, max: 96.0}
+  pigBodyTemp: {min: 27.0, max: 35.0}
+
+# Training envelope = union(normal_band, observed_band) widened by a margin.
+# Tree models cannot predict outside the value range they were trained on, so
+# the API refuses to give a confident answer outside this envelope.
+# pigBodyTemp gets a larger upper margin so the heat-stress readings that the
+# simulator deliberately produces (above the normal band) are still "inside"
+# and can be scored as Needs Attention / High Risk instead of being rejected.
+training_envelope:
+  margin:
+    ambientTemp: {low: 1.0, high: 1.5}
+    ambientHumidity: {low: 3.0, high: 3.0}
+    pigBodyTemp: {low: 1.0, high: 3.0}
+
+# -----------------------------------------------------------------------------
+# SANITY CHECKS
+# -----------------------------------------------------------------------------
+sanity:
+  # Hard physical/sensor-spec limits. Readings outside are marked invalid (NaN).
+  physical_limits:
+    ambientTemp: {min: -40.0, max: 80.0}        # DHT22 spec
+    ambientHumidity: {min: 0.0, max: 100.0}     # DHT22 spec
+    pigBodyTemp: {min: 0.0, max: 80.0}          # AMG8833 measurement range
+  # Warn when more than this fraction of real readings is outside the envelope.
+  max_outside_envelope_fraction: 0.05
+  # API: the live window is "out_of_training_range" when the latest reading is
+  # outside the envelope, or more than this fraction of the window is.
+  api_window_outside_fraction: 0.10
+
+# -----------------------------------------------------------------------------
+# RISK MAPPING (presentation only - the model is a regressor)
+# -----------------------------------------------------------------------------
+# Applied to the predicted AMG8833 pigBodyTemp (the higher of +15 and +30 min).
+#   Good            : value <= needs_attention_above  (= upper limit of normal_band.pigBodyTemp)
+#   Needs Attention : needs_attention_above < value < high_risk_at
+#   High Risk       : value >= high_risk_at
+# KNOWN LIMITATION: the AMG8833 currently reads 27-35 C in the field, so cutoffs
+# based on the 34-37 C literature band may rarely or never trigger on real data.
+# Run analyze_real_data.py and decide on recalibration; do not change silently.
+risk:
+  needs_attention_above: 37.0   # = normal_band.pigBodyTemp.max (literature)
+  high_risk_at: 38.5            # PLACEHOLDER - recalibrate against real data and a reference
+                                # thermometer or observed pig behaviour (panting, lying apart, wallowing)
+  recommendations:
+    Good: "Conditions are expected to stay within the normal range. Continue regular monitoring."
+    Needs Attention: "Pig surface temperature is forecast to rise above the normal range. Check ventilation, water and shade, and consider running the sprinkler."
+    High Risk: "Pig surface temperature is forecast to reach a heat-stress level. Run the sprinkler/cooling now and check the pigs for panting or lethargy."
+    sprinkler_on_suffix: " The sprinkler is currently running."
+  disclaimer: "Forecast to support monitoring decisions only. It does not diagnose disease or replace a veterinarian."
+
+# -----------------------------------------------------------------------------
+# FEATURES / TARGETS
+# -----------------------------------------------------------------------------
+features:
+  resample: 1min
+  interpolate_limit_min: 5       # gaps up to 5 min are interpolated; longer gaps are missing
+  lags_min: [5, 10, 15, 30]
+  rolling_windows_min: [15, 30]
+  minutes_since_spray_cap: 240   # "no spray seen" is encoded as this many minutes
+  horizons_min: [15, 30]
+
+# -----------------------------------------------------------------------------
+# TRAINING
+# -----------------------------------------------------------------------------
+training:
+  split_fractions: {train: 0.70, val: 0.15, test: 0.15}   # by whole days, in time order (synthetic)
+  real_holdout_days: 3          # latest real days frozen as the never-trained-on test block
+  real_val_fraction: 0.20       # of the remaining real days (most recent), for model selection
+  sample_weight_real: 3.0       # --data combined: weight of real rows vs synthetic rows
+  tscv_splits: 3                # TimeSeriesSplit folds used for hyper-parameter tuning
+  min_real_days_phase2: 7
+  min_real_days_phase3: 14
+
+evaluation:
+  noon_peak_hours: [11, 14]     # local hours [start, end) treated as the "noon peak"
+  lead_time_max_min: 60         # look-back window when measuring early-warning lead time
+  lead_time_quiet_min: 30       # actual temp must be below the band this long before a crossing counts
+  lead_time_smooth_min: 5       # crossings are judged on a 5-min rolling mean so sensor noise/spikes don't count
+  lead_time_sustain_min: 10     # ...and the smoothed temp must stay in the band at least this long
+
+# -----------------------------------------------------------------------------
+# API
+# -----------------------------------------------------------------------------
+api:
+  window_min: 60
+  cache_ttl_s: 45               # repeated app requests within this time reuse the last answer
+  stale_after_min: 5            # newest reading older than this -> "stale_data"
+  sprinkler_logs_refresh_s: 300
+  max_docs_per_refresh: 400
+
+export:
+  warn_above_docs: 50000
+  page_size: 1000
+
+# -----------------------------------------------------------------------------
+# SIMULATOR (Phase 1 synthetic bootstrap). Produces the SAME columns as real
+# data; it never produces labels.
+# -----------------------------------------------------------------------------
+simulator:
+  days: 90
+  start_date: "2026-01-05"
+  n_pigs: 3                     # pen of 2-4 pigs; AMG8833 reports the hottest pixel = hottest pig
+
+  # Scenario sampled per simulated day. Ranges are inclusive [low, high] and
+  # sampled uniformly. "cool_normal" follows normal_band (range A); the others
+  # cover the field-observed band (range B).
+  scenario_weights: {cool_normal: 0.30, warm: 0.25, hot: 0.25, cloudy_rainy: 0.20}
+  scenario_persistence: 0.5     # chance a day repeats yesterday's scenario (weather spells)
+  scenarios:
+    cool_normal:
+      t_min: [15.8, 17.5]
+      t_max: [21.5, 23.7]
+      rh_mean: [64.0, 66.0]
+      rh_temp_slope: 0.9          # % RH drop per +1 C above the day mean
+      rh_clip: [60.0, 70.0]
+      bias_regime: paper          # normal days reproduce the literature pig range (34-37 C)
+    warm:
+      t_min: [25.0, 26.8]
+      t_max: [28.5, 30.5]
+      rh_mean: [80.0, 86.0]
+      rh_temp_slope: 2.6
+      rh_clip: [67.0, 96.0]
+      bias_regime: mixed
+    hot:
+      t_min: [26.5, 28.0]
+      t_max: [31.0, 33.2]
+      rh_mean: [74.0, 80.0]
+      rh_temp_slope: 2.6
+      rh_clip: [65.0, 96.0]
+      bias_regime: mixed
+    cloudy_rainy:
+      t_min: [23.0, 25.5]
+      t_max: [26.0, 28.5]
+      rh_mean: [88.0, 92.0]
+      rh_temp_slope: 2.0
+      rh_clip: [75.0, 97.0]
+      bias_regime: mixed
+      rain_events_per_day: 2.0
+      rain_cooling_c: 1.0
+  t_min_hour: [5.0, 6.5]        # local hour of the daily minimum
+  peak_hour: [12.0, 14.5]       # local hour of the daily maximum (noon - early afternoon)
+  ambient_noise_sd: 0.12        # minute-level AR(1) wander of air temp
+  ambient_ar: 0.97
+  humidity_noise_sd: 0.6
+  humidity_ar: 0.95
+
+  pig:
+    base_surface_c: 35.4        # true surface temp at 20 C air and comfortable THI
+    ambient_slope: 0.25         # +C surface per +1 C air
+    thi_reference: 74.0         # THI above this adds extra heat load
+    thi_slope: 0.15             # +C surface per THI unit above thi_reference
+    per_pig_baseline_sd: 0.35   # fixed individual offset per pig
+    individual_sd: 0.15         # AR(1) individual variation (activity, posture)
+    individual_ar: 0.98
+    response_tau_min: 12.0      # first-order time constant of surface temp toward its target
+    true_clip: [30.0, 41.5]
+
+  # AMG8833 READING BIAS - a downward offset of the sensor reading relative to
+  # the true surface temperature (reading = true - bias). It lets the same
+  # physical model produce BOTH the literature-range readings (bias ~ 0) and the
+  # lower field-observed readings (bias ~ 4-5 C). Each simulated day uses one
+  # regime: "paper" days use paper_bias; "mixed" scenarios pick "field" with
+  # probability field_probability, else "paper". A field day draws its bias
+  # uniformly from field_bias [low, high]. TUNE field_bias against real data
+  # later (e.g. median of true-minus-reading from a reference thermometer).
+  amg8833_reading_bias:
+    paper_bias: 0.0
+    field_bias: [4.0, 6.5]
+    field_probability: 0.65
+    day_jitter_sd: 0.3
+
+  # HYPOTHESIS (to verify with real data): the lowest field readings (~27 C)
+  # happen when no pig is in the 8x8 field of view, so the hottest pixel shows
+  # the floor/wall at roughly air temperature + a small offset. Simulated on
+  # field-bias days only.
+  out_of_view:
+    episodes_per_day: 2.0
+    minutes: [10, 45]
+    offset_above_ambient_c: [0.5, 2.5]
+
+  sprinkler:
+    schedule_hours: [10.0, 12.0, 14.0]   # scheduled runs (local) on warm/hot days
+    schedule_on_scenarios: [warm, hot]
+    run_minutes: [3, 5]
+    manual_rate_per_hour_hot: 0.25       # extra manual runs per hour when THI > manual_thi_threshold
+    manual_thi_threshold: 80.0
+    spray_effect_c: 2.5                  # max drop of the surface target while skin is wet
+    wet_decay_tau_min: 15.0              # skin dries / effect fades over several minutes
+    ambient_drop_c: 0.4                  # local air cooling seen by the DHT22 during a run
+    humidity_rise_pct: 4.0
+
+  sensor:
+    pig_noise_sd: 0.15
+    ambient_noise_sd: 0.10
+    humidity_noise_sd: 0.5
+    drift_sd_per_day: 0.05      # slow random-walk drift
+    gaps_per_day: 0.6           # missing-data episodes
+    gap_minutes: [1, 40]
+    spike_probability: 0.0004   # per sensor per minute
+    spike_magnitude: [2.0, 6.0]

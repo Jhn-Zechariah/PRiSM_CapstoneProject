@@ -1,0 +1,9 @@
+venv/
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+models/candidates/
+models/archive/
+# models/current_model.joblib and models/real_holdout.json ARE meant to be committed:
+# Railway builds from the repo, and the hold-out block must be shared by the team.

@@ -64,3 +64,7 @@ prism-firebase-key.json
 
 venv/
 __pycache__/
+
+# Service-account credentials (never commit)
+*firebase-adminsdk*.json
+*firebase*key*.json
