@@ -12,6 +12,7 @@ import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/services/ml_service.dart';
+import '../../../../core/services/sensor_history_store.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 // Fallback only. LiveSensorService updates this from the ESP32's own "ip" field.
@@ -124,6 +125,10 @@ class LiveSensorService {
   static void start() {
     if (_started) return;
     _started = true;
+
+    // Lets the local history sync download readings from the ESP32's SD
+    // card over the LAN, following the address the ESP32 reports.
+    SensorHistoryStore.lanHost = () => esp32Ip;
 
     sensorStatus.addListener(
       () => debugPrint(
@@ -930,7 +935,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _lastActivated = "--";
   String _date = "--";
   String _duration = "--";
-  String _pigStatus = "--";
 
   // ML — start with empty state; card is hidden until sensor is live
   String _mlCondition = "";
@@ -1377,31 +1381,18 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
 
       for (final range in rawRanges) {
-        var cursor = range[0].subtract(const Duration(milliseconds: 1));
+        final rows = await SensorHistoryStore.readings(
+          from: range[0],
+          fromInclusive: true,
+          to: range[1],
+        );
 
-        while (true) {
-          final snap = await db
-              .collection('sensor_readings_seconds')
-              .orderBy('timestamp')
-              .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
-              .where('timestamp', isLessThan: Timestamp.fromDate(range[1]))
-              .limit(1000)
-              .get();
+        for (final d in rows) {
+          final t = (d['pigBodyTemp'] as num?)?.toDouble();
+          if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
 
-          for (final doc in snap.docs) {
-            final d = doc.data();
-            final ts = (d['timestamp'] as Timestamp?)?.toDate();
-            if (ts == null) continue;
-            cursor = ts;
-
-            final t = (d['pigBodyTemp'] as num?)?.toDouble();
-            if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
-
-            final h = (d['ambientHumidity'] as num?)?.toDouble();
-            if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
-          }
-
-          if (snap.docs.length < 1000) break;
+          final h = (d['ambientHumidity'] as num?)?.toDouble();
+          if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
         }
       }
 

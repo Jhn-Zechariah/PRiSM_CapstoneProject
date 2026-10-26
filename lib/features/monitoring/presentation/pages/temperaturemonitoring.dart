@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:prism_app/core/services/sensor_history_store.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
@@ -663,70 +664,47 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       var cursor = queryStart;
 
       // ─────────────────────────────────────────────────────────────
-      // FIRESTORE PAGINATION
-      // Stable query boundary and document pagination.
+      // READINGS
+      // From the phone's local copy (synced from the ESP32 over LAN or
+      // from Firestore once per reading); Firestore only as a fallback.
       // ─────────────────────────────────────────────────────────────
 
-      QueryDocumentSnapshot<Map<String, dynamic>>? lastPageDocument;
+      final rows = await SensorHistoryStore.readings(from: queryStart);
 
-      while (true) {
-        Query<Map<String, dynamic>> query = _db
-            .collection('sensor_readings_seconds')
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(queryStart))
-            .orderBy('timestamp', descending: false)
-            .limit(1000);
+      for (final d in rows) {
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
 
-        if (lastPageDocument != null) {
-          query = query.startAfterDocument(lastPageDocument);
+        if (ts == null) {
+          continue;
         }
 
-        final snap = await query.get();
-
-        for (final doc in snap.docs) {
-          final d = doc.data();
-
-          final ts = (d['timestamp'] as Timestamp?)?.toDate();
-
-          if (ts == null) {
-            continue;
-          }
-
-          if (ts.isAfter(cursor)) {
-            cursor = ts;
-          }
-
-          final raw = d['pigBodyTemp'];
-
-          if (raw == null) {
-            continue;
-          }
-
-          final temp = (raw as num).toDouble();
-          if (d['pigBodyTempValid'] == false || temp < 0 || temp > 80) continue;
-
-          // Exact Today statistics.
-          _addToStats(temp);
-
-          // Today chart point.
-          _minuteBufferToday.add({
-            'x': ts.difference(midnight).inSeconds / 3600.0,
-            'temp': temp,
-            'avg': temp,
-            'min': temp,
-          });
+        if (ts.isAfter(cursor)) {
+          cursor = ts;
         }
 
-        if (snap.docs.isNotEmpty) {
-          lastPageDocument = snap.docs.last;
+        final raw = d['pigBodyTemp'];
+
+        if (raw == null) {
+          continue;
         }
 
-        // Remember the newest timestamp processed.
-        _lastDocTs = cursor;
+        final temp = (raw as num).toDouble();
+        if (d['pigBodyTempValid'] == false || temp < 0 || temp > 80) continue;
 
-        if (snap.docs.length < 1000) {
-          break;
-        }
+        // Exact Today statistics.
+        _addToStats(temp);
+
+        // Today chart point.
+        _minuteBufferToday.add({
+          'x': ts.difference(midnight).inSeconds / 3600.0,
+          'temp': temp,
+          'avg': temp,
+          'min': temp,
+        });
       }
+
+      // Remember the newest timestamp processed.
+      _lastDocTs = cursor;
 
       // ─────────────────────────────────────────────────────────────
       // FULL HISTORY COMPLETED SUCCESSFULLY
@@ -932,7 +910,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     // Keep the graph lightweight while statistics remain exact.
     const int graphBucketCount = 300;
-    const int pageSize = 1000;
 
     final totalMs = end.difference(start).inMilliseconds;
 
@@ -946,96 +923,76 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     final bucketXSum = List<double>.filled(graphBucketCount, 0);
 
-    DateTime cursor = start.subtract(const Duration(milliseconds: 1));
+    final rows = await SensorHistoryStore.readings(
+      from: start,
+      fromInclusive: true,
+      to: end,
+      toInclusive: true,
+    );
 
-    while (true) {
-      final snapshot = await _db
-          .collection('sensor_readings_seconds')
-          .orderBy('timestamp', descending: false)
-          .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
-          .limit(pageSize)
-          .get()
-          .timeout(const Duration(seconds: 20));
+    if (requestId != _rangeRequestId) return [];
 
-      if (requestId != _rangeRequestId) return [];
+    for (final data in rows) {
+      final raw = data['pigBodyTemp'];
+      final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
 
-      if (snapshot.docs.isEmpty) {
-        break;
+      if (timestamp == null) {
+        continue;
       }
 
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-
-        final raw = data['pigBodyTemp'];
-        final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
-
-        if (timestamp == null) {
-          continue;
-        }
-
-        // Always move the cursor forward even if a sensor value
-        // happens to be missing.
-        cursor = timestamp;
-
-        if (raw == null) {
-          continue;
-        }
-
-        if (timestamp.isBefore(start) || timestamp.isAfter(end)) {
-          continue;
-        }
-        final value = (raw as num).toDouble();
-
-        if (data['pigBodyTempValid'] == false || value < 0 || value > 80) {
-          continue;
-        }
-
-        // -----------------------------------------------
-        // EXACT RANGE STATISTICS
-        // -----------------------------------------------
-
-        if (sMax == null || value > sMax) sMax = value;
-        if (sMin == null || value < sMin) sMin = value;
-        sSum += value;
-        sCount++;
-
-        // -----------------------------------------------
-        // GRAPH AGGREGATION
-        // -----------------------------------------------
-
-        final elapsedMs = timestamp.difference(start).inMilliseconds;
-
-        int bucketIndex = ((elapsedMs / totalMs) * graphBucketCount).floor();
-
-        if (bucketIndex < 0) {
-          bucketIndex = 0;
-        }
-
-        if (bucketIndex >= graphBucketCount) {
-          bucketIndex = graphBucketCount - 1;
-        }
-
-        final x = timestamp.difference(start).inSeconds / 3600.0;
-
-        bucketSum[bucketIndex] += value;
-        bucketCount[bucketIndex]++;
-        bucketXSum[bucketIndex] += x;
-
-        final currentMin = bucketMin[bucketIndex];
-        final currentMax = bucketMax[bucketIndex];
-
-        if (currentMin == null || value < currentMin) {
-          bucketMin[bucketIndex] = value;
-        }
-
-        if (currentMax == null || value > currentMax) {
-          bucketMax[bucketIndex] = value;
-        }
+      if (raw == null) {
+        continue;
       }
 
-      if (snapshot.docs.length < pageSize) {
-        break;
+      if (timestamp.isBefore(start) || timestamp.isAfter(end)) {
+        continue;
+      }
+      final value = (raw as num).toDouble();
+
+      if (data['pigBodyTempValid'] == false || value < 0 || value > 80) {
+        continue;
+      }
+
+      // -----------------------------------------------
+      // EXACT RANGE STATISTICS
+      // -----------------------------------------------
+
+      if (sMax == null || value > sMax) sMax = value;
+      if (sMin == null || value < sMin) sMin = value;
+      sSum += value;
+      sCount++;
+
+      // -----------------------------------------------
+      // GRAPH AGGREGATION
+      // -----------------------------------------------
+
+      final elapsedMs = timestamp.difference(start).inMilliseconds;
+
+      int bucketIndex = ((elapsedMs / totalMs) * graphBucketCount).floor();
+
+      if (bucketIndex < 0) {
+        bucketIndex = 0;
+      }
+
+      if (bucketIndex >= graphBucketCount) {
+        bucketIndex = graphBucketCount - 1;
+      }
+
+      final x = timestamp.difference(start).inSeconds / 3600.0;
+
+      bucketSum[bucketIndex] += value;
+      bucketCount[bucketIndex]++;
+      bucketXSum[bucketIndex] += x;
+
+      final currentMin = bucketMin[bucketIndex];
+      final currentMax = bucketMax[bucketIndex];
+
+      if (currentMin == null || value < currentMin) {
+        bucketMin[bucketIndex] = value;
+      }
+
+      if (currentMax == null || value > currentMax) {
+        bucketMax[bucketIndex] = value;
       }
     }
 
@@ -1150,62 +1107,42 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     }
 
     Future<void> loadRaw(DateTime segmentStart, DateTime segmentEnd) async {
-      QueryDocumentSnapshot<Map<String, dynamic>>? lastDocument;
-
       double? localMin;
       double? localMax;
       double localSum = 0;
       int localCount = 0;
       double xSum = 0;
 
-      while (true) {
-        Query<Map<String, dynamic>> query = _db
-            .collection('sensor_readings_seconds')
-            .where(
-              'timestamp',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(segmentStart),
-            )
-            .where('timestamp', isLessThan: Timestamp.fromDate(segmentEnd))
-            .orderBy('timestamp')
-            .limit(1000);
+      final rows = await SensorHistoryStore.readings(
+        from: segmentStart,
+        fromInclusive: true,
+        to: segmentEnd,
+      );
 
-        if (lastDocument != null) {
-          query = query.startAfterDocument(lastDocument);
+      if (requestId != _rangeRequestId) return;
+
+      for (final d in rows) {
+        final ts = (d['timestamp'] as Timestamp?)?.toDate();
+        final raw = d['pigBodyTemp'];
+
+        if (ts == null || raw is! num || d['pigBodyTempValid'] == false) {
+          continue;
         }
 
-        final snap = await query.get().timeout(const Duration(seconds: 30));
+        final value = raw.toDouble();
 
-        if (requestId != _rangeRequestId) return;
-        if (snap.docs.isEmpty) break;
-
-        for (final doc in snap.docs) {
-          final d = doc.data();
-          final ts = (d['timestamp'] as Timestamp?)?.toDate();
-          final raw = d['pigBodyTemp'];
-
-          if (ts == null || raw is! num || d['pigBodyTempValid'] == false) {
-            continue;
-          }
-
-          final value = raw.toDouble();
-
-          if (!value.isFinite || value < 0 || value > 80) {
-            continue;
-          }
-          if (localMin == null || value < localMin) {
-            localMin = value;
-          }
-          if (localMax == null || value > localMax) {
-            localMax = value;
-          }
-          localSum += value;
-          localCount++;
-          xSum += ts.difference(start).inMilliseconds / 3600000.0;
+        if (!value.isFinite || value < 0 || value > 80) {
+          continue;
         }
-
-        lastDocument = snap.docs.last;
-
-        if (snap.docs.length < 1000) break;
+        if (localMin == null || value < localMin) {
+          localMin = value;
+        }
+        if (localMax == null || value > localMax) {
+          localMax = value;
+        }
+        localSum += value;
+        localCount++;
+        xSum += ts.difference(start).inMilliseconds / 3600000.0;
       }
 
       if (localCount > 0 && requestId == _rangeRequestId) {
