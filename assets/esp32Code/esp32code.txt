@@ -10,8 +10,9 @@
  *    - Reads water tank level (HC-SR04 style ultrasonic sensor)
  *    - Controls a sprinkler (solenoid valve + pump) through 2 relays
  *    - Uploads everything to Firebase Firestore (cloud) every 10 seconds
- *    - Also serves the live data on the local network (GET /sensor)
- *      and accepts local sprinkler commands (POST /sprinkler)
+ *    - Also serves the live data on the local network (GET /sensor),
+ *      the SD card history (GET /history) and accepts local sprinkler
+ *      commands (POST /sprinkler)
  *
  *  WIRING SUMMARY
  *    DHT22        -> GPIO 14
@@ -307,6 +308,24 @@ time_t currentSlot = 0;  // epoch seconds of the current 10-second slot
 // for each Firebase push, with their ORIGINAL timestamps.
 // ============================================================================
 #define UPLOAD_BATCH_SIZE 25  // readings uploaded per push
+
+// Each uploaded reading gets an "expireAt" field. A Firestore TTL policy on
+// that field deletes the reading this many days after it was taken, so the
+// cloud keeps only a short window (the SD card keeps everything, and the
+// hourly summaries in sensor_readings_hourly are kept forever).
+#define SECONDS_RETENTION_DAYS 7
+
+// Adds  "expireAt":{"timestampValue":"..."},  for a reading taken at slot.
+void appendExpireAtField(String& body, time_t slot) {
+  time_t exp = slot + (time_t)SECONDS_RETENTION_DAYS * 86400;
+  struct tm utc;
+  gmtime_r(&exp, &utc);
+  char buf[25];
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &utc);
+  body += "\"expireAt\":{\"timestampValue\":\"";
+  body += buf;
+  body += "\"},";
+}
 
 struct PendingReading {
   time_t slot;  // original 10-second timestamp
@@ -1064,6 +1083,123 @@ void enforceSprinklerSafety() {
 }
 
 // ============================================================================
+// LOCAL HISTORY REQUEST  (GET /history?since=<epoch>&limit=<n>)
+// Lets the app download readings straight from the SD card while it is on
+// the same WiFi, so it does not have to read them from Firestore.
+//
+// Returns plain text, one reading per line, oldest first:
+//     slot,pig_skin_c,ambient_c,humidity_pct     (blank = not valid)
+// Only rows with slot > since are sent. The LAST line is "end" when every
+// matching row was sent, or "more" when the limit was reached (ask again
+// with since = the last slot received). A response without that last line
+// was cut off and should be ignored.
+// ============================================================================
+#define HISTORY_MAX_ROWS 2000
+const unsigned long HISTORY_MAX_MS = 1500UL;  // keep the main loop responsive
+
+// Reads the slot of the first valid row that starts at or after pos.
+// Returns -1 if none was found nearby.
+long historySlotAfter(File& f, unsigned long pos) {
+  if (!f.seek(pos)) return -1;
+  if (pos > 0) f.readStringUntil('\n');  // skip the partial line
+  for (int i = 0; i < 20 && f.available(); i++) {
+    String line = f.readStringUntil('\n');
+    long slot = line.toInt();  // first column
+    if (slot >= 100000) return slot;
+  }
+  return -1;
+}
+
+void handleHistoryRequest() {
+  long since = server.hasArg("since") ? server.arg("since").toInt() : 0;
+  long limit = server.hasArg("limit") ? server.arg("limit").toInt() : 1000;
+  if (limit <= 0 || limit > HISTORY_MAX_ROWS) limit = HISTORY_MAX_ROWS;
+
+  Serial.printf("[LAN] GET /history since=%ld limit=%ld from %s\n",
+                since, limit, server.client().remoteIP().toString().c_str());
+
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+
+  if (!sdReady) {
+    server.send(503, "text/plain", "sd not ready");
+    return;
+  }
+
+  File f = SD.open(SD_LOG_FILE, FILE_READ);
+  if (!f) {
+    server.send(503, "text/plain", "sd open failed");
+    return;
+  }
+
+  // Rows are saved in time order, so a binary search finds where
+  // "since" starts without reading the whole file.
+  unsigned long lo = 0;
+  unsigned long hi = f.size();
+  while (hi - lo > 4096) {
+    unsigned long mid = lo + (hi - lo) / 2;
+    long slot = historySlotAfter(f, mid);
+    if (slot >= 0 && slot <= since) lo = mid;
+    else hi = mid;  // newer, or unknown: search the earlier half
+  }
+
+  if (!f.seek(lo)) {
+    f.close();
+    server.send(500, "text/plain", "seek failed");
+    return;
+  }
+  if (lo > 0) f.readStringUntil('\n');  // skip the partial line
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "text/plain", "");
+
+  String chunk;
+  chunk.reserve(1200);
+  long sent = 0;
+  bool more = false;
+  unsigned long t0 = millis();
+
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0) continue;
+
+    // slot,timestamp_utc,pig,ambient,humidity,water,sprinkler
+    int c1 = line.indexOf(',');
+    int c2 = c1 < 0 ? -1 : line.indexOf(',', c1 + 1);
+    int c3 = c2 < 0 ? -1 : line.indexOf(',', c2 + 1);
+    int c4 = c3 < 0 ? -1 : line.indexOf(',', c3 + 1);
+    int c5 = c4 < 0 ? -1 : line.indexOf(',', c4 + 1);
+    if (c5 < 0) continue;  // damaged row
+
+    long slot = line.substring(0, c1).toInt();
+    if (slot < 100000 || slot <= since) continue;  // header / no clock / old
+
+    if (sent >= limit || millis() - t0 > HISTORY_MAX_MS) {
+      more = true;
+      break;
+    }
+
+    chunk += line.substring(0, c1);   // slot
+    chunk += line.substring(c2, c5);  // ,pig,ambient,humidity
+    chunk += '\n';
+    sent++;
+
+    if (chunk.length() > 1000) {
+      server.sendContent(chunk);
+      chunk = "";
+    }
+  }
+  f.close();
+
+  chunk += more ? "more\n" : "end\n";
+  server.sendContent(chunk);
+  server.sendContent("");  // end of chunked response
+
+  Serial.printf("[LAN] /history sent %ld row(s) (%s) in %lu ms\n",
+                sent, more ? "more" : "end", millis() - t0);
+}
+
+// ============================================================================
 // LOCAL SENSOR REQUEST  (GET /sensor)
 // Returns all live values as JSON for the app on the local network.
 // ============================================================================
@@ -1258,6 +1394,8 @@ void pushAllToFirestore() {
       body += "},";
     }
 
+    appendExpireAtField(body, r.slot);
+
     body += "\"timestamp\":{\"timestampValue\":\"";
     body += String(slotTs);
     body += "\"}";
@@ -1282,6 +1420,7 @@ void pushAllToFirestore() {
     if (currentPigSurfaceTempValid) body += "\"pigBodyTemp\":{\"doubleValue\":" + String(lastPigSurfaceTemp, 1) + "},";
     if (currentAmbientTempValid) body += "\"ambientTemp\":{\"doubleValue\":" + String(lastAmbientTemp, 1) + "},";
     if (currentHumidityValid) body += "\"ambientHumidity\":{\"doubleValue\":" + String(lastHumidity, 1) + "},";
+    appendExpireAtField(body, currentSlot);
     body += tsField;
     body += "}}}";
   }
@@ -1900,6 +2039,7 @@ void setup() {
 
   // Local web server routes
   server.on("/sensor", HTTP_GET, handleSensorRequest);
+  server.on("/history", HTTP_GET, handleHistoryRequest);
   server.on("/sprinkler", HTTP_POST, handleSprinklerRequest);
   server.begin();
 
