@@ -1938,19 +1938,21 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         final isDisabled = index != 2;
         return Expanded(
           child: GestureDetector(
-            onTap: isDisabled ? null : () async {
-              setState(() {
-                _selectedTimeRange = index;
-                _clearStatsForRangeSwitch();
-              });
-              if (isCustom) {
-                await _showCustomRangePicker();
-              } else if (index == 2) {
-                unawaited(_syncToday());
-              } else {
-                _loadMinuteChartForRange(index);
-              }
-            },
+            onTap: isDisabled
+                ? null
+                : () async {
+                    setState(() {
+                      _selectedTimeRange = index;
+                      _clearStatsForRangeSwitch();
+                    });
+                    if (isCustom) {
+                      await _showCustomRangePicker();
+                    } else if (index == 2) {
+                      unawaited(_syncToday());
+                    } else {
+                      _loadMinuteChartForRange(index);
+                    }
+                  },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: EdgeInsets.only(
@@ -2233,7 +2235,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          decoration: _bentoCard(isDark, accentColor: const Color(0xFFEF5350)),
+          decoration: _bentoCard(isDark, accentColor: const Color(0xFF43A047)),
           padding: const EdgeInsets.all(12),
           child: SizedBox(
             height: 320,
@@ -3096,8 +3098,8 @@ class _HumidityChartPainter extends CustomPainter {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                const Color(0xFFEF5350).withValues(alpha: 0.85),
-                const Color(0xFFEF5350).withValues(alpha: 0.15),
+                const Color(0xFF43A047).withValues(alpha: 0.85),
+                const Color(0xFF43A047).withValues(alpha: 0.15),
               ],
             ).createShader(
               Rect.fromLTWH(leftPadding, topPadding, chartWidth, chartHeight),
@@ -3107,8 +3109,8 @@ class _HumidityChartPainter extends CustomPainter {
 
     // Line stroke
     final lineColor = isDark
-        ? const Color(0xFFEF9A9A)
-        : const Color(0xFFC62828);
+        ? const Color(0xFFA5D6A7)
+        : const Color(0xFFA5D6A7);
 
     if (rangeStart != null && sampled.isNotEmpty) {
       final bandPaint = Paint()
