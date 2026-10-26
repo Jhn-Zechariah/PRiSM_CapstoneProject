@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
+import 'package:prism_app/features/monitoring/data/today_readings_store.dart';
 
 const List<String> kHumidityTimeRanges = [
   'This Month',
@@ -16,6 +17,15 @@ const List<String> kHumidityTimeRanges = [
 ];
 const int _kHumHourlyMinSpanHours =
     6; // ranges this long or longer use sensor_readings_hourly
+
+// The air temperature line uses a right-hand axis of 0 to this many °C.
+const double _kHumAmbientAxisMax = 50;
+
+// Graph line colors: humidity is teal, air temperature is orange.
+Color _humLineColor(bool isDark) =>
+    isDark ? const Color(0xFF4DB6AC) : const Color(0xFF00897B);
+Color _ambientLineColor(bool isDark) =>
+    isDark ? const Color(0xFFFF8A50) : const Color(0xFFE8622A);
 
 String _humFormatDateTime(DateTime dt) {
   final d = dt.day.toString().padLeft(2, '0');
@@ -173,9 +183,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   static double? _statMin;
   static double _statSum = 0;
   static int _statCount = 0;
+  // Exact running stats for Today's air temperature (DHT22 ambientTemp).
+  static double? _aStatMax;
+  static double? _aStatMin;
+  static double _aStatSum = 0;
+  static int _aStatCount = 0;
   static DateTime _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
   static const String _prefsKey =
-      'hum_today_v2'; // v1 data was approximate, ignore it
+      'hum_today_v3'; // v2 had no air temperature, ignore it
   static DateTime? _lastDocTs; // timestamp of the last document counted
   static bool _syncing = false;
   static bool _fullSyncRunning = false;
@@ -185,6 +200,25 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     _statMin = null;
     _statSum = 0;
     _statCount = 0;
+    _aStatMax = null;
+    _aStatMin = null;
+    _aStatSum = 0;
+    _aStatCount = 0;
+  }
+
+  static void _addToAmbientStats(double a) {
+    if (_aStatMax == null || a > _aStatMax!) _aStatMax = a;
+    if (_aStatMin == null || a < _aStatMin!) _aStatMin = a;
+    _aStatSum += a;
+    _aStatCount++;
+  }
+
+  // Air temperature from a reading, or null when it is missing or invalid.
+  static double? _ambientOf(Map data) {
+    if (data['ambientTempValid'] == false) return null;
+    final a = (data['ambientTemp'] as num?)?.toDouble();
+    if (a == null || !a.isFinite || a <= -40 || a >= 80) return null;
+    return a;
   }
 
   static void _addToStats(double h) {
@@ -192,6 +226,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     if (_statMin == null || h < _statMin!) _statMin = h;
     _statSum += h;
     _statCount++;
+    _raiseSharedMax(h);
+  }
+
+  // Every reading this screen counts also raises the shared max that the
+  // Dashboard shows, right away (not only after a Firestore sync succeeds),
+  // so both always display the same "highest today".
+  static void _raiseSharedMax(double h) {
+    SensorMemory.resetIfNewDay();
+    if (h > SensorMemory.lastHumidityMaxToday) {
+      SensorMemory.lastHumidityMaxDate = SensorMemory.todayKey();
+      SensorMemory.setHumidityMaxToday(h);
+      SensorMemory.save();
+    }
   }
 
   static Future<void> _persistToday() async {
@@ -204,19 +251,22 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       final fullResFrom = _minuteBufferToday.isEmpty
           ? 0.0
           : _minuteBufferToday.last['x']! - 1.0;
+      // [x, humidity] or [x, humidity, airTemp]
+      List<double> row(Map<String, double> p) => [
+        p['x']!,
+        p['humidity']!,
+        if (p['ambient'] != null) p['ambient']!,
+      ];
       for (final p in _minuteBufferToday) {
         final x = p['x']!;
         if (x >= fullResFrom || lastX < 0 || x - lastX >= 30 / 3600.0) {
-          out.add([x, p['humidity']!]);
+          out.add(row(p));
           lastX = x;
         }
       }
       if (_minuteBufferToday.isNotEmpty &&
           _minuteBufferToday.last['x'] != lastX) {
-        out.add([
-          _minuteBufferToday.last['x']!,
-          _minuteBufferToday.last['humidity']!,
-        ]);
+        out.add(row(_minuteBufferToday.last));
       }
       // Build the payload BEFORE any await so stats and lastTs always match.
       final payload = jsonEncode({
@@ -226,6 +276,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         'min': _statMin,
         'sum': _statSum,
         'count': _statCount,
+        'aMax': _aStatMax,
+        'aMin': _aStatMin,
+        'aSum': _aStatSum,
+        'aCount': _aStatCount,
         'lastTs': _lastDocTs?.millisecondsSinceEpoch,
       });
       final prefs = await SharedPreferences.getInstance();
@@ -250,14 +304,20 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         _minuteBufferToday.add({
           'x': (p[0] as num).toDouble(),
           'humidity': (p[1] as num).toDouble(),
+          if ((p as List).length > 2) 'ambient': (p[2] as num).toDouble(),
         });
       }
       _statMax = (m['max'] as num?)?.toDouble();
       _statMin = (m['min'] as num?)?.toDouble();
       _statSum = (m['sum'] as num?)?.toDouble() ?? 0;
       _statCount = (m['count'] as num?)?.toInt() ?? 0;
+      _aStatMax = (m['aMax'] as num?)?.toDouble();
+      _aStatMin = (m['aMin'] as num?)?.toDouble();
+      _aStatSum = (m['aSum'] as num?)?.toDouble() ?? 0;
+      _aStatCount = (m['aCount'] as num?)?.toInt() ?? 0;
       _lastDocTs = DateTime.fromMillisecondsSinceEpoch(lastTs);
       _minuteBufferDayKey = m['day'] as String;
+      if (_statMax != null) _raiseSharedMax(_statMax!);
       return true;
     } catch (e) {
       debugPrint('[Hum restore] failed: $e');
@@ -324,12 +384,21 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   double? _rangeStatMin;
   double _rangeStatSum = 0;
   int _rangeStatCount = 0;
+  // Same for the air temperature.
+  double? _rangeAStatMax;
+  double? _rangeAStatMin;
+  double _rangeAStatSum = 0;
+  int _rangeAStatCount = 0;
 
   void _resetRangeStats() {
     _rangeStatMax = null;
     _rangeStatMin = null;
     _rangeStatSum = 0;
     _rangeStatCount = 0;
+    _rangeAStatMax = null;
+    _rangeAStatMin = null;
+    _rangeAStatSum = 0;
+    _rangeAStatCount = 0;
   }
 
   static bool _humidityCacheIsToday() =>
@@ -345,7 +414,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     if (_currentHumidity == null) return "";
     final h = _currentHumidity!;
 
-    if (h < 60) return "Low";
+    if (h < 50) return "Low";
     if (h <= 70) return "Normal";
     return "High";
   }
@@ -355,7 +424,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
     final h = _currentHumidity!;
 
-    if (h < 60) return Colors.blue;
+    if (h < 50) return Colors.blue;
     if (h <= 70) return Colors.green;
     return Colors.red;
   }
@@ -416,12 +485,30 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   static const double _todayChartPxPerHour = 10800;
   final ScrollController _todayChartScrollController = ScrollController();
   final ScrollController _customChartScrollController = ScrollController();
+  // The air temperature graph has its own scroll views, kept at the same
+  // position as the humidity graph's.
+  final ScrollController _todayTempScrollController = ScrollController();
+  final ScrollController _customTempScrollController = ScrollController();
   bool _hasScrolledChartToNow = false;
+
+  // Scrolling either graph scrolls the other one to the same place.
+  void _linkScroll(ScrollController a, ScrollController b) {
+    void follow(ScrollController from, ScrollController to) {
+      if (!from.hasClients || !to.hasClients) return;
+      final target = from.offset.clamp(0.0, to.position.maxScrollExtent);
+      if ((to.offset - target).abs() > 0.5) to.jumpTo(target);
+    }
+
+    a.addListener(() => follow(a, b));
+    b.addListener(() => follow(b, a));
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _linkScroll(_todayChartScrollController, _todayTempScrollController);
+    _linkScroll(_customChartScrollController, _customTempScrollController);
     _seedLivePointFromLatest(); // show the newest reading right away
     _initData();
     _loadSprinklerState();
@@ -539,9 +626,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     // are ignored.
     if (_livePoints.any((p) => p['ts'] == slotMs)) return;
 
+    final ambient = data == null ? null : _ambientOf(data);
     _livePoints.add({
       'x': slotSec / 3600.0,
       'humidity': humidity,
+      'ambient': ?ambient,
       'ts': slotMs,
     });
   }
@@ -642,6 +731,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         _rangeStatMin = cached['min'] as double?;
         _rangeStatSum = cached['sum'] as double;
         _rangeStatCount = cached['count'] as int;
+        _rangeAStatMax = cached['aMax'] as double?;
+        _rangeAStatMin = cached['aMin'] as double?;
+        _rangeAStatSum = cached['aSum'] as double;
+        _rangeAStatCount = cached['aCount'] as int;
         _minuteCustomLoading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -692,6 +785,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
             'min': _rangeStatMin,
             'sum': _rangeStatSum,
             'count': _rangeStatCount,
+            'aMax': _rangeAStatMax,
+            'aMin': _rangeAStatMin,
+            'aSum': _rangeAStatSum,
+            'aCount': _rangeAStatCount,
           };
         }
       });
@@ -751,6 +848,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
     final bucketXSum = List<double>.filled(graphBucketCount, 0);
 
+    // Air temperature, kept alongside the humidity.
+    double? aMax;
+    double? aMin;
+    double aSum = 0;
+    int aCount = 0;
+    final bucketASum = List<double>.filled(graphBucketCount, 0);
+    final bucketACount = List<int>.filled(graphBucketCount, 0);
+
     DateTime cursor = start.subtract(const Duration(milliseconds: 1));
 
     while (true) {
@@ -781,11 +886,28 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
         cursor = timestamp;
 
-        if (raw == null) {
+        if (timestamp.isBefore(start) || timestamp.isAfter(end)) {
           continue;
         }
 
-        if (timestamp.isBefore(start) || timestamp.isAfter(end)) {
+        final elapsedForBucket = timestamp.difference(start).inMilliseconds;
+        final bucketForAmbient =
+            ((elapsedForBucket / totalMs) * graphBucketCount).floor().clamp(
+              0,
+              graphBucketCount - 1,
+            );
+
+        final ambient = _ambientOf(data);
+        if (ambient != null) {
+          if (aMax == null || ambient > aMax) aMax = ambient;
+          if (aMin == null || ambient < aMin) aMin = ambient;
+          aSum += ambient;
+          aCount++;
+          bucketASum[bucketForAmbient] += ambient;
+          bucketACount[bucketForAmbient]++;
+        }
+
+        if (raw == null) {
           continue;
         }
 
@@ -849,6 +971,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     _rangeStatMin = sMin;
     _rangeStatSum = sSum;
     _rangeStatCount = sCount;
+    _rangeAStatMax = aMax;
+    _rangeAStatMin = aMin;
+    _rangeAStatSum = aSum;
+    _rangeAStatCount = aCount;
 
     final points = <Map<String, double>>[];
 
@@ -868,6 +994,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         'avg': average,
         'min': bucketMin[i]!,
         'max': bucketMax[i]!,
+        if (bucketACount[i] > 0) 'ambient': bucketASum[i] / bucketACount[i],
       });
     }
 
@@ -942,71 +1069,50 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       var cursor = queryStart;
 
       // ─────────────────────────────────────────────────────────────
-      // FIRESTORE PAGINATION
-      // Stable query boundary and document pagination.
+      // TODAY'S READINGS
+      // Shared with the Temperature screen and the Dashboard, so the same
+      // sensor_readings_seconds documents are only downloaded once.
       // ─────────────────────────────────────────────────────────────
 
-      QueryDocumentSnapshot<Map<String, dynamic>>? lastPageDocument;
+      final readings = await TodayReadingsStore.readingsAfter(queryStart);
 
-      while (true) {
-        Query<Map<String, dynamic>> query = _db
-            .collection('sensor_readings_seconds')
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(queryStart))
-            .orderBy('timestamp', descending: false)
-            .limit(1000);
+      for (final r in readings) {
+        final d = r.data;
+        final ts = r.ts;
 
-        if (lastPageDocument != null) {
-          query = query.startAfterDocument(lastPageDocument);
+        if (ts.isAfter(cursor)) {
+          cursor = ts;
         }
 
-        final snap = await query.get();
+        // Air temperature is counted even when humidity is invalid.
+        final ambient = _ambientOf(d);
+        if (ambient != null) _addToAmbientStats(ambient);
 
-        for (final doc in snap.docs) {
-          final d = doc.data();
+        final raw = d['ambientHumidity'];
 
-          final ts = (d['timestamp'] as Timestamp?)?.toDate();
-
-          if (ts == null) {
-            continue;
-          }
-
-          if (ts.isAfter(cursor)) {
-            cursor = ts;
-          }
-
-          final raw = d['ambientHumidity'];
-
-          if (raw == null) {
-            continue;
-          }
-
-          final humidity = (raw as num).toDouble();
-          if (d['ambientHumidityValid'] == false ||
-              humidity <= 0 ||
-              humidity > 100) {
-            continue;
-          }
-
-          // Exact Today statistics.
-          _addToStats(humidity);
-
-          // Today chart point.
-          _minuteBufferToday.add({
-            'x': ts.difference(midnight).inSeconds / 3600.0,
-            'humidity': humidity,
-          });
+        if (raw == null) {
+          continue;
         }
 
-        if (snap.docs.isNotEmpty) {
-          lastPageDocument = snap.docs.last;
+        final humidity = (raw as num).toDouble();
+        if (d['ambientHumidityValid'] == false ||
+            humidity <= 0 ||
+            humidity > 100) {
+          continue;
         }
 
-        _lastDocTs = cursor;
+        // Exact Today statistics.
+        _addToStats(humidity);
 
-        if (snap.docs.length < 1000) {
-          break;
-        }
+        // Today chart point.
+        _minuteBufferToday.add({
+          'x': ts.difference(midnight).inSeconds / 3600.0,
+          'humidity': humidity,
+          'ambient': ?ambient,
+        });
       }
+
+      _lastDocTs = cursor;
 
       // ─────────────────────────────────────────────────────────────
       // FULL HISTORY COMPLETED SUCCESSFULLY
@@ -1020,9 +1126,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       // DASHBOARD MAXIMUM
       // ─────────────────────────────────────────────────────────────
 
-      // Always push the exact max to the Dashboard, even if it is lower
-      // than a stale/spiky stored value.
-      if (_statMax != null && _statMax! != SensorMemory.lastHumidityMaxToday) {
+      // Only raise the shared max. Lowering it here made the Dashboard and
+      // this screen fight: the Dashboard also counts live readings and
+      // hourly summaries that never show up in sensor_readings_seconds.
+      SensorMemory.resetIfNewDay();
+      if (_statMax != null && _statMax! > SensorMemory.lastHumidityMaxToday) {
         SensorMemory.lastHumidityMaxDate = todayKey;
         SensorMemory.setHumidityMaxToday(_statMax!);
         SensorMemory.save();
@@ -1079,14 +1187,37 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     double? overallMax;
     double overallSum = 0;
     int overallCount = 0;
+    double? overallAMin;
+    double? overallAMax;
+    double overallASum = 0;
+    int overallACount = 0;
+
+    // Air temperature summary of one hour (or raw segment).
+    void recordAmbient(
+      double minValue,
+      double maxValue,
+      double sum,
+      int count,
+    ) {
+      if (count <= 0) return;
+      if (overallAMin == null || minValue < overallAMin!) {
+        overallAMin = minValue;
+      }
+      if (overallAMax == null || maxValue > overallAMax!) {
+        overallAMax = maxValue;
+      }
+      overallASum += sum;
+      overallACount += count;
+    }
 
     void record(
       double minValue,
       double maxValue,
       double sum,
       int count,
-      double x,
-    ) {
+      double x, {
+      double? ambientAvg,
+    }) {
       if (count <= 0) return;
 
       if (overallMin == null || minValue < overallMin!) {
@@ -1106,6 +1237,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         'avg': average,
         'min': minValue,
         'max': maxValue,
+        'ambient': ?ambientAvg,
       });
     }
 
@@ -1143,6 +1275,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       double localSum = 0;
       int localCount = 0;
       double xSum = 0;
+      double? localAMin;
+      double? localAMax;
+      double localASum = 0;
+      int localACount = 0;
 
       while (true) {
         Query<Map<String, dynamic>> query = _db
@@ -1169,6 +1305,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           final ts = (d['timestamp'] as Timestamp?)?.toDate();
           final raw = d['ambientHumidity'];
 
+          final ambient = ts == null ? null : _ambientOf(d);
+          if (ambient != null) {
+            if (localAMin == null || ambient < localAMin) localAMin = ambient;
+            if (localAMax == null || ambient > localAMax) localAMax = ambient;
+            localASum += ambient;
+            localACount++;
+          }
+
           if (ts == null || raw is! num || d['ambientHumidityValid'] == false) {
             continue;
           }
@@ -1191,8 +1335,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         lastDocument = snap.docs.last;
         if (snap.docs.length < 1000) break;
       }
-      if (localCount > 0 && requestId == _rangeRequestId) {
-        record(localMin!, localMax!, localSum, localCount, xSum / localCount);
+      if (requestId != _rangeRequestId) return;
+      if (localACount > 0) {
+        recordAmbient(localAMin!, localAMax!, localASum, localACount);
+      }
+      if (localCount > 0) {
+        record(
+          localMin!,
+          localMax!,
+          localSum,
+          localCount,
+          xSum / localCount,
+          ambientAvg: localACount > 0 ? localASum / localACount : null,
+        );
       }
     }
 
@@ -1242,12 +1397,22 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
             ),
           );
 
+          // Air temperature summary written by the ESP32 for the same hour.
+          final aMin = (summary?['tempMin'] as num?)?.toDouble();
+          final aMax = (summary?['tempMax'] as num?)?.toDouble();
+          final aSum = (summary?['tempSum'] as num?)?.toDouble();
+          final aCount = (summary?['tempCount'] as num?)?.toInt() ?? 0;
+          final hasAmbient =
+              aMin != null && aMax != null && aSum != null && aCount > 0;
+          if (hasAmbient) recordAmbient(aMin, aMax, aSum, aCount);
+
           record(
             minValue,
             maxValue,
             sum,
             count,
             midpoint.difference(start).inMilliseconds / 3600000.0,
+            ambientAvg: hasAmbient ? aSum / aCount : null,
           );
         } else {
           await loadRaw(segmentStart, segmentEnd);
@@ -1265,6 +1430,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     _rangeStatMax = overallMax;
     _rangeStatSum = overallSum;
     _rangeStatCount = overallCount;
+    _rangeAStatMin = overallAMin;
+    _rangeAStatMax = overallAMax;
+    _rangeAStatSum = overallASum;
+    _rangeAStatCount = overallACount;
 
     return points;
   }
@@ -1412,6 +1581,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     _todaySyncTimer?.cancel();
     _todayChartScrollController.dispose();
     _customChartScrollController.dispose();
+    _todayTempScrollController.dispose();
+    _customTempScrollController.dispose();
     humidityMaxTodayNotifier.removeListener(_onHumidityMaxNotifierChanged);
     LiveSensorService.latestData.removeListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.removeListener(_onSharedStatusChanged);
@@ -1746,6 +1917,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                 _buildChart(isDark),
                 const SizedBox(height: 16),
                 _buildHumidityReview(isDark),
+                const SizedBox(height: 16),
+                _buildChart(isDark, ambient: true),
+                const SizedBox(height: 16),
+                _buildTemperatureReview(isDark),
                 const SizedBox(height: 24),
               ],
             ),
@@ -1938,19 +2113,21 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         final isDisabled = index != 2;
         return Expanded(
           child: GestureDetector(
-            onTap: isDisabled ? null : () async {
-              setState(() {
-                _selectedTimeRange = index;
-                _clearStatsForRangeSwitch();
-              });
-              if (isCustom) {
-                await _showCustomRangePicker();
-              } else if (index == 2) {
-                unawaited(_syncToday());
-              } else {
-                _loadMinuteChartForRange(index);
-              }
-            },
+            onTap: isDisabled
+                ? null
+                : () async {
+                    setState(() {
+                      _selectedTimeRange = index;
+                      _clearStatsForRangeSwitch();
+                    });
+                    if (isCustom) {
+                      await _showCustomRangePicker();
+                    } else if (index == 2) {
+                      unawaited(_syncToday());
+                    } else {
+                      _loadMinuteChartForRange(index);
+                    }
+                  },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: EdgeInsets.only(
@@ -2088,7 +2265,16 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     });
   }
 
-  Widget _buildChart(bool isDark) {
+  // Air temperature points of the active data (only those that have one).
+  List<Map<String, double>> get _ambientChartData => [
+    for (final p in _activeChartData)
+      if (p['ambient'] != null) {'x': p['x']!, 'ambient': p['ambient']!},
+  ];
+
+  // One graph card. [ambient] draws the air temperature (°C) instead of
+  // the humidity (%). Both graphs cover the same time range and scroll
+  // together (see _linkScroll).
+  Widget _buildChart(bool isDark, {bool ambient = false}) {
     final bool isTodayTab = _selectedTimeRange == 2;
     final bool isCustomTab =
         _selectedTimeRange == 0 ||
@@ -2099,21 +2285,36 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       _customStart,
       _customEnd,
     );
-    // (line removed: Today's width is now computed from the current time)
+
+    final data = ambient ? _ambientChartData : _activeChartData;
+    final valueKey = ambient ? 'ambient' : 'humidity';
+    final lineColor = ambient
+        ? _ambientLineColor(isDark)
+        : _humLineColor(isDark);
+    final yMax = ambient ? _kHumAmbientAxisMax : 100.0;
+    final yStep = ambient ? 5.0 : 10.0;
+    final unit = ambient ? '°C' : '%';
+    final todayController = ambient
+        ? _todayTempScrollController
+        : _todayChartScrollController;
+    final customController = ambient
+        ? _customTempScrollController
+        : _customChartScrollController;
 
     final bool isBusy =
         _isLoading || (_selectedTimeRange != 2 && _minuteCustomLoading);
 
     // The scroll view is destroyed in these cases, so the next time the Today
-    // chart appears it must jump to the latest reading again.
-    if (!isTodayTab || isBusy || _activeChartData.isEmpty) {
+    // chart appears it must jump to the latest reading again. The humidity
+    // graph drives this; the temperature graph follows its scrolling.
+    if (!ambient && (!isTodayTab || isBusy || data.isEmpty)) {
       _hasScrolledChartToNow = false;
     }
 
     Widget chartBody;
     if (isBusy) {
       chartBody = const Center(child: CircularProgressIndicator());
-    } else if (_activeChartData.isEmpty) {
+    } else if (data.isEmpty) {
       chartBody = Center(
         child: Text(
           _selectedTimeRange == 2
@@ -2128,18 +2329,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       // Center the view on the current time once per load, so opening
       // the tab shows "now" instead of midnight — swipe left to page
       // back through the rest of the day.
-      if (!_hasScrolledChartToNow) {
+      if (!ambient && !_hasScrolledChartToNow) {
         _hasScrolledChartToNow = true;
         WidgetsBinding.instance.addPostFrameCallback(
           (_) => _scrollChartToNow(),
         );
       }
-      final todayData = _activeChartData;
       final endHours = _todayEndHours();
       final todayGaps = _humFindGaps(
-        todayData,
+        data,
         gap: _kHumGapHours,
-        tailStart: (todayData.length - _kHumTail).clamp(0, todayData.length),
+        tailStart: (data.length - _kHumTail).clamp(0, data.length),
       );
       final endMapped = _humCompressX(endHours, todayGaps, _kHumBlankHours);
       final todayWidth = _todayCanvasWidth(endMapped);
@@ -2148,13 +2348,18 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         children: [
           ClipRect(
             child: SingleChildScrollView(
-              controller: _todayChartScrollController,
+              controller: todayController,
               scrollDirection: Axis.horizontal,
               child: RepaintBoundary(
                 child: CustomPaint(
                   painter: _HumidityChartPainter(
-                    data: List.from(todayData),
+                    data: List.from(data),
                     isDark: isDark,
+                    color: lineColor,
+                    valueKey: valueKey,
+                    yMax: yMax,
+                    yStep: yStep,
+                    unit: unit,
                     xDomainMin: 0,
                     xDomainMax: endHours, // 12:00 AM -> now
                     showYAxisLabels: false,
@@ -2168,9 +2373,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               ),
             ),
           ),
-          // Fixed overlay so the 0/25/50/75/100% labels stay visible on
-          // the right edge of the card while the chart itself scrolls.
-          Positioned.fill(child: _buildFixedYAxisLabels(isDark)),
+          // Fixed overlay so the axis labels stay visible on the left edge
+          // of the card while the chart itself scrolls.
+          Positioned.fill(
+            child: _buildFixedYAxisLabels(isDark, yMax, yStep, unit),
+          ),
         ],
       );
     } else if (isCustomTab) {
@@ -2189,13 +2396,18 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         children: [
           ClipRect(
             child: SingleChildScrollView(
-              controller: _customChartScrollController,
+              controller: customController,
               scrollDirection: Axis.horizontal,
               child: RepaintBoundary(
                 child: CustomPaint(
                   painter: _HumidityChartPainter(
-                    data: List.from(_activeChartData),
+                    data: List.from(data),
                     isDark: isDark,
+                    color: lineColor,
+                    valueKey: valueKey,
+                    yMax: yMax,
+                    yStep: yStep,
+                    unit: unit,
                     xDomainMin: 0,
                     xDomainMax: spanHours,
                     rangeStart: chartRange.start,
@@ -2212,7 +2424,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               ),
             ),
           ),
-          Positioned.fill(child: _buildFixedYAxisLabels(isDark)),
+          Positioned.fill(
+            child: _buildFixedYAxisLabels(isDark, yMax, yStep, unit),
+          ),
         ],
       );
     } else {
@@ -2220,8 +2434,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         child: RepaintBoundary(
           child: CustomPaint(
             painter: _HumidityChartPainter(
-              data: List.from(_activeChartData),
+              data: List.from(data),
               isDark: isDark,
+              color: lineColor,
+              valueKey: valueKey,
+              yMax: yMax,
+              yStep: yStep,
+              unit: unit,
             ),
             child: const SizedBox(height: 320, width: double.infinity),
           ),
@@ -2229,27 +2448,46 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: _bentoCard(isDark, accentColor: const Color(0xFFEF5350)),
-          padding: const EdgeInsets.all(12),
-          child: SizedBox(
-            height: 320,
-            width: double.infinity,
-            child: chartBody,
+    return Container(
+      decoration: _bentoCard(isDark, accentColor: lineColor),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                ambient ? Icons.thermostat_outlined : Icons.water_drop_outlined,
+                color: lineColor,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                ambient ? 'Ambient Temperature (°C)' : 'Ambient Humidity (%)',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _textPrimary(isDark),
+                ),
+              ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          SizedBox(height: 320, width: double.infinity, child: chartBody),
+        ],
+      ),
     );
   }
 
-  // Renders the Y-axis percentage labels as a fixed overlay pinned to
-  // the right edge of the chart card. Used only for the Today tab, whose
-  // chart canvas scrolls horizontally — without this, the labels would
-  // scroll away with the rest of the painted content.
-  Widget _buildFixedYAxisLabels(bool isDark) {
+  // Renders the Y-axis labels as a fixed overlay pinned to the left edge of
+  // the chart card. Used for the scrolling charts — without this, the
+  // labels would scroll away with the rest of the painted content.
+  Widget _buildFixedYAxisLabels(
+    bool isDark,
+    double yMax,
+    double yStep,
+    String unit,
+  ) {
     const double topPadding = 8;
     const double bottomPadding = 44;
     const double chartHeight = 320 - topPadding - bottomPadding;
@@ -2258,12 +2496,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       fontSize: 10,
       fontWeight: FontWeight.w500,
     );
+    final steps = [for (double v = 0; v <= yMax + 1e-9; v += yStep) v];
     return IgnorePointer(
       child: Stack(
-        children: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((v) {
-          final y = topPadding + chartHeight - (v / 100) * chartHeight;
+        children: steps.map((v) {
+          final y = topPadding + chartHeight - (v / yMax) * chartHeight;
           return Positioned(
-            // 0% sits just above the baseline so it never covers the
+            // 0 sits just above the baseline so it never covers the
             // first date/time label
             top: v == 0 ? y - 18 : y - 8,
             left: 0,
@@ -2274,7 +2513,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                     .withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: Text('$v%', style: labelStyle),
+              child: Text('${v.round()}$unit', style: labelStyle),
             ),
           );
         }).toList(),
@@ -2290,7 +2529,13 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
     if (_selectedTimeRange == 2) {
       if (_statCount > 0 && !_fullSyncRunning) {
-        maxLabel = _statMax;
+        // Show exactly the value the Dashboard shows. Every reading counted
+        // here has already raised it (see _raiseSharedMax).
+        final shared =
+            SensorMemory.lastHumidityMaxDate == SensorMemory.todayKey()
+            ? SensorMemory.lastHumidityMaxToday
+            : 0.0;
+        maxLabel = shared > 0 ? shared : _statMax;
         minLabel = _statMin;
         avgLabel = _statSum / _statCount;
       }
@@ -2312,9 +2557,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         ? '${maxLabel.toStringAsFixed(1)}%'
         : '--';
 
+    // Same header style as the Temperature Review, in the humidity color.
+    final humidityColor = _humLineColor(isDark);
+
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: _bentoCard(isDark, accentColor: const Color(0xFF1B3A4B)),
+      decoration: _bentoCard(isDark, accentColor: const Color(0xFF00897B)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2323,12 +2571,12 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1B3A4B).withValues(alpha: 0.12),
+                  color: humidityColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   Icons.water_drop_outlined,
-                  color: isDark ? Colors.white70 : const Color(0xFF1B3A4B),
+                  color: humidityColor,
                   size: 18,
                 ),
               ),
@@ -2366,11 +2614,109 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
             ),
           ),
           const SizedBox(height: 10),
-          Text(
-            _selectedTimeRange == 2
-                ? 'Based on $_statCount readings'
-                : 'Based on $_rangeStatCount readings',
-            style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
+          _buildReviewFooter(
+            'Ambient Humidity',
+            _selectedTimeRange == 2 ? _statCount : _rangeStatCount,
+            isDark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // e.g. "Ambient Humidity (1,234 readings)": how many readings the stats
+  // above come from.
+  Widget _buildReviewFooter(String sensor, int readings, bool isDark) {
+    final count = readings.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => ',',
+    );
+    return Text(
+      '$sensor ($count readings)',
+      style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
+    );
+  }
+
+  // Air temperature (DHT22) for the selected range, laid out like the
+  // Humidity Review.
+  Widget _buildTemperatureReview(bool isDark) {
+    double? avgLabel;
+    double? minLabel;
+    double? maxLabel;
+
+    if (_selectedTimeRange == 2) {
+      if (_aStatCount > 0 && !_fullSyncRunning) {
+        maxLabel = _aStatMax;
+        minLabel = _aStatMin;
+        avgLabel = _aStatSum / _aStatCount;
+      }
+    } else if (_rangeAStatCount > 0) {
+      maxLabel = _rangeAStatMax;
+      minLabel = _rangeAStatMin;
+      avgLabel = _rangeAStatSum / _rangeAStatCount;
+    }
+
+    String show(double? v) => v != null ? '${v.toStringAsFixed(1)}°C' : '--';
+    final ambientColor = _ambientLineColor(isDark);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: _bentoCard(isDark, accentColor: const Color(0xFFE8622A)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: ambientColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.thermostat_outlined,
+                  color: ambientColor,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Temperature Review',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: _textPrimary(isDark),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          IntrinsicHeight(
+            child: Row(
+              children: [
+                _buildReviewStat(
+                  'Average',
+                  show(avgLabel),
+                  const Color(0xFFE8622A),
+                  isDark,
+                ),
+                VerticalDivider(color: _dividerColor(isDark), thickness: 1),
+                _buildReviewStat(
+                  'Lowest',
+                  show(minLabel),
+                  const Color(0xFF1B3A4B),
+                  isDark,
+                ),
+                VerticalDivider(color: _dividerColor(isDark), thickness: 1),
+                _buildReviewStat('Highest', show(maxLabel), Colors.red, isDark),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          _buildReviewFooter(
+            'Ambient Temperature',
+            _selectedTimeRange == 2 ? _aStatCount : _rangeAStatCount,
+            isDark,
           ),
         ],
       ),
@@ -2731,9 +3077,18 @@ class _HumidityChartPainter extends CustomPainter {
   final double? gapHours;
   // A broken stretch is drawn only this wide (hours), however long it lasted.
   final double? gapBlankHours;
+  // Which value of each point is drawn ('humidity' or 'ambient'), its
+  // y-axis range, grid step, unit label and line color.
+  final String valueKey;
+  static const double yMin = 0;
+  final double yMax;
+  final double yStep;
+  final String unit;
+  final Color color;
 
   _HumidityChartPainter({
     required this.data,
+    required this.color,
     this.isDark = false,
     this.xDomainMin,
     this.xDomainMax,
@@ -2743,7 +3098,19 @@ class _HumidityChartPainter extends CustomPainter {
     this.dotTailCount = 0,
     this.gapHours,
     this.gapBlankHours,
+    this.valueKey = 'humidity',
+    this.yMax = 100,
+    this.yStep = 10,
+    this.unit = '%',
   });
+
+  // Axis values from yMin to yMax, one per grid step.
+  List<double> get _ySteps => [
+    for (double v = yMin; v <= yMax + 1e-9; v += yStep) v,
+  ];
+
+  String _yLabel(double v) =>
+      '${v == v.roundToDouble() ? v.round() : v.toStringAsFixed(1)}$unit';
 
   String _rangeLabel(DateTime dt, bool withTime) {
     final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
@@ -2831,9 +3198,6 @@ class _HumidityChartPainter extends CustomPainter {
     final double chartHeight = size.height - bottomPadding - topPadding;
     if (chartWidth <= 0 || chartHeight <= 0) return;
 
-    const double yMin = 0.0;
-    const double yMax = 100.0;
-
     // Gaps (connection lost) found in the raw data.
     final gapTailStart = data.length - rawTailCount.clamp(0, data.length);
     final gaps = gapHours == null
@@ -2859,10 +3223,10 @@ class _HumidityChartPainter extends CustomPainter {
           ((mapH(sampled[index.round()]['x']!) - minX) / span) * chartWidth;
     }
 
-    double getY(double hum) =>
+    double getY(double value) =>
         topPadding +
         chartHeight -
-        ((hum.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
+        ((value.clamp(yMin, yMax) - yMin) / (yMax - yMin)) * chartHeight;
 
     final gridPaint = Paint()
       ..color = isDark
@@ -2870,8 +3234,8 @@ class _HumidityChartPainter extends CustomPainter {
           : Colors.grey.shade100
       ..strokeWidth = 0.8;
 
-    for (final step in [10, 20, 30, 40, 50, 60, 70, 80, 90]) {
-      final y = getY(step.toDouble());
+    for (final step in _ySteps.skip(1).take(_ySteps.length - 2)) {
+      final y = getY(step);
       canvas.drawLine(
         Offset(leftPadding, y),
         Offset(size.width - rightPadding, y),
@@ -2895,17 +3259,14 @@ class _HumidityChartPainter extends CustomPainter {
         color: isDark ? Colors.white54 : Colors.grey.shade500,
         fontSize: 10,
       );
-      for (final v in [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]) {
+      for (final v in _ySteps) {
         final tp = TextPainter(
-          text: TextSpan(text: '$v%', style: labelStyle),
+          text: TextSpan(text: _yLabel(v), style: labelStyle),
           textDirection: TextDirection.ltr,
         )..layout();
         tp.paint(
           canvas,
-          Offset(
-            leftPadding - 6 - tp.width,
-            getY(v.toDouble()) - tp.height / 2,
-          ),
+          Offset(leftPadding - 6 - tp.width, getY(v) - tp.height / 2),
         );
       }
     }
@@ -3052,7 +3413,7 @@ class _HumidityChartPainter extends CustomPainter {
 
       segmentStarts.add(sampled.length);
       sampled.addAll([
-        ..._sampleData(segHead, segTarget, 'humidity'),
+        ..._sampleData(segHead, segTarget, valueKey),
         ...segTail,
       ]);
       offset += seg.length;
@@ -3070,7 +3431,7 @@ class _HumidityChartPainter extends CustomPainter {
 
     for (int i = 0; i < sampled.length; i++) {
       final x = getX(i.toDouble(), totalPoints);
-      final y = getY(sampled[i]['humidity']!);
+      final y = getY(sampled[i][valueKey]!);
       if (x.isNaN || y.isNaN) continue;
 
       if (segmentStarts.contains(i)) {
@@ -3087,6 +3448,8 @@ class _HumidityChartPainter extends CustomPainter {
     }
     closeFill(sampled.length - 1);
 
+    final lineColor = color;
+
     // Gradient fill
     canvas.drawPath(
       fillPath,
@@ -3096,8 +3459,8 @@ class _HumidityChartPainter extends CustomPainter {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                const Color(0xFFEF5350).withValues(alpha: 0.85),
-                const Color(0xFFEF5350).withValues(alpha: 0.15),
+                lineColor.withValues(alpha: 0.25),
+                lineColor.withValues(alpha: 0.0),
               ],
             ).createShader(
               Rect.fromLTWH(leftPadding, topPadding, chartWidth, chartHeight),
@@ -3105,14 +3468,9 @@ class _HumidityChartPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // Line stroke
-    final lineColor = isDark
-        ? const Color(0xFFEF9A9A)
-        : const Color(0xFFC62828);
-
     if (rangeStart != null && sampled.isNotEmpty) {
       final bandPaint = Paint()
-        ..color = lineColor.withValues(alpha: 0.2)
+        ..color = lineColor.withValues(alpha: 0.15)
         ..style = PaintingStyle.fill;
       int s = 0;
       while (s < sampled.length) {
@@ -3123,7 +3481,7 @@ class _HumidityChartPainter extends CustomPainter {
         final band = Path();
         for (int i = s; i < e; i++) {
           final bx = getX(i.toDouble(), totalPoints);
-          final by = getY(sampled[i]['max'] ?? sampled[i]['humidity']!);
+          final by = getY(sampled[i]['max'] ?? sampled[i][valueKey]!);
           if (i == s) {
             band.moveTo(bx, by);
           } else {
@@ -3133,7 +3491,7 @@ class _HumidityChartPainter extends CustomPainter {
         for (int i = e - 1; i >= s; i--) {
           band.lineTo(
             getX(i.toDouble(), totalPoints),
-            getY(sampled[i]['min'] ?? sampled[i]['humidity']!),
+            getY(sampled[i]['min'] ?? sampled[i][valueKey]!),
           );
         }
         band.close();
@@ -3191,7 +3549,7 @@ class _HumidityChartPainter extends CustomPainter {
     if (sampled.length <= 20) {
       for (int i = 0; i < sampled.length; i++) {
         final dx = getX(i.toDouble(), totalPoints);
-        final dy = getY(sampled[i]['humidity']!);
+        final dy = getY(sampled[i][valueKey]!);
 
         if (dx.isNaN || dy.isNaN) continue;
 
@@ -3202,7 +3560,7 @@ class _HumidityChartPainter extends CustomPainter {
     } else {
       for (int i = sampled.length - dots; i < sampled.length - 1; i++) {
         final ddx = getX(i.toDouble(), totalPoints);
-        final ddy = getY(sampled[i]['humidity']!);
+        final ddy = getY(sampled[i][valueKey]!);
 
         if (ddx.isNaN || ddy.isNaN) continue;
 
@@ -3214,7 +3572,7 @@ class _HumidityChartPainter extends CustomPainter {
       // Highlight newest reading.
       final lastIdx = sampled.length - 1;
       final dx = getX(lastIdx.toDouble(), totalPoints);
-      final dy = getY(sampled[lastIdx]['humidity']!);
+      final dy = getY(sampled[lastIdx][valueKey]!);
 
       if (!dx.isNaN && !dy.isNaN) {
         canvas.drawCircle(

@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
+import 'package:prism_app/features/monitoring/data/today_readings_store.dart';
 
 const List<String> kTimeRanges = ['This Month', 'This Week', 'Today', 'Custom'];
 const int _kHourlyMinSpanHours =
@@ -185,6 +186,19 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     if (_statMin == null || t < _statMin!) _statMin = t;
     _statSum += t;
     _statCount++;
+    _raiseSharedMax(t);
+  }
+
+  // Every reading this screen counts also raises the shared max that the
+  // Dashboard shows, right away (not only after a Firestore sync succeeds),
+  // so both always display the same "highest today".
+  static void _raiseSharedMax(double t) {
+    SensorMemory.resetIfNewDay();
+    if (t > SensorMemory.lastTempMaxToday) {
+      SensorMemory.lastTempMaxDate = SensorMemory.todayKey();
+      SensorMemory.setTempMaxToday(t);
+      SensorMemory.save();
+    }
   }
 
   static Future<void> _persistToday() async {
@@ -252,6 +266,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       _statCount = (m['count'] as num?)?.toInt() ?? 0;
       _lastDocTs = DateTime.fromMillisecondsSinceEpoch(lastTs);
       _minuteBufferDayKey = m['day'] as String;
+      if (_statMax != null) _raiseSharedMax(_statMax!);
       return true;
     } catch (e) {
       debugPrint('[Temp restore] failed: $e');
@@ -342,8 +357,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     if (_currentTemp == null) return "";
     final t = _currentTemp!;
 
-    if (t < 38.7) return "Low";
-    if (t <= 39.8) return "Normal";
+    if (t < 32.0) return "Low";
+    if (t <= 35.0) return "Normal";
     return "High";
   }
 
@@ -352,8 +367,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     final t = _currentTemp!;
 
-    if (t < 38.7) return Colors.blue;
-    if (t <= 39.8) return Colors.green;
+    if (t < 32.0) return Colors.blue;
+    if (t <= 35.0) return Colors.green;
     return Colors.red;
   }
 
@@ -399,7 +414,13 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   // derive from whatever's in _minuteBufferCustom.
   double? get _activeDisplayMax {
     if (_selectedTimeRange == 2) {
-      return (_statCount > 0 && !_fullSyncRunning) ? _statMax : null;
+      if (_statCount == 0 || _fullSyncRunning) return null;
+      // Show exactly the value the Dashboard shows. Every reading counted
+      // here has already raised it (see _raiseSharedMax).
+      final shared = SensorMemory.lastTempMaxDate == SensorMemory.todayKey()
+          ? SensorMemory.lastTempMaxToday
+          : 0.0;
+      return shared > 0 ? shared : _statMax;
     }
 
     return _rangeStatCount > 0 ? _rangeStatMax : null;
@@ -663,70 +684,44 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       var cursor = queryStart;
 
       // ─────────────────────────────────────────────────────────────
-      // FIRESTORE PAGINATION
-      // Stable query boundary and document pagination.
+      // TODAY'S READINGS
+      // Shared with the Humidity screen and the Dashboard, so the same
+      // sensor_readings_seconds documents are only downloaded once.
       // ─────────────────────────────────────────────────────────────
 
-      QueryDocumentSnapshot<Map<String, dynamic>>? lastPageDocument;
+      final readings = await TodayReadingsStore.readingsAfter(queryStart);
 
-      while (true) {
-        Query<Map<String, dynamic>> query = _db
-            .collection('sensor_readings_seconds')
-            .where('timestamp', isGreaterThan: Timestamp.fromDate(queryStart))
-            .orderBy('timestamp', descending: false)
-            .limit(1000);
+      for (final r in readings) {
+        final d = r.data;
+        final ts = r.ts;
 
-        if (lastPageDocument != null) {
-          query = query.startAfterDocument(lastPageDocument);
+        if (ts.isAfter(cursor)) {
+          cursor = ts;
         }
 
-        final snap = await query.get();
+        final raw = d['pigBodyTemp'];
 
-        for (final doc in snap.docs) {
-          final d = doc.data();
-
-          final ts = (d['timestamp'] as Timestamp?)?.toDate();
-
-          if (ts == null) {
-            continue;
-          }
-
-          if (ts.isAfter(cursor)) {
-            cursor = ts;
-          }
-
-          final raw = d['pigBodyTemp'];
-
-          if (raw == null) {
-            continue;
-          }
-
-          final temp = (raw as num).toDouble();
-          if (d['pigBodyTempValid'] == false || temp < 0 || temp > 80) continue;
-
-          // Exact Today statistics.
-          _addToStats(temp);
-
-          // Today chart point.
-          _minuteBufferToday.add({
-            'x': ts.difference(midnight).inSeconds / 3600.0,
-            'temp': temp,
-            'avg': temp,
-            'min': temp,
-          });
+        if (raw == null) {
+          continue;
         }
 
-        if (snap.docs.isNotEmpty) {
-          lastPageDocument = snap.docs.last;
-        }
+        final temp = (raw as num).toDouble();
+        if (d['pigBodyTempValid'] == false || temp < 0 || temp > 80) continue;
 
-        // Remember the newest timestamp processed.
-        _lastDocTs = cursor;
+        // Exact Today statistics.
+        _addToStats(temp);
 
-        if (snap.docs.length < 1000) {
-          break;
-        }
+        // Today chart point.
+        _minuteBufferToday.add({
+          'x': ts.difference(midnight).inSeconds / 3600.0,
+          'temp': temp,
+          'avg': temp,
+          'min': temp,
+        });
       }
+
+      // Remember the newest timestamp processed.
+      _lastDocTs = cursor;
 
       // ─────────────────────────────────────────────────────────────
       // FULL HISTORY COMPLETED SUCCESSFULLY
@@ -740,9 +735,11 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       // DASHBOARD MAXIMUM
       // ─────────────────────────────────────────────────────────────
 
-      // Always push the exact max to the Dashboard, even if it is lower
-      // than a stale/spiky stored value.
-      if (_statMax != null && _statMax! != SensorMemory.lastTempMaxToday) {
+      // Only raise the shared max. Lowering it here made the Dashboard and
+      // this screen fight: the Dashboard also counts live readings and
+      // hourly summaries that never show up in sensor_readings_seconds.
+      SensorMemory.resetIfNewDay();
+      if (_statMax != null && _statMax! > SensorMemory.lastTempMaxToday) {
         SensorMemory.lastTempMaxDate = todayKey;
         SensorMemory.setTempMaxToday(_statMax!);
         SensorMemory.save();
@@ -2285,12 +2282,35 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          decoration: _bentoCard(isDark, accentColor: Colors.green),
+          decoration: _bentoCard(isDark, accentColor: const Color(0xFFE8622A)),
           padding: const EdgeInsets.all(12),
-          child: SizedBox(
-            height: 320,
-            width: double.infinity,
-            child: chartBody,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Graph title, same style as the graphs on the Humidity screen.
+              Row(
+                children: [
+                  Icon(
+                    Icons.thermostat_outlined,
+                    color: isDark
+                        ? const Color(0xFFFF8A50)
+                        : const Color(0xFFE8622A),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Body Temperature (°C)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _textPrimary(isDark),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(height: 320, width: double.infinity, child: chartBody),
+            ],
           ),
         ),
       ],
@@ -2348,9 +2368,14 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         ? '${_activeDisplayMax!.toStringAsFixed(1)}°C'
         : '--';
 
+    // Same header style as the Temperature Review on the Humidity screen.
+    final reviewIconColor = isDark
+        ? const Color(0xFFFF8A50)
+        : const Color(0xFFE8622A);
+
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: _bentoCard(isDark, accentColor: const Color(0xFF1B3A4B)),
+      decoration: _bentoCard(isDark, accentColor: const Color(0xFFE8622A)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2359,12 +2384,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1B3A4B).withValues(alpha: 0.12),
+                  color: reviewIconColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
-                  Icons.thermostat,
-                  color: isDark ? Colors.white70 : const Color(0xFF1B3A4B),
+                  Icons.thermostat_outlined,
+                  color: reviewIconColor,
                   size: 18,
                 ),
               ),
@@ -2402,14 +2427,26 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
             ),
           ),
           const SizedBox(height: 10),
-          Text(
-            _selectedTimeRange == 2
-                ? 'Based on $_statCount readings'
-                : 'Based on $_rangeStatCount readings',
-            style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
+          _buildReviewFooter(
+            'Pig Body Temperature',
+            _selectedTimeRange == 2 ? _statCount : _rangeStatCount,
+            isDark,
           ),
         ],
       ),
+    );
+  }
+
+  // e.g. "Pig Body Temperature (1,234 readings)": how many readings the
+  // stats above come from.
+  Widget _buildReviewFooter(String sensor, int readings, bool isDark) {
+    final count = readings.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => ',',
+    );
+    return Text(
+      '$sensor ($count readings)',
+      style: TextStyle(fontSize: 11, color: _textSecondary(isDark)),
     );
   }
 
@@ -3121,6 +3158,12 @@ class _TemperatureChartPainter extends CustomPainter {
     }
     closeFill(sampled.length - 1);
 
+    // One color for the whole graph: the app's orange. A lighter shade in
+    // dark mode keeps the line visible on the dark background.
+    final lineColor = isDark
+        ? const Color(0xFFFF8A50)
+        : const Color(0xFFE8622A);
+
     canvas.drawPath(
       fillPath,
       Paint()
@@ -3129,8 +3172,8 @@ class _TemperatureChartPainter extends CustomPainter {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                const Color(0xFF4CAF50).withValues(alpha: 0.85),
-                const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                lineColor.withValues(alpha: 0.25),
+                lineColor.withValues(alpha: 0.0),
               ],
             ).createShader(
               Rect.fromLTWH(leftPadding, topPadding, chartWidth, chartHeight),
@@ -3138,13 +3181,9 @@ class _TemperatureChartPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    final lineColor = isDark
-        ? const Color(0xFF66BB6A)
-        : const Color(0xFF2E7D32);
-
     if (rangeStart != null && sampled.isNotEmpty) {
       final bandPaint = Paint()
-        ..color = lineColor.withValues(alpha: 0.2)
+        ..color = lineColor.withValues(alpha: 0.15)
         ..style = PaintingStyle.fill;
       int s = 0;
       while (s < sampled.length) {

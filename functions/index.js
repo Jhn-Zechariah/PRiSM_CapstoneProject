@@ -299,6 +299,87 @@ exports.dailyIntakeScheduleCheck = onSchedule({
  * once the reading drops back under the threshold, re-arming the alert
  * for the next breach.
  */
+const IOT_ADMINS_CACHE_MS = 60 * 1000;
+let iotAdminsCache = null; // { fetchedAt, admins: [{ id, ref, data }] }
+
+/**
+ * Admins with IoT alerts on, cached per function instance for one minute.
+ * The app always writes isIotEnabled together with the thresholds.
+ */
+async function getIotAdmins(firestore) {
+    const now = Date.now();
+    if (iotAdminsCache && now - iotAdminsCache.fetchedAt < IOT_ADMINS_CACHE_MS) {
+        return iotAdminsCache.admins;
+    }
+    const snapshot = await firestore
+        .collection("admins")
+        .where("iotThresholds.isIotEnabled", "==", true)
+        .get();
+    iotAdminsCache = {
+        fetchedAt: now,
+        admins: snapshot.docs.map((d) => ({ id: d.id, ref: d.ref, data: d.data() })),
+    };
+    return iotAdminsCache.admins;
+}
+
+/**
+ * Compares one live reading with an admin's thresholds. Returns null when
+ * the admin should not be alerted at all, otherwise the alert-state
+ * updates to write and the breach messages to send.
+ */
+function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
+    const thresholds = userData.iotThresholds;
+    if (!thresholds || thresholds.isIotEnabled === false) return null;
+
+    const prefs = userData.notificationPreferences || {};
+    if (prefs.isNotifEnabled === false) return null;
+    if (!userData.fcmToken) return null;
+
+    const alertState = userData.iotAlertState || {};
+    const updates = {};
+    const breaches = [];
+
+    // --- Temperature check ---
+    if (
+        hasTemp &&
+        typeof thresholds.maxTemp === "number" &&
+        prefs.isHighTempAlert !== false
+    ) {
+        const isOver = tempAvg >= thresholds.maxTemp;
+        const wasOver = alertState.tempAvg === true;
+
+        if (isOver && !wasOver) {
+            breaches.push(
+                `Body temperature is ${tempAvg.toFixed(1)}°C, at or above the ${thresholds.maxTemp}°C limit.`
+            );
+        }
+        if (isOver !== wasOver) {
+            updates["iotAlertState.tempAvg"] = isOver;
+        }
+    }
+
+    // --- Humidity check ---
+    if (
+        hasHumidity &&
+        typeof thresholds.maxHumidity === "number" &&
+        prefs.isHighHumidityAlert !== false
+    ) {
+        const isOver = humidity >= thresholds.maxHumidity;
+        const wasOver = alertState.humidity === true;
+
+        if (isOver && !wasOver) {
+            breaches.push(
+                `Humidity is ${humidity.toFixed(1)}%, at or above the ${thresholds.maxHumidity}% limit.`
+            );
+        }
+        if (isOver !== wasOver) {
+            updates["iotAlertState.humidity"] = isOver;
+        }
+    }
+
+    return { userData, prefs, updates, breaches };
+}
+
 exports.onLiveSensorUpdate = onDocumentWritten(
     "live_sensor/latest",
     async (event) => {
@@ -314,71 +395,39 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         const hasHumidity = !Number.isNaN(humidity);
         if (!hasTemp && !hasHumidity) return;
 
-        // This runs on every ESP32 push (~8,640/day), so only read admins
-        // who have IoT alerts on instead of the whole collection. The app
-        // always writes isIotEnabled together with the thresholds.
+        // This runs on every ESP32 push (~8,640/day). Reading the admins on
+        // every push used most of the daily Firestore read quota, so the list
+        // is cached per function instance and refreshed at most once a minute.
         const firestore = admin.firestore();
-        const adminsSnapshot = await firestore
-            .collection("admins")
-            .where("iotThresholds.isIotEnabled", "==", true)
-            .get();
+        const cachedAdmins = await getIotAdmins(firestore);
 
-        for (const adminDoc of adminsSnapshot.docs) {
-            const userId = adminDoc.id;
-            const userData = adminDoc.data();
-            const thresholds = userData.iotThresholds;
-            if (!thresholds || thresholds.isIotEnabled === false) continue;
+        for (const cached of cachedAdmins) {
+            const userId = cached.id;
+            let result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity);
+            if (!result) continue;
 
-            const prefs = userData.notificationPreferences || {};
-            if (prefs.isNotifEnabled === false) continue;
-            if (!userData.fcmToken) continue;
-
-            const alertState = userData.iotAlertState || {};
-            const updates = {};
-            const breaches = [];
-
-            // --- Temperature check ---
-            if (
-                hasTemp &&
-                typeof thresholds.maxTemp === "number" &&
-                prefs.isHighTempAlert !== false
-            ) {
-                const isOver = tempAvg >= thresholds.maxTemp;
-                const wasOver = alertState.tempAvg === true;
-
-                if (isOver && !wasOver) {
-                    breaches.push(
-                        `Body temperature is ${tempAvg.toFixed(1)}°C, at or above the ${thresholds.maxTemp}°C limit.`
-                    );
-                }
-                if (isOver !== wasOver) {
-                    updates["iotAlertState.tempAvg"] = isOver;
-                }
+            // Only when an alert state is about to change: re-read this admin
+            // fresh, so a stale cache can never send a duplicate alert or
+            // use thresholds that were just changed in the app.
+            if (Object.keys(result.updates).length > 0) {
+                const fresh = await cached.ref.get();
+                if (!fresh.exists) continue;
+                cached.data = fresh.data();
+                result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity);
+                if (!result) continue;
             }
 
-            // --- Humidity check ---
-            if (
-                hasHumidity &&
-                typeof thresholds.maxHumidity === "number" &&
-                prefs.isHighHumidityAlert !== false
-            ) {
-                const isOver = humidity >= thresholds.maxHumidity;
-                const wasOver = alertState.humidity === true;
-
-                if (isOver && !wasOver) {
-                    breaches.push(
-                        `Humidity is ${humidity.toFixed(1)}%, at or above the ${thresholds.maxHumidity}% limit.`
-                    );
-                }
-                if (isOver !== wasOver) {
-                    updates["iotAlertState.humidity"] = isOver;
-                }
-            }
+            const { userData, prefs, updates, breaches } = result;
 
             // Persist the new debounce state regardless of whether we send,
             // so "over" / "under" transitions stay accurate going forward.
             if (Object.keys(updates).length > 0) {
-                await adminDoc.ref.update(updates);
+                await cached.ref.update(updates);
+                // Keep the cached copy in step with what was just written.
+                const state = { ...(cached.data.iotAlertState || {}) };
+                if ("iotAlertState.tempAvg" in updates) state.tempAvg = updates["iotAlertState.tempAvg"];
+                if ("iotAlertState.humidity" in updates) state.humidity = updates["iotAlertState.humidity"];
+                cached.data = { ...cached.data, iotAlertState: state };
             }
 
             if (breaches.length === 0) continue;
