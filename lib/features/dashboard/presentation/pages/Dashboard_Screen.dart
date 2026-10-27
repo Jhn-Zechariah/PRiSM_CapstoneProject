@@ -926,7 +926,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
   double _humidityLive = 0;
-  double _roomTemp = 0; // DHT22 room temperature (used by the ML card)
 
   // AMG8833 thermal heatmap — 64 pixels (8x8)
   List<double> _thermalPixels = List.filled(64, 0.0);
@@ -940,6 +939,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _mlCondition = "";
   List<String> _mlRecommendations = [];
   bool _mlLoading = false;
+  double? _mlForecast15;
+  double? _mlForecast30;
+  bool _mlSyntheticOnly = false;
+  String _mlDisclaimer = "";
 
   Timer? _hourlyRefreshTimer;
 
@@ -1059,13 +1062,6 @@ class _DashboardScreenState extends State<DashboardScreen>
           ? (data['pigBodyTemp'] as num?)?.toDouble()
           : null;
 
-      final roomValid = data['ambientTempValid'] as bool? ?? true;
-      final newRoomTemp = roomValid
-          ? (data['ambientTemp'] as num?)?.toDouble()
-          : null;
-      if (newRoomTemp != null && newRoomTemp > 0 && newRoomTemp <= 80) {
-        _roomTemp = newRoomTemp;
-      }
       if (newTempLive != null && newTempLive > 0 && newTempLive <= 80) {
         _tempMax = newTempLive;
         _lastKnownTemp = _tempMax;
@@ -1469,50 +1465,54 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   // ── ML insights ──────────────────────────────
 
-  Future<void> _fetchMLInsights() async {
-    // Guard: only run when we have a real live humidity value. Temperature
-    // sensor (AMG8833) is disabled, so it's no longer part of this check —
-    // a neutral placeholder temperature is passed to the ML service instead.
-    if (_humidityLive <= 0) {
-      if (_mlCondition.isEmpty || _mlCondition == "Unavailable") {
-        setState(() {
-          _mlCondition = "Unavailable";
-          _mlRecommendations = [
-            "Sensor is offline. Connect to receive smart recommendations.",
-          ];
-          _mlLoading = false;
-        });
-      }
-      return;
-    }
+  // Badge text for forecast API statuses that carry no forecast.
+  static const Map<String, String> _mlStatusLabels = {
+    'insufficient_data': 'Collecting data',
+    'stale_data': 'Sensor offline',
+    'out_of_training_range': 'Out of range',
+  };
 
+  Future<void> _fetchMLInsights() async {
     setState(() => _mlLoading = true);
 
     try {
-      final result = await MlService.analyzeFarm(
-        temperatureC: _roomTemp > 0 ? _roomTemp : 25.0,
-        humidityPct: _humidityLive,
-      ).timeout(const Duration(seconds: 6));
+      // The server reads Firestore itself and caches its answer for ~45 s,
+      // so calling this every minute does not multiply Firestore reads.
+      final result = await MlService.fetchForecast();
 
       if (!mounted) return;
-      final condition = result['condition'] ?? '';
-      final recs = List<String>.from(result['recommendations'] ?? []);
-      if (condition.isNotEmpty && recs.isNotEmpty) {
-        setState(() {
-          _mlCondition = condition;
-          _mlRecommendations = recs;
-          _mlLoading = false;
-        });
-      } else {
-        setState(() => _mlLoading = false);
-      }
+      final status = result['status'] as String? ?? '';
+      final isOk = status == 'ok';
+      setState(() {
+        _mlCondition = isOk
+            ? (result['risk_level'] as String? ?? 'Unavailable')
+            : (_mlStatusLabels[status] ?? 'Unavailable');
+        _mlRecommendations = [
+          (isOk ? result['recommendation'] : result['message']) as String? ??
+              'No forecast available.',
+        ];
+        _mlForecast15 = isOk
+            ? (result['predicted_pig_temp_15min_c'] as num?)?.toDouble()
+            : null;
+        _mlForecast30 = isOk
+            ? (result['predicted_pig_temp_30min_c'] as num?)?.toDouble()
+            : null;
+        _mlSyntheticOnly = result['synthetic_only_model'] as bool? ?? false;
+        _mlDisclaimer = result['disclaimer'] as String? ?? '';
+        _mlLoading = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _mlCondition = "Unavailable";
-        _mlRecommendations = [e.toString()];
+        _mlRecommendations = [
+          "Forecast service unreachable. Check your internet connection.",
+        ];
+        _mlForecast15 = null;
+        _mlForecast30 = null;
         _mlLoading = false;
       });
+      debugPrint('ML forecast error: $e');
     }
   }
 
@@ -2448,10 +2448,12 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _buildRecommendationCard(bool isDark) {
-    Color conditionColor = Colors.amber;
+    Color conditionColor = Colors.grey;
     if (_mlCondition == "Good") conditionColor = Colors.green;
+    if (_mlCondition == "Needs Attention") conditionColor = Colors.amber;
     if (_mlCondition == "High Risk") conditionColor = Colors.red;
-    if (_mlCondition == "Unavailable") conditionColor = Colors.grey;
+    final mutedText = isDark ? Colors.white60 : const Color(0xFF707070);
+    final hasForecast = _mlForecast15 != null && _mlForecast30 != null;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2516,11 +2518,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  "Analyzing farm conditions...",
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white60 : const Color(0xFF707070),
-                  ),
+                  "Forecasting pig temperature...",
+                  style: TextStyle(fontSize: 12, color: mutedText),
                 ),
               ],
             )
@@ -2532,7 +2531,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                 color: isDark ? Colors.white60 : const Color(0xFF707070),
               ),
             )
-          else
+          else ...[
+            if (hasForecast)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.thermostat, size: 14, color: conditionColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Pig temp forecast:  "
+                      "${_mlForecast15!.toStringAsFixed(1)}°C in 15 min  ·  "
+                      "${_mlForecast30!.toStringAsFixed(1)}°C in 30 min",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ..._mlRecommendations.map(
               (r) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 3),
@@ -2544,21 +2563,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                     Expanded(
                       child: Text(
                         r,
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.white60
-                              : const Color(0xFF707070),
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: mutedText, fontSize: 12),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
-          if (!_mlLoading &&
-              _mlCondition.isNotEmpty &&
-              _mlCondition != "Unavailable")
+          ],
+          if (!_mlLoading && hasForecast)
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Row(
@@ -2570,13 +2583,27 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    "Powered by PRISM trained ML · live sensor data",
+                    _mlSyntheticOnly
+                        ? "PRISM forecast model · prototype (trained on simulated data)"
+                        : "PRISM forecast model · live sensor data",
                     style: TextStyle(
                       fontSize: 10,
                       color: isDark ? Colors.white30 : Colors.black38,
                     ),
                   ),
                 ],
+              ),
+            ),
+          if (!_mlLoading && _mlDisclaimer.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _mlDisclaimer,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  color: isDark ? Colors.white30 : Colors.black38,
+                ),
               ),
             ),
         ],

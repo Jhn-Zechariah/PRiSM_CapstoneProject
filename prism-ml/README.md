@@ -224,23 +224,28 @@ Predictions are never written anywhere.
    credentials or bake them into an image.
 5. Check `https://<service>.up.railway.app/health`.
 
-## Flutter integration (not yet changed in the app)
+## Flutter integration
 
-The app still calls the old `/api/farm/analyze` in `lib/core/services/ml_service.dart`
-(`analyzeFarm`), used by `Dashboard_Screen.dart` and reading `condition` and
-`recommendations`. To switch:
+`lib/core/services/ml_service.dart` has `MlService.fetchForecast()`, which calls
+`GET /predict` with the `X-API-Key` header. There is no request body: the server reads
+Firestore itself. The Dashboard's "Smart Recommendation" card calls it about once a minute.
+It shows the risk badge, both forecasts and the recommendation when `status == "ok"`, and
+the server's `message` otherwise. It also shows the disclaimer, and a "prototype (trained on
+simulated data)" label while `synthetic_only_model` is true.
 
-- **`ml_service.dart`:** set `baseUrl` to the Railway URL. Replace `analyzeFarm` with a
-  `GET $baseUrl/predict` call with header `X-API-Key`; there is no request body, because the
-  server reads Firestore itself.
-- **`Dashboard_Screen.dart`:** read `status` first. Show `risk_level`,
-  `predicted_pig_temp_15min_c`/`30min_c` and `recommendation` only when `status == "ok"`.
-  Otherwise show `message` (no data / sensor offline / outside training range).
-  Always show `disclaimer`, and label the result as a prototype while
-  `synthetic_only_model` is true.
-- **Caveat:** a key shipped inside a mobile app can be extracted. It deters casual abuse but
-  isn't strong protection. Verifying Firebase ID tokens on the server is the stronger option
-  if needed later.
+The URL and key are passed at build/run time, not hard-coded:
+
+```powershell
+flutter run --dart-define=PRISM_ML_URL=http://<laptop-ip>:8000 --dart-define=PRISM_API_KEY=<same key as the server>
+```
+
+`PRISM_ML_URL` defaults to `http://192.168.1.130:8000`. For Railway, use the
+`https://<service>.up.railway.app` URL. Add the same `--dart-define` flags to
+`flutter build apk`.
+
+**Caveat:** a key shipped inside a mobile app can be extracted. It deters casual abuse but
+isn't strong protection. Verifying Firebase ID tokens on the server is the stronger option
+if needed later.
 
 ## Retraining workflow
 
