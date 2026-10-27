@@ -1850,7 +1850,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       Icon(icon, size: 14, color: iconColor),
                       const SizedBox(width: 4),
                       Text(
-                        showTemp ? "Temperature" : "Humidity",
+                        showTemp ? "Pig Body Temperature" : "Air Humidity",
                         style: TextStyle(
                           color: isDark ? Colors.white60 : Colors.grey,
                           fontSize: 12,
@@ -2358,7 +2358,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
               Text(
-                displayStatus,
+                // Capitals, like LOW / NORMAL / HIGH on the other screens.
+                displayStatus.toUpperCase(),
                 style: TextStyle(
                   color: statusColor,
                   fontSize: 12,

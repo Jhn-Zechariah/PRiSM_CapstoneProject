@@ -2106,7 +2106,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          showAmbient ? 'Air Temperature' : 'Humidity',
+                          showAmbient ? 'Air Temperature' : 'Air Humidity',
                           style: TextStyle(
                             color: _textSecondary(isDark),
                             fontSize: 12,
