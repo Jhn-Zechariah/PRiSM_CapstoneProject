@@ -355,10 +355,10 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   String get _tempStatus {
     if (_currentTemp == null) return "";
-    final t = _currentTemp!;
+    final t = (_currentTemp! * 10).round() / 10;
 
-    if (t < 32.0) return "Low";
-    if (t <= 35.0) return "Normal";
+    if (t < 34.0) return "Low";
+    if (t <= 37.0) return "Normal";
     return "High";
   }
 
@@ -1982,22 +1982,24 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         final isDisabled = index != 2;
         return Expanded(
           child: GestureDetector(
-            onTap: isDisabled ? null : () async {
-              // Clear stale stats immediately on tap so the Temperature
-              // Review never shows values from the previous range while
-              // the new range's data is loading.
-              setState(() {
-                _selectedTimeRange = index;
-                _clearStatsForRangeSwitch();
-              });
-              if (isCustom) {
-                await _showCustomRangePicker();
-              } else if (index == 2) {
-                unawaited(_syncToday());
-              } else {
-                _loadMinuteChartForRange(index);
-              }
-            },
+            onTap: isDisabled
+                ? null
+                : () async {
+                    // Clear stale stats immediately on tap so the Temperature
+                    // Review never shows values from the previous range while
+                    // the new range's data is loading.
+                    setState(() {
+                      _selectedTimeRange = index;
+                      _clearStatsForRangeSwitch();
+                    });
+                    if (isCustom) {
+                      await _showCustomRangePicker();
+                    } else if (index == 2) {
+                      unawaited(_syncToday());
+                    } else {
+                      _loadMinuteChartForRange(index);
+                    }
+                  },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: EdgeInsets.only(
