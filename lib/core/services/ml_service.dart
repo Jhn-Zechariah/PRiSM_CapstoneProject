@@ -11,9 +11,9 @@ class MlService {
   // Switch to 'http://127.0.0.1:8000' if you are using ADB USB port forwarding!
   static const String baseUrl = String.fromEnvironment(
     'PRISM_ML_URL',
-    defaultValue: 'http://192.168.1.130:8000',
+    defaultValue: 'http://192.168.1.3:8000',
   );
-  static const String _apiKey = String.fromEnvironment('PRISM_API_KEY');
+  static const String _apiKey = "prism123"; //String.fromEnvironment('PRISM_API_KEY');
   static const Duration _timeout = Duration(seconds: 10);
 
   /// Latest pig surface temperature forecast (+15 / +30 min) and risk level.

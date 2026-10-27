@@ -2410,7 +2410,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               const SizedBox(width: 8),
               Text(
-                "Smart Recommendation",
+                "Temperature Forcast",
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
