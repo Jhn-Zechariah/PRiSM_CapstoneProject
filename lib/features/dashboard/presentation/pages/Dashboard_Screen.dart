@@ -12,8 +12,8 @@ import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/services/ml_service.dart';
-import '../../../../core/services/sensor_history_store.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:prism_app/features/monitoring/data/today_max_service.dart';
 
 // Fallback only. LiveSensorService updates this from the ESP32's own "ip" field.
 String esp32Ip = "192.168.1.8";
@@ -102,6 +102,15 @@ class LiveSensorService {
   /// Wall-clock time this phone last actually received a reading.
   static DateTime? _lastUpdateReceivedAt;
 
+  /// When the ESP32 last answered on the local network.
+  static DateTime? _lastLanOkAt;
+
+  /// True while the phone is on the same WiFi as the ESP32, so data can be
+  /// read from it directly instead of from Firestore.
+  static bool get isOnLan =>
+      _lastLanOkAt != null &&
+      DateTime.now().difference(_lastLanOkAt!).inSeconds <= 30;
+
   /// When the Firestore listener last delivered a fresh snapshot. While this
   /// is recent, polls skip the one-shot GET.
   static DateTime? _lastListenerEventAt;
@@ -125,10 +134,6 @@ class LiveSensorService {
   static void start() {
     if (_started) return;
     _started = true;
-
-    // Lets the local history sync download readings from the ESP32's SD
-    // card over the LAN, following the address the ESP32 reports.
-    SensorHistoryStore.lanHost = () => esp32Ip;
 
     sensorStatus.addListener(
       () => debugPrint(
@@ -256,6 +261,7 @@ class LiveSensorService {
         '[LiveSensorService] LAN poll OK (${sw.elapsedMilliseconds} ms)',
       );
       connectionStatus.value = "Live";
+      _lastLanOkAt = DateTime.now();
       _markOnline(data);
       // On LAN the Firestore listener only costs a read per ESP32 push.
       await _detachFirestoreFallback();
@@ -697,32 +703,46 @@ class SensorMemory {
   }
 
   static DateTime _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static String _lastSavedJson = '';
 
   static Future<void> save({
     Duration minInterval = const Duration(seconds: 60),
   }) async {
     final nowT = DateTime.now();
     if (nowT.difference(_lastSaveAt) < minInterval) return;
+    final payload = {
+      'lastTemp': lastTemp,
+      'lastHumidity': lastHumidity,
+      'tempMaxToday': lastTempMaxToday,
+      'tempMaxDate': lastTempMaxDate,
+      'humidityMaxToday': lastHumidityMaxToday,
+      'humidityMaxDate': lastHumidityMaxDate,
+      'lastPigStatus': lastPigStatus,
+    };
+    // Every write counts toward Firestore's daily write limit, which the
+    // ESP32 already uses most of, so skip writes that change nothing.
+    final json = jsonEncode(payload);
+    if (json == _lastSavedJson) return;
     _lastSaveAt = nowT;
     try {
       await FirebaseFirestore.instance
           .collection('sensor_memory')
           .doc('latest')
-          .set({
-            'lastTemp': lastTemp,
-            'lastHumidity': lastHumidity,
-            'tempMaxToday': lastTempMaxToday,
-            'tempMaxDate': lastTempMaxDate,
-            'humidityMaxToday': lastHumidityMaxToday,
-            'humidityMaxDate': lastHumidityMaxDate,
-            'lastPigStatus': lastPigStatus,
-          });
+          .set(payload);
+      _lastSavedJson = json;
     } catch (e) {
       debugPrint('Error saving sensor memory: $e');
     }
   }
 
+  static bool _loaded = false;
+
+  // Seeds the values from the last session. Runs once per app launch: the
+  // Dashboard remounts on every tab switch, and re-loading the (often
+  // older, cached) document each time used to overwrite the correct max
+  // that the Temperature/Humidity screens had just set.
   static Future<void> load() async {
+    if (_loaded) return;
     try {
       DocumentSnapshot? doc;
       try {
@@ -745,17 +765,31 @@ class SensorMemory {
       }
       if (doc != null && doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
-        lastTemp = (data['lastTemp'] as num?)?.toDouble() ?? 0;
-        lastHumidity = (data['lastHumidity'] as num?)?.toDouble() ?? 0;
-        setTempMaxToday((data['tempMaxToday'] as num?)?.toDouble() ?? 0);
-        lastTempMaxDate = data['tempMaxDate'] as String? ?? '--';
-        setHumidityMaxToday(
-          (data['humidityMaxToday'] as num?)?.toDouble() ?? 0,
-        );
-        lastHumidityMaxDate = data['humidityMaxDate'] as String? ?? '--';
+        if (lastTemp <= 0) {
+          lastTemp = (data['lastTemp'] as num?)?.toDouble() ?? 0;
+        }
+        if (lastHumidity <= 0) {
+          lastHumidity = (data['lastHumidity'] as num?)?.toDouble() ?? 0;
+        }
         lastPigStatus = data['lastPigStatus'] as String? ?? '--';
+
+        // Only a value from today counts, and it may raise today's max but
+        // never lower one this session already knows.
         resetIfNewDay();
+        final today = todayKey();
+        final savedTemp = (data['tempMaxToday'] as num?)?.toDouble() ?? 0;
+        if (data['tempMaxDate'] == today && savedTemp > lastTempMaxToday) {
+          lastTempMaxDate = today;
+          setTempMaxToday(savedTemp);
+        }
+        final savedHum = (data['humidityMaxToday'] as num?)?.toDouble() ?? 0;
+        if (data['humidityMaxDate'] == today &&
+            savedHum > lastHumidityMaxToday) {
+          lastHumidityMaxDate = today;
+          setHumidityMaxToday(savedHum);
+        }
       }
+      _loaded = true;
     } catch (e) {
       debugPrint('Error loading sensor memory: $e');
     }
@@ -1090,7 +1124,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
       }
 
-      _tempStatus = data['tempStatus'] as String? ?? _tempStatus;
+      _tempStatus = data['pigBodyTempStatus'] as String? ?? _tempStatus;
 
       if (!_sprinklerJustToggled) {
         _localIsActivated = sprinklerNotifier.value;
@@ -1292,9 +1326,9 @@ class _DashboardScreenState extends State<DashboardScreen>
     // _loadGraphData(); // Temperature sensor disabled — nothing to graph.
     _loadNextVaccineSchedule();
 
-    // Recompute today's max from the same data the Temperature/Humidity
-    // screens use, so a stale or spiky stored value gets corrected.
-    unawaited(_scanTodayMaxes());
+    // Today's max comes from the shared sensor_memory/today_max document,
+    // which counts each sensor_readings_seconds reading once for all phones.
+    TodayMaxService.start();
 
     _toggleTimer?.cancel();
     _toggleTimer = Timer.periodic(
@@ -1313,107 +1347,6 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (!mounted) return;
     setState(() => _showingTemperature = !_showingTemperature);
     await _fadeController.forward();
-  }
-
-  // ── Firestore: sync today's historical max on startup ───────────────
-
-  // Hour key of the last scan. The Dashboard remounts on every tab switch,
-  // so this keeps the scan to at most once per hour per app session.
-  static String _lastTodayMaxScanHourKey = '';
-
-  // Completed hours come from sensor_readings_hourly (max / humMax, one doc
-  // per hour). Only hours without a summary yet — normally just the current
-  // one — are scanned from sensor_readings_seconds.
-  Future<void> _scanTodayMaxes() async {
-    final hourKey = currentHourKey();
-    if (_lastTodayMaxScanHourKey == hourKey) return;
-    _lastTodayMaxScanHourKey = hourKey;
-
-    try {
-      final db = FirebaseFirestore.instance;
-      final now = DateTime.now();
-      final midnight = DateTime(now.year, now.month, now.day);
-      double maxT = 0;
-      double maxH = 0;
-
-      final hourlySnap = await db
-          .collection('sensor_readings_hourly')
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(midnight),
-          )
-          .orderBy('timestamp')
-          .get();
-
-      final summarizedHours = <int>{};
-      for (final doc in hourlySnap.docs) {
-        final d = doc.data();
-        final ts = (d['timestamp'] as Timestamp?)?.toDate();
-        if (ts == null) continue;
-        summarizedHours.add(ts.millisecondsSinceEpoch);
-
-        final t = (d['max'] as num?)?.toDouble();
-        if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
-
-        final h = (d['humMax'] as num?)?.toDouble();
-        if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
-      }
-
-      // Group consecutive unsummarized hours into one raw range each.
-      final rawRanges = <List<DateTime>>[];
-      var hourStart = midnight;
-      while (hourStart.isBefore(now)) {
-        final nextHour = hourStart.add(const Duration(hours: 1));
-        if (!summarizedHours.contains(hourStart.millisecondsSinceEpoch)) {
-          final end = nextHour.isAfter(now) ? now : nextHour;
-          if (rawRanges.isNotEmpty &&
-              rawRanges.last[1].isAtSameMomentAs(hourStart)) {
-            rawRanges.last[1] = end;
-          } else {
-            rawRanges.add([hourStart, end]);
-          }
-        }
-        hourStart = nextHour;
-      }
-
-      for (final range in rawRanges) {
-        final rows = await SensorHistoryStore.readings(
-          from: range[0],
-          fromInclusive: true,
-          to: range[1],
-        );
-
-        for (final d in rows) {
-          final t = (d['pigBodyTemp'] as num?)?.toDouble();
-          if (t != null && t >= 0 && t <= 80 && t > maxT) maxT = t;
-
-          final h = (d['ambientHumidity'] as num?)?.toDouble();
-          if (h != null && h > 0 && h <= 100 && h > maxH) maxH = h;
-        }
-      }
-
-      // Shared memory is updated even if the user already left the
-      // Dashboard, since this scan won't run again until the next hour.
-      final todayKey = SensorMemory.todayKey();
-      if (maxT > 0) {
-        SensorMemory.lastTempMaxDate = todayKey;
-        SensorMemory.setTempMaxToday(maxT);
-      }
-      if (maxH > 0) {
-        SensorMemory.lastHumidityMaxDate = todayKey;
-        SensorMemory.setHumidityMaxToday(maxH);
-      }
-      if (maxT > 0 || maxH > 0) SensorMemory.save();
-      if (!mounted) return;
-      setState(() {
-        if (maxT > 0) _tempMaxToday = maxT;
-        if (maxH > 0) _humidityMaxToday = maxH;
-      });
-    } catch (e) {
-      // Allow a retry on the next Dashboard open.
-      _lastTodayMaxScanHourKey = '';
-      debugPrint('Error scanning today maxes: $e');
-    }
   }
 
   Future<void> _loadNextVaccineSchedule() async {
