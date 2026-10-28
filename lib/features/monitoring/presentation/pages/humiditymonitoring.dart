@@ -20,6 +20,34 @@ const int _kHumHourlyMinSpanHours =
 
 // The air temperature line uses a right-hand axis of 0 to this many °C.
 const double _kHumAmbientAxisMax = 50;
+// Air temperature limits (same as the Arduino code).
+const double _kAirLowNormal = 15.6;
+const double _kAirHighNormal = 23.9;
+const double _kHumLowNormal = 60;
+const double _kHumHighNormal = 70;
+const double _kAirCritical = 30.0; // always HIGH at or above this (PAES max)
+
+// -1 = below range, 0 = in range, 1 = above range.
+// Rounded to the 1 decimal shown on screen.
+int _band(double v, double low, double high) {
+  final r = (v * 10).round() / 10;
+  if (r < low) return -1;
+  if (r > high) return 1;
+  return 0;
+}
+
+Color _statusColorFor(String s) {
+  switch (s) {
+    case 'LOW':
+      return Colors.blue;
+    case 'NORMAL':
+      return Colors.green;
+    case 'HIGH':
+      return Colors.red;
+    default:
+      return Colors.grey;
+  }
+}
 
 // Graph line colors: humidity is teal, air temperature is orange.
 Color _humLineColor(bool isDark) =>
@@ -143,7 +171,7 @@ class HumidityMonitoring extends StatefulWidget {
 }
 
 class _HumidityMonitoringState extends State<HumidityMonitoring>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   int _selectedTab = 1;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
@@ -160,6 +188,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   DateTime? _sprinklerActivatedAt;
 
   double? _currentHumidity;
+  double? _currentAmbient;
+  bool _showingAmbient = false;
+  late final AnimationController _fadeController;
+  late final Animation<double> _fadeAnimation;
+  Timer? _swapTimer;
 
   // static: keeps today's collected data across navigating away from and
   // back to this screen. These used to be per-instance fields, so leaving
@@ -411,22 +444,29 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       _minuteBufferDayKey == SensorMemory.todayKey();
 
   String get _humidityStatus {
-    if (_currentHumidity == null) return "";
-    final h = _currentHumidity!;
+    // Both readings are required.
+    if (_currentHumidity == null || _currentAmbient == null) return "";
 
-    if (h < 50) return "Low";
-    if (h <= 70) return "Normal";
-    return "High";
+    final h = _band(_currentHumidity!, _kHumLowNormal, _kHumHighNormal);
+    final a = _band(_currentAmbient!, _kAirLowNormal, _kAirHighNormal);
+
+    // Very hot: heat stress whatever the humidity.
+    if (_currentAmbient! >= _kAirCritical) return "HIGH";
+
+    // Hot: humid or moderate humidity is a risk, dry air is tolerable.
+    if (a > 0) return h < 0 ? "NORMAL" : "HIGH";
+
+    // Comfortable air.
+    if (a == 0) return "NORMAL";
+
+    // Cold air: not heat stress.
+    return "LOW";
   }
 
-  Color _humidityStatusColor() {
-    if (_currentHumidity == null) return Colors.grey;
-
-    final h = _currentHumidity!;
-
-    if (h < 50) return Colors.blue;
-    if (h <= 70) return Colors.green;
-    return Colors.red;
+  String get _airStatus {
+    if (_currentAmbient == null) return "";
+    final t = _band(_currentAmbient!, _kAirLowNormal, _kAirHighNormal);
+    return t < 0 ? "LOW" : (t == 0 ? "NORMAL" : "HIGH");
   }
 
   final List<Map<String, double>> _chartData = _humidityCacheIsToday()
@@ -506,6 +546,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: 1.0,
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeInOut,
+    );
+    _swapTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) => _crossfadeToggle(),
+    );
     WidgetsBinding.instance.addObserver(this);
     _linkScroll(_todayChartScrollController, _todayTempScrollController);
     _linkScroll(_customChartScrollController, _customTempScrollController);
@@ -548,6 +601,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     if (LiveSensorService.sensorStatus.value == "Sensor Offline") return;
     final data = LiveSensorService.latestData.value;
     if (data == null) return;
+    _currentAmbient = _ambientOf(data);
     if ((data['ambientHumidityValid'] as bool? ?? true) == false) return;
     final h = (data['ambientHumidity'] as num?)?.toDouble();
     if (h == null || h <= 0 || h > 100) return;
@@ -678,6 +732,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       if (_sensorStatus == "Sensor Offline" ||
           _connectionStatus == "No Connection") {
         _currentHumidity = null;
+        _currentAmbient = null;
       }
     });
   }
@@ -1444,9 +1499,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     // If sensor is offline, remove the live humidity immediately.
     // This also prevents stale latestData from putting the old value back.
     if (LiveSensorService.sensorStatus.value == "Sensor Offline") {
-      if (_currentHumidity != null) {
+      if (_currentHumidity != null || _currentAmbient != null) {
         setState(() {
           _currentHumidity = null;
+          _currentAmbient = null;
         });
       }
       return;
@@ -1461,6 +1517,10 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         });
       }
       return;
+    }
+    final newAmbient = _ambientOf(data);
+    if (newAmbient != _currentAmbient) {
+      setState(() => _currentAmbient = newAmbient);
     }
 
     if ((data['ambientHumidityValid'] as bool? ?? true) == false) {
@@ -1513,6 +1573,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     if (SprinklerMemory.activatedAt != null) {
       _startDurationTimer(SprinklerMemory.activatedAt!);
     }
+  }
+
+  Future<void> _crossfadeToggle() async {
+    if (!mounted || _currentAmbient == null) return;
+    await _fadeController.reverse();
+    if (!mounted) return;
+    setState(() => _showingAmbient = !_showingAmbient);
+    await _fadeController.forward();
   }
 
   void _startDurationTimer(DateTime activatedAt) {
@@ -1587,6 +1655,8 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     LiveSensorService.latestData.removeListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.removeListener(_onSharedStatusChanged);
     LiveSensorService.sensorStatus.removeListener(_onSharedStatusChanged);
+    _swapTimer?.cancel();
+    _fadeController.dispose();
     super.dispose();
   }
 
@@ -2001,11 +2071,14 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   Widget _buildStatusCard(bool isDark) {
-    final humLabel = _currentHumidity != null
-        ? '${_currentHumidity!.toStringAsFixed(1)}%'
-        : '--';
-
-    final statusColor = _humidityStatusColor();
+    final showAmbient = _showingAmbient && _currentAmbient != null;
+    final valueLabel = showAmbient
+        ? '${_currentAmbient!.toStringAsFixed(1)}°C'
+        : (_currentHumidity != null
+              ? '${_currentHumidity!.toStringAsFixed(1)}%'
+              : '--');
+    final statusText = showAmbient ? _airStatus : _humidityStatus;
+    final statusColor = _statusColorFor(statusText);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
@@ -2017,29 +2090,86 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _humidityStatus,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              _isLoading
-                  ? const CircularProgressIndicator()
-                  : Text(
-                      humLabel,
+              FadeTransition(
+                opacity: _fadeAnimation,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          showAmbient
+                              ? Icons.thermostat_outlined
+                              : Icons.water_drop_outlined,
+                          size: 14,
+                          color: showAmbient ? Colors.orange : Colors.blue,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          showAmbient ? 'Air Temperature' : 'Air Humidity',
+                          style: TextStyle(
+                            color: _textSecondary(isDark),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      statusText,
                       style: TextStyle(
-                        fontSize: 40,
+                        color: statusColor,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: _currentHumidity == null
-                            ? _textPrimary(isDark)
-                            : statusColor,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    _isLoading
+                        ? const CircularProgressIndicator()
+                        : Text(
+                            valueLabel,
+                            style: TextStyle(
+                              fontSize: 40,
+                              fontWeight: FontWeight.bold,
+                              color: statusText.isEmpty
+                                  ? _textPrimary(isDark)
+                                  : statusColor,
+                            ),
+                          ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: !showAmbient ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: !showAmbient
+                          ? Colors.blue
+                          : Colors.blue.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width: showAmbient ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: showAmbient
+                          ? Colors.orange
+                          : Colors.orange.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
+          // ... keep your existing right-hand Column (date + Activate button) here
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [

@@ -351,7 +351,9 @@ class LiveSensorService {
 
   static Future<void> _detachFirestoreFallback() async {
     if (_firestoreSub == null) return;
-    debugPrint('[LiveSensorService] LAN reachable — detaching Firestore listener');
+    debugPrint(
+      '[LiveSensorService] LAN reachable — detaching Firestore listener',
+    );
     await _firestoreSub?.cancel();
     _firestoreSub = null;
     _lastListenerEventAt = null;
@@ -1141,7 +1143,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         _duration = data['duration'] as String? ?? _duration;
       }
 
-
       // Last-known values only seed the screen on the next launch, so they
       // are persisted rarely. New maximums above still save within 60s.
       if ((newTempLive != null && newTempLive > 0) ||
@@ -1849,7 +1850,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       Icon(icon, size: 14, color: iconColor),
                       const SizedBox(width: 4),
                       Text(
-                        showTemp ? "Temperature" : "Humidity",
+                        showTemp ? "Pig Body Temperature" : "Air Humidity",
                         style: TextStyle(
                           color: isDark ? Colors.white60 : Colors.grey,
                           fontSize: 12,
@@ -1969,6 +1970,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     final maxTemp = hasThermalData
         ? validPixels.reduce((a, b) => a > b ? a : b)
         : 0.0;
+    final skinTemp = _tempMax > 0 ? _tempMax : _lastKnownTemp;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2024,7 +2026,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
               if (hasThermalData && !sensorOffline)
                 Text(
-                  "MAX ${maxTemp.toStringAsFixed(1)}°C",
+                  "MAX ${skinTemp.toStringAsFixed(1)}°C",
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -2140,7 +2142,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(width: 8),
 
               Text(
-                hasThermalData ? "${maxTemp.toStringAsFixed(1)}°C" : "--",
+                hasThermalData ? "${skinTemp.toStringAsFixed(1)}°C" : "--",
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
@@ -2356,7 +2358,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
               Text(
-                displayStatus,
+                // Capitals, like LOW / NORMAL / HIGH on the other screens.
+                displayStatus.toUpperCase(),
                 style: TextStyle(
                   color: statusColor,
                   fontSize: 12,

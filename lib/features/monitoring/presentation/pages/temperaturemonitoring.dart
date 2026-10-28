@@ -355,21 +355,26 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   String get _tempStatus {
     if (_currentTemp == null) return "";
-    final t = _currentTemp!;
+    final t = (_currentTemp! * 10).round() / 10;
 
-    if (t < 32.0) return "Low";
-    if (t <= 35.0) return "Normal";
-    return "High";
+    if (t < 34.0) return "LOW";
+    if (t <= 37.0) return "NORMAL";
+    return "HIGH";
   }
 
+  // Colored from the status word itself, so the color always agrees with
+  // it. Same colors as the Humidity screen: Low blue, Normal green, High red.
   Color _tempStatusColor() {
-    if (_currentTemp == null) return Colors.grey;
-
-    final t = _currentTemp!;
-
-    if (t < 32.0) return Colors.blue;
-    if (t <= 35.0) return Colors.green;
-    return Colors.red;
+    switch (_tempStatus) {
+      case 'LOW':
+        return Colors.blue;
+      case 'NORMAL':
+        return Colors.green;
+      case 'HIGH':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 
   final List<Map<String, double>> _chartData = _tempCacheIsToday()
@@ -1886,6 +1891,25 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Sensor label, same style as the Humidity screen's live card.
+              Row(
+                children: [
+                  const Icon(
+                    Icons.thermostat_outlined,
+                    size: 14,
+                    color: Colors.orange,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Pig Body Temperature',
+                    style: TextStyle(
+                      color: _textSecondary(isDark),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
               Text(
                 _tempStatus,
                 style: TextStyle(
@@ -1982,22 +2006,24 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         final isDisabled = index != 2;
         return Expanded(
           child: GestureDetector(
-            onTap: isDisabled ? null : () async {
-              // Clear stale stats immediately on tap so the Temperature
-              // Review never shows values from the previous range while
-              // the new range's data is loading.
-              setState(() {
-                _selectedTimeRange = index;
-                _clearStatsForRangeSwitch();
-              });
-              if (isCustom) {
-                await _showCustomRangePicker();
-              } else if (index == 2) {
-                unawaited(_syncToday());
-              } else {
-                _loadMinuteChartForRange(index);
-              }
-            },
+            onTap: isDisabled
+                ? null
+                : () async {
+                    // Clear stale stats immediately on tap so the Temperature
+                    // Review never shows values from the previous range while
+                    // the new range's data is loading.
+                    setState(() {
+                      _selectedTimeRange = index;
+                      _clearStatsForRangeSwitch();
+                    });
+                    if (isCustom) {
+                      await _showCustomRangePicker();
+                    } else if (index == 2) {
+                      unawaited(_syncToday());
+                    } else {
+                      _loadMinuteChartForRange(index);
+                    }
+                  },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: EdgeInsets.only(
