@@ -2142,7 +2142,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(width: 8),
 
               Text(
-                hasThermalData ? "${maxTemp.toStringAsFixed(1)}°C" : "--",
+                hasThermalData ? "${skinTemp.toStringAsFixed(1)}°C" : "--",
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,

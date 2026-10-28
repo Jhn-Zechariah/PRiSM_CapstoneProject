@@ -19,10 +19,12 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   bool isSprinklerAuto = true;
 
   // Allowed ranges for the IoT thresholds. Adjust these with your adviser.
-  static const double _minTemp = 35.0;
-  static const double _maxTempLimit = 38.0;
-  static const double _minHumidity = 70.0;
-  static const double _maxHumidityLimit = 80.0;
+  static const double _minTemp = 34.0;
+  static const double _maxTempLimit = 37.0;
+  static const double _minHumidity = 60.0;
+  static const double _maxHumidityLimit = 70.0;
+  static const double _minAirTemp = 15.6;
+  static const double _maxAirTempLimit = 23.9;
 
   // Only digits with at most 3 before and 1 after the decimal point
   // (e.g. "39", "39.5", "100"). Anything else is rejected as it is typed.
@@ -34,10 +36,22 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
 
   final TextEditingController _tempController = TextEditingController();
   final TextEditingController _humidityController = TextEditingController();
+  final TextEditingController _airTempController = TextEditingController();
   final TextEditingController _scheduleController = TextEditingController();
   final TextEditingController _durationController = TextEditingController();
 
   bool _isLoading = true;
+
+  // Context under the dialog's own ScaffoldMessenger, so error messages are
+  // drawn on top of the dialog instead of behind it.
+  BuildContext? _messengerContext;
+
+  void _showError(String message) {
+    final ctx = _messengerContext;
+    if (!mounted || ctx == null) return;
+    ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+    CustomSnackbar.show(context: ctx, message: message, isError: true);
+  }
 
   @override
   void initState() {
@@ -52,6 +66,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   void dispose() {
     _tempController.dispose();
     _humidityController.dispose();
+    _airTempController.dispose();
     _scheduleController.dispose();
     _durationController.dispose();
     super.dispose();
@@ -91,6 +106,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
       isSprinklerAuto = auto;
       _tempController.text = prefs.getString('iotMaxTemp') ?? '';
       _humidityController.text = prefs.getString('iotMaxHumidity') ?? '';
+      _airTempController.text = prefs.getString('iotMaxAirTemp') ?? '';
       _scheduleController.text = schedule;
       _durationController.text = duration;
       _isLoading = false;
@@ -175,29 +191,24 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     ).firstMatch(scheduleRaw);
 
     if (scheduleRaw.isNotEmpty && match == null) {
-      if (mounted) {
-        CustomSnackbar.show(
-          context: context,
-          message: "Schedule must look like 6:00 PM",
-        );
-      }
+      _showError("Schedule must look like 6:00 PM");
       return;
     }
 
     // Validate thresholds (empty = no limit)
     final tempText = _tempController.text.trim();
     final humidityText = _humidityController.text.trim();
+    final airTempText = _airTempController.text.trim();
     final tempValue = double.tryParse(tempText);
     final humidityValue = double.tryParse(humidityText);
+    final airTempValue = double.tryParse(airTempText);
 
     if (tempText.isNotEmpty &&
         (tempValue == null ||
             tempValue < _minTemp ||
             tempValue > _maxTempLimit)) {
-      CustomSnackbar.show(
-        context: context,
-        message:
-            "Max body temperature must be between ${_minTemp.toStringAsFixed(0)} and ${_maxTempLimit.toStringAsFixed(0)} °C",
+      _showError(
+        "Max body temperature must be between ${_minTemp.toStringAsFixed(0)} and ${_maxTempLimit.toStringAsFixed(0)} °C",
       );
       return;
     }
@@ -206,10 +217,18 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
         (humidityValue == null ||
             humidityValue < _minHumidity ||
             humidityValue > _maxHumidityLimit)) {
-      CustomSnackbar.show(
-        context: context,
-        message:
-            "Max humidity must be between ${_minHumidity.toStringAsFixed(0)} and ${_maxHumidityLimit.toStringAsFixed(0)} %",
+      _showError(
+        "Max humidity must be between ${_minHumidity.toStringAsFixed(0)} and ${_maxHumidityLimit.toStringAsFixed(0)} %",
+      );
+      return;
+    }
+
+    if (airTempText.isNotEmpty &&
+        (airTempValue == null ||
+            airTempValue < _minAirTemp ||
+            airTempValue > _maxAirTempLimit)) {
+      _showError(
+        "Max air temperature must be between ${_minAirTemp.toStringAsFixed(1)} and ${_maxAirTempLimit.toStringAsFixed(1)} °C",
       );
       return;
     }
@@ -225,11 +244,13 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     await prefs.setBool('isSprinklerAuto', isSprinklerAuto);
     await prefs.setString('iotMaxTemp', _tempController.text);
     await prefs.setString('iotMaxHumidity', _humidityController.text);
+    await prefs.setString('iotMaxAirTemp', _airTempController.text);
     await prefs.setString('iotSchedule', scheduleText);
     await prefs.setString('iotDuration', _durationController.text);
 
     final maxTemp = double.tryParse(_tempController.text);
     final maxHumidity = double.tryParse(_humidityController.text);
+    final maxAirTemp = double.tryParse(_airTempController.text);
 
     // Settings document the ESP32 reads (fixed path, no user id needed)
     await FirebaseFirestore.instance
@@ -253,6 +274,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
           'isSprinklerAuto': isSprinklerAuto,
           'maxTemp': maxTemp,
           'maxHumidity': maxHumidity,
+          'maxAirTemp': maxAirTemp,
           'schedule': scheduleText,
           'durationMins': int.tryParse(_durationController.text),
         });
@@ -285,6 +307,32 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
       );
     }
 
+    // The dialog gets its own ScaffoldMessenger so error messages show on top
+    // of it. Taps outside the dialog still close it.
+    return ScaffoldMessenger(
+      child: Builder(
+        builder: (messengerContext) {
+          _messengerContext = messengerContext;
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => Navigator.pop(context),
+                  ),
+                ),
+                _buildDialog(theme, isDark, textColor),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDialog(ThemeData theme, bool isDark, Color? textColor) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -330,7 +378,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               dotColor: Colors.blue[900]!,
               label: 'Max body temperature',
               controller: _tempController,
-              hintText: '°C',
+              hintText: '34–37 °C',
               enabled: isIotEnabled,
               inputFormatters: [_decimalFormatter],
             ),
@@ -340,7 +388,17 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               dotColor: Colors.red[600]!,
               label: 'Max humidity',
               controller: _humidityController,
-              hintText: '%',
+              hintText: '60–70 %',
+              enabled: isIotEnabled,
+              inputFormatters: [_decimalFormatter],
+            ),
+            const SizedBox(height: 12),
+            _buildInputRow(
+              context: context,
+              dotColor: Colors.orange[800]!,
+              label: 'Max air temperature',
+              controller: _airTempController,
+              hintText: '15.6–23.9 °C',
               enabled: isIotEnabled,
               inputFormatters: [_decimalFormatter],
             ),
