@@ -34,6 +34,11 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
   final _dosageController = TextEditingController();
   final _scheduleController = TextEditingController();
   final _purposeController = TextEditingController();
+  final _dateTakenController = TextEditingController();
+
+  // When the dose was actually given. Defaults to now; can be back-dated
+  // for doses recorded after the fact, but never set in the future.
+  DateTime _selectedDateTaken = DateTime.now();
 
   static const _fieldPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 13);
 
@@ -49,10 +54,17 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
   String _previousRecordText = '—';
 
   @override
+  void initState() {
+    super.initState();
+    _dateTakenController.text = DateFormat('yyyy-MM-dd').format(_selectedDateTaken);
+  }
+
+  @override
   void dispose() {
     _dosageController.dispose();
     _scheduleController.dispose();
     _purposeController.dispose();
+    _dateTakenController.dispose();
     super.dispose();
   }
 
@@ -127,6 +139,28 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     }
   }
 
+  Future<void> _selectDateTaken() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDateTaken,
+      firstDate: DateTime(2000),
+      lastDate: now,
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(colorScheme: ColorScheme.light(primary: widget.accentColor)),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        // Keep the current time of day so records on the same date still
+        // sort in the order they were entered.
+        _selectedDateTaken = DateTime(picked.year, picked.month, picked.day, now.hour, now.minute, now.second);
+        _dateTakenController.text = DateFormat('yyyy-MM-dd').format(picked);
+      });
+    }
+  }
+
   void _onSave() {
     if (_selectedMedicine == null || _selectedMedicine?.medId == null) {
       CustomErrorDialog.show(context: context, message: 'Please select a medicine first.');
@@ -161,7 +195,7 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
       status: _selectedStatus,
       nextSchedule: _selectedNextSchedule, // 🔹 DateTime?, not a string
       purpose: _purposeController.text.isEmpty ? null : _purposeController.text,
-      dateTaken: DateTime.now(),
+      dateTaken: _selectedDateTaken,
     );
 
     Navigator.pop(context, {
@@ -264,6 +298,13 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                           const SizedBox(width: 16),
                           Expanded(flex: 5, child: CustomDropdown(label: 'Status:', value: _selectedStatus, border: 8, contentPadding: _fieldPadding, items: _statusOptions, onChanged: (val) => setState(() => _selectedStatus = val!))),
                         ],
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: _selectDateTaken,
+                        child: IgnorePointer(
+                          child: CustomTextField(label: 'Date Taken:', controller: _dateTakenController, border: 8, contentPadding: _fieldPadding, suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18)),
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Row(
