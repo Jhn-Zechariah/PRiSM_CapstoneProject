@@ -1,64 +1,66 @@
 {
-  "usable_minutes": 7200,
+  "usable_minutes": 10061,
   "days": [
     "2026-10-28",
     "2026-10-29",
     "2026-10-30",
     "2026-10-31",
-    "2026-11-01"
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-03"
   ],
   "pigBodyTemp_percentiles": {
-    "1": 31.02,
-    "5": 31.87,
-    "10": 32.35,
-    "25": 32.97,
-    "50": 33.37,
-    "75": 33.77,
-    "90": 34.17,
-    "95": 34.42,
-    "97.5": 34.62,
-    "99": 34.82
+    "1": 31.05,
+    "5": 32.0,
+    "10": 32.45,
+    "25": 33.02,
+    "50": 33.43,
+    "75": 33.88,
+    "90": 34.38,
+    "95": 34.65,
+    "97.5": 34.85,
+    "99": 35.07
   },
   "gap_pig_minus_ambient_percentiles": {
-    "1": 0.6,
-    "5": 2.03,
-    "10": 2.57,
-    "25": 3.77,
-    "50": 4.93,
-    "75": 5.95,
-    "90": 6.73,
-    "95": 7.08,
-    "97.5": 7.55,
-    "99": 7.93
+    "1": 0.51,
+    "5": 1.62,
+    "10": 2.3,
+    "25": 3.48,
+    "50": 4.9,
+    "75": 5.9,
+    "90": 6.72,
+    "95": 7.03,
+    "97.5": 7.4,
+    "99": 7.81
   },
   "pct_above_cutoffs": {
     "> needs_attention_above (37.0 C)": 0.0,
     ">= high_risk_at (38.5 C)": 0.0
   },
   "range_report": {
-    "n_rows": 7200,
+    "n_rows": 10061,
     "per_sensor": {
       "pigBodyTemp": {
-        "n_valid": 7200,
-        "pct_in_normal_band": 15.94,
-        "pct_in_observed_band": 99.76,
+        "n_valid": 10061,
+        "pct_in_normal_band": 20.56,
+        "pct_in_observed_band": 98.73,
         "pct_in_training_envelope": 100.0
       },
       "ambientTemp": {
-        "n_valid": 7200,
+        "n_valid": 10061,
         "pct_in_normal_band": 0.0,
-        "pct_in_observed_band": 87.92,
-        "pct_in_training_envelope": 99.85
+        "pct_in_observed_band": 84.15,
+        "pct_in_training_envelope": 99.14
       },
       "ambientHumidity": {
-        "n_valid": 7200,
-        "pct_in_normal_band": 23.99,
-        "pct_in_observed_band": 78.92,
-        "pct_in_training_envelope": 99.15
+        "n_valid": 10061,
+        "pct_in_normal_band": 22.84,
+        "pct_in_observed_band": 76.74,
+        "pct_in_training_envelope": 96.67
       }
     },
-    "pct_rows_all_sensors_in_envelope": 99.08,
-    "outside_envelope_fraction": 0.0092
+    "pct_rows_all_sensors_in_envelope": 96.33,
+    "outside_envelope_fraction": 0.0367
   },
   "warnings": []
 }

@@ -1,0 +1,17 @@
+{
+  "phase": 2,
+  "run_at": "2026-11-08T10:32:54.442046+00:00",
+  "holdout_days": [
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-03"
+  ],
+  "holdout_mean_mae": {
+    "new_combined": 0.3513,
+    "current_deployed": 0.3513
+  },
+  "winner": "new_combined",
+  "winner_version": "ridge-combined-202611081036",
+  "promoted": "D:\\PRiSM_CapstoneProject\\prism-ml\\models\\candidates\\model_combined_20261108T103624Z.joblib",
+  "archived_previous": "D:\\PRiSM_CapstoneProject\\prism-ml\\models\\archive\\model_20261108T103626Z_ridge-combined-202611080933.joblib"
+}

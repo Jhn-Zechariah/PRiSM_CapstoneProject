@@ -1,0 +1,262 @@
+{
+  "data": "synthetic-to-real transfer (all real data)",
+  "disclaimer": "SYNTHETIC-DATA RESULTS: pipeline sanity check only. These numbers come from simulated data and are NOT the accuracy of the real PRISM system.",
+  "n_rows": 9941,
+  "days": [
+    "2026-10-28",
+    "2026-10-29",
+    "2026-10-30",
+    "2026-10-31",
+    "2026-11-01",
+    "2026-11-02",
+    "2026-11-03"
+  ],
+  "regression": {
+    "t+15": {
+      "mae": 0.3129,
+      "rmse": 0.4507,
+      "baseline_persistence_mae": 0.3316,
+      "baseline_persistence_rmse": 0.4803,
+      "mae_skill_vs_baseline": 0.0564
+    },
+    "t+30": {
+      "mae": 0.4034,
+      "rmse": 0.5531,
+      "baseline_persistence_mae": 0.4351,
+      "baseline_persistence_rmse": 0.6088,
+      "mae_skill_vs_baseline": 0.073
+    }
+  },
+  "risk_classification": {
+    "t+15": {
+      "accuracy": 1.0,
+      "per_class": {
+        "Good": {
+          "support": 9941,
+          "recall": 1.0,
+          "predicted": 9941
+        },
+        "Needs Attention": {
+          "support": 0,
+          "recall": null,
+          "predicted": 0
+        },
+        "High Risk": {
+          "support": 0,
+          "recall": null,
+          "predicted": 0
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          "Good",
+          "Needs Attention",
+          "High Risk"
+        ],
+        "rows_true_cols_pred": [
+          [
+            9941,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ]
+      }
+    },
+    "t+30": {
+      "accuracy": 1.0,
+      "per_class": {
+        "Good": {
+          "support": 9941,
+          "recall": 1.0,
+          "predicted": 9941
+        },
+        "Needs Attention": {
+          "support": 0,
+          "recall": null,
+          "predicted": 0
+        },
+        "High Risk": {
+          "support": 0,
+          "recall": null,
+          "predicted": 0
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          "Good",
+          "Needs Attention",
+          "High Risk"
+        ],
+        "rows_true_cols_pred": [
+          [
+            9941,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ]
+      }
+    },
+    "app_level_max_of_horizons": {
+      "accuracy": 1.0,
+      "per_class": {
+        "Good": {
+          "support": 9941,
+          "recall": 1.0,
+          "predicted": 9941
+        },
+        "Needs Attention": {
+          "support": 0,
+          "recall": null,
+          "predicted": 0
+        },
+        "High Risk": {
+          "support": 0,
+          "recall": null,
+          "predicted": 0
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          "Good",
+          "Needs Attention",
+          "High Risk"
+        ],
+        "rows_true_cols_pred": [
+          [
+            9941,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0
+          ]
+        ]
+      }
+    }
+  },
+  "early_warning_lead_time": {
+    "into_needs_attention": {
+      "n_events": 0,
+      "note": "no sustained crossings into the stress band in this data"
+    },
+    "into_high_risk": {
+      "n_events": 0,
+      "note": "no sustained crossings into the stress band in this data"
+    }
+  },
+  "noon_peak_vs_rest": {
+    "t+15": {
+      "noon_peak_mae": 0.341,
+      "rest_of_day_mae": 0.3088,
+      "noon_peak_hours_local": [
+        11,
+        14
+      ]
+    },
+    "t+30": {
+      "noon_peak_mae": 0.4253,
+      "rest_of_day_mae": 0.4002,
+      "noon_peak_hours_local": [
+        11,
+        14
+      ]
+    }
+  },
+  "error_by_hour": {
+    "t+15": {
+      "0": 0.197,
+      "1": 0.2175,
+      "2": 0.2132,
+      "3": 0.1785,
+      "4": 0.1713,
+      "5": 0.5135,
+      "6": 0.3859,
+      "7": 0.4086,
+      "8": 0.3745,
+      "9": 0.443,
+      "10": 0.5736,
+      "11": 0.3666,
+      "12": 0.2982,
+      "13": 0.3239,
+      "14": 0.3096,
+      "15": 0.2901,
+      "16": 0.2993,
+      "17": 0.3387,
+      "18": 0.5393,
+      "19": 0.2654,
+      "20": 0.2393,
+      "21": 0.1903,
+      "22": 0.1866,
+      "23": 0.1701
+    },
+    "t+30": {
+      "0": 0.2484,
+      "1": 0.3442,
+      "2": 0.2981,
+      "3": 0.2563,
+      "4": 0.2027,
+      "5": 0.792,
+      "6": 0.4838,
+      "7": 0.5259,
+      "8": 0.4615,
+      "9": 0.6795,
+      "10": 0.651,
+      "11": 0.4251,
+      "12": 0.3419,
+      "13": 0.3942,
+      "14": 0.3695,
+      "15": 0.3539,
+      "16": 0.2997,
+      "17": 0.5395,
+      "18": 0.6342,
+      "19": 0.3893,
+      "20": 0.3518,
+      "21": 0.2014,
+      "22": 0.2292,
+      "23": 0.1976
+    }
+  },
+  "risk_cutoffs_used": {
+    "needs_attention_above": 37.0,
+    "high_risk_at": 38.5,
+    "status": "PLACEHOLDER"
+  },
+  "plots": [
+    "reports\\eval_transfer_20261108_day.png",
+    "reports\\eval_transfer_20261108_error_by_hour.png",
+    "reports\\eval_transfer_20261108_feature_importance.png"
+  ],
+  "model": {
+    "model_name": "ridge",
+    "version": "ridge-combined-202611080933",
+    "data_source": "combined",
+    "trained_at": "2026-11-08T09:33:57.317320+00:00"
+  }
+}

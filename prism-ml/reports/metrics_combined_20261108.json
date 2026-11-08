@@ -1,0 +1,439 @@
+{
+  "IMPORTANT": "Results on the frozen real hold-out block (never used for training).",
+  "data_source": "combined",
+  "model": {
+    "model_name": "ridge",
+    "version": "ridge-combined-202611081036",
+    "trained_at": "2026-11-08T10:36:24.696232+00:00",
+    "target": "delta",
+    "horizons": [
+      15,
+      30
+    ]
+  },
+  "model_selection_validation_mae": {
+    "persistence": {
+      "t+15": 0.3168,
+      "t+30": 0.4161,
+      "mean": 0.3665
+    },
+    "ridge": {
+      "t+15": 0.2992,
+      "t+30": 0.3825,
+      "mean": 0.3408
+    },
+    "random_forest": {
+      "t+15": 0.3253,
+      "t+30": 0.422,
+      "mean": 0.3736
+    },
+    "lightgbm": {
+      "t+15": 0.3252,
+      "t+30": 0.4247,
+      "mean": 0.375
+    }
+  },
+  "selected_model": "ridge",
+  "test": {
+    "data": "real hold-out days (combined training)",
+    "disclaimer": "Real-data results on the frozen hold-out block (never used for training).",
+    "n_rows": 4211,
+    "days": [
+      "2026-11-01",
+      "2026-11-02",
+      "2026-11-03"
+    ],
+    "regression": {
+      "t+15": {
+        "mae": 0.3014,
+        "rmse": 0.4242,
+        "baseline_persistence_mae": 0.3123,
+        "baseline_persistence_rmse": 0.4451,
+        "mae_skill_vs_baseline": 0.0348
+      },
+      "t+30": {
+        "mae": 0.4013,
+        "rmse": 0.5356,
+        "baseline_persistence_mae": 0.412,
+        "baseline_persistence_rmse": 0.5707,
+        "mae_skill_vs_baseline": 0.026
+      }
+    },
+    "risk_classification": {
+      "t+15": {
+        "accuracy": 1.0,
+        "per_class": {
+          "Good": {
+            "support": 4211,
+            "recall": 1.0,
+            "predicted": 4211
+          },
+          "Needs Attention": {
+            "support": 0,
+            "recall": null,
+            "predicted": 0
+          },
+          "High Risk": {
+            "support": 0,
+            "recall": null,
+            "predicted": 0
+          }
+        },
+        "confusion_matrix": {
+          "labels": [
+            "Good",
+            "Needs Attention",
+            "High Risk"
+          ],
+          "rows_true_cols_pred": [
+            [
+              4211,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      "t+30": {
+        "accuracy": 1.0,
+        "per_class": {
+          "Good": {
+            "support": 4211,
+            "recall": 1.0,
+            "predicted": 4211
+          },
+          "Needs Attention": {
+            "support": 0,
+            "recall": null,
+            "predicted": 0
+          },
+          "High Risk": {
+            "support": 0,
+            "recall": null,
+            "predicted": 0
+          }
+        },
+        "confusion_matrix": {
+          "labels": [
+            "Good",
+            "Needs Attention",
+            "High Risk"
+          ],
+          "rows_true_cols_pred": [
+            [
+              4211,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      "app_level_max_of_horizons": {
+        "accuracy": 1.0,
+        "per_class": {
+          "Good": {
+            "support": 4211,
+            "recall": 1.0,
+            "predicted": 4211
+          },
+          "Needs Attention": {
+            "support": 0,
+            "recall": null,
+            "predicted": 0
+          },
+          "High Risk": {
+            "support": 0,
+            "recall": null,
+            "predicted": 0
+          }
+        },
+        "confusion_matrix": {
+          "labels": [
+            "Good",
+            "Needs Attention",
+            "High Risk"
+          ],
+          "rows_true_cols_pred": [
+            [
+              4211,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      }
+    },
+    "early_warning_lead_time": {
+      "into_needs_attention": {
+        "n_events": 0,
+        "note": "no sustained crossings into the stress band in this data"
+      },
+      "into_high_risk": {
+        "n_events": 0,
+        "note": "no sustained crossings into the stress band in this data"
+      }
+    },
+    "noon_peak_vs_rest": {
+      "t+15": {
+        "noon_peak_mae": 0.3344,
+        "rest_of_day_mae": 0.2965,
+        "noon_peak_hours_local": [
+          11,
+          14
+        ]
+      },
+      "t+30": {
+        "noon_peak_mae": 0.4184,
+        "rest_of_day_mae": 0.3987,
+        "noon_peak_hours_local": [
+          11,
+          14
+        ]
+      }
+    },
+    "error_by_hour": {
+      "t+15": {
+        "0": 0.1917,
+        "1": 0.1962,
+        "2": 0.2177,
+        "3": 0.1531,
+        "4": 0.1348,
+        "5": 0.3943,
+        "6": 0.3844,
+        "7": 0.3564,
+        "8": 0.4431,
+        "9": 0.5173,
+        "10": 0.523,
+        "11": 0.3093,
+        "12": 0.2824,
+        "13": 0.3402,
+        "14": 0.2799,
+        "15": 0.276,
+        "16": 0.316,
+        "17": 0.3017,
+        "18": 0.467,
+        "19": 0.2936,
+        "20": 0.2453,
+        "21": 0.2134,
+        "22": 0.236,
+        "23": 0.1354
+      },
+      "t+30": {
+        "0": 0.3069,
+        "1": 0.3223,
+        "2": 0.3075,
+        "3": 0.2377,
+        "4": 0.1594,
+        "5": 0.6446,
+        "6": 0.5336,
+        "7": 0.4258,
+        "8": 0.594,
+        "9": 0.6916,
+        "10": 0.6443,
+        "11": 0.4057,
+        "12": 0.3272,
+        "13": 0.4223,
+        "14": 0.3584,
+        "15": 0.3584,
+        "16": 0.3681,
+        "17": 0.4343,
+        "18": 0.5877,
+        "19": 0.4419,
+        "20": 0.3446,
+        "21": 0.1899,
+        "22": 0.3209,
+        "23": 0.1741
+      }
+    },
+    "risk_cutoffs_used": {
+      "needs_attention_above": 37.0,
+      "high_risk_at": 38.5,
+      "status": "PLACEHOLDER"
+    },
+    "plots": [
+      "reports\\combined_20261108_day.png",
+      "reports\\combined_20261108_error_by_hour.png",
+      "reports\\combined_20261108_feature_importance.png"
+    ]
+  },
+  "range_coverage": {
+    "bands": {
+      "normal_band": {
+        "pigBodyTemp": {
+          "min": 34.0,
+          "max": 37.0
+        },
+        "ambientTemp": {
+          "min": 15.6,
+          "max": 23.9
+        },
+        "ambientHumidity": {
+          "min": 60.0,
+          "max": 70.0
+        }
+      },
+      "observed_band": {
+        "pigBodyTemp": {
+          "min": 27.0,
+          "max": 35.0
+        },
+        "ambientTemp": {
+          "min": 26.0,
+          "max": 32.0
+        },
+        "ambientHumidity": {
+          "min": 67.0,
+          "max": 96.0
+        }
+      },
+      "training_envelope": {
+        "pigBodyTemp": {
+          "min": 26.0,
+          "max": 40.0
+        },
+        "ambientTemp": {
+          "min": 14.6,
+          "max": 33.5
+        },
+        "ambientHumidity": {
+          "min": 57.0,
+          "max": 99.0
+        }
+      }
+    },
+    "by_source": {
+      "real": {
+        "n_rows": 9941,
+        "per_sensor": {
+          "pigBodyTemp": {
+            "n_valid": 9941,
+            "pct_in_normal_band": 20.42,
+            "pct_in_observed_band": 98.72,
+            "pct_in_training_envelope": 100.0
+          },
+          "ambientTemp": {
+            "n_valid": 9941,
+            "pct_in_normal_band": 0.0,
+            "pct_in_observed_band": 83.96,
+            "pct_in_training_envelope": 99.12
+          },
+          "ambientHumidity": {
+            "n_valid": 9941,
+            "pct_in_normal_band": 22.81,
+            "pct_in_observed_band": 76.72,
+            "pct_in_training_envelope": 96.63
+          }
+        },
+        "pct_rows_all_sensors_in_envelope": 96.29,
+        "outside_envelope_fraction": 0.0371,
+        "warnings": []
+      },
+      "synthetic": {
+        "n_rows": 126251,
+        "per_sensor": {
+          "pigBodyTemp": {
+            "n_valid": 126251,
+            "pct_in_normal_band": 47.0,
+            "pct_in_observed_band": 60.38,
+            "pct_in_training_envelope": 99.62
+          },
+          "ambientTemp": {
+            "n_valid": 126251,
+            "pct_in_normal_band": 32.54,
+            "pct_in_observed_band": 55.68,
+            "pct_in_training_envelope": 99.99
+          },
+          "ambientHumidity": {
+            "n_valid": 126251,
+            "pct_in_normal_band": 34.97,
+            "pct_in_observed_band": 73.16,
+            "pct_in_training_envelope": 100.0
+          }
+        },
+        "pct_rows_all_sensors_in_envelope": 99.61,
+        "outside_envelope_fraction": 0.0039,
+        "warnings": []
+      }
+    }
+  },
+  "synthetic_to_real_transfer": {
+    "status": "not available: no real data exported yet"
+  },
+  "feature_columns": [
+    "pigBodyTemp",
+    "ambientTemp",
+    "ambientHumidity",
+    "thi",
+    "gap",
+    "pigBodyTemp_lag5",
+    "pigBodyTemp_lag10",
+    "pigBodyTemp_lag15",
+    "pigBodyTemp_lag30",
+    "ambientTemp_lag5",
+    "ambientTemp_lag10",
+    "ambientTemp_lag15",
+    "ambientTemp_lag30",
+    "ambientHumidity_lag5",
+    "ambientHumidity_lag10",
+    "ambientHumidity_lag15",
+    "ambientHumidity_lag30",
+    "pigBodyTemp_mean15",
+    "pigBodyTemp_max15",
+    "pigBodyTemp_roc15",
+    "pigBodyTemp_mean30",
+    "pigBodyTemp_max30",
+    "pigBodyTemp_roc30",
+    "ambientTemp_mean15",
+    "ambientTemp_max15",
+    "ambientTemp_roc15",
+    "ambientTemp_mean30",
+    "ambientTemp_max30",
+    "ambientTemp_roc30",
+    "ambientHumidity_mean15",
+    "ambientHumidity_max15",
+    "ambientHumidity_roc15",
+    "ambientHumidity_mean30",
+    "ambientHumidity_max30",
+    "ambientHumidity_roc30",
+    "thi_mean15",
+    "thi_max15",
+    "thi_roc15",
+    "thi_mean30",
+    "thi_max30",
+    "thi_roc30",
+    "tod_sin",
+    "tod_cos",
+    "sprinkler",
+    "min_since_spray"
+  ]
+}
