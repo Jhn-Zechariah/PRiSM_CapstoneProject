@@ -11,6 +11,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:prism_app/features/monitoring/data/today_max_service.dart';
@@ -1352,8 +1353,13 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _loadNextVaccineSchedule() async {
     try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      // Filter on userId: firestore.rules only allows collection-group reads
+      // of the signed-in user's own intakes.
       final snapshot = await FirebaseFirestore.instance
           .collectionGroup('medicine_intakes')
+          .where('userId', isEqualTo: uid)
           .where('category', isEqualTo: 'Vaccine')
           .get();
 

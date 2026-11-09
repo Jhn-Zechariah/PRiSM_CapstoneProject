@@ -1,8 +1,13 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
-const admin = require("firebase-admin");
-admin.initializeApp();
+// Modular Admin SDK imports (the namespaced getAuth()/getFirestore()
+// API was removed in firebase-admin v14).
+const { initializeApp } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
+const { getFirestore } = require("firebase-admin/firestore");
+const { getMessaging } = require("firebase-admin/messaging");
+initializeApp();
 
 /**
  * Sends a single FCM push to a user, swallowing errors per-send so that
@@ -10,7 +15,7 @@ admin.initializeApp();
  */
 async function safeSend(userId, payload) {
     try {
-        await admin.messaging().send(payload);
+        await getMessaging().send(payload);
     } catch (error) {
         logger.error(`Failed to send notification to user ${userId}:`, error);
     }
@@ -70,7 +75,7 @@ exports.dailyLowStockCheck = onSchedule({
     timeZone: "Asia/Manila",
 }, async (event) => {
     logger.info("⏰ Commencing daily low stock cron check...");
-    const firestore = admin.firestore();
+    const firestore = getFirestore();
 
     try {
         const medicinesSnapshot = await firestore.collection("medicines").get();
@@ -124,7 +129,7 @@ exports.dailyExpirationCheck = onSchedule({
     timeZone: "Asia/Manila",
 }, async (event) => {
     logger.info("⏰ Commencing daily medicine expiration audit...");
-    const firestore = admin.firestore();
+    const firestore = getFirestore();
 
     try {
         const medicinesSnapshot = await firestore.collection("medicines").get();
@@ -208,7 +213,7 @@ exports.dailyIntakeScheduleCheck = onSchedule({
     timeZone: "Asia/Manila",
 }, async (event) => {
     logger.info("⏰ Commencing daily intake schedule check...");
-    const firestore = admin.firestore();
+    const firestore = getFirestore();
 
     try {
         // nextSchedule is stored as a plain "YYYY-MM-DD" string, which sorts
@@ -303,8 +308,25 @@ const IOT_ADMINS_CACHE_MS = 60 * 1000;
 let iotAdminsCache = null; // { fetchedAt, admins: [{ id, ref, data }] }
 
 /**
- * Admins with IoT alerts on, cached per function instance for one minute.
- * The app always writes isIotEnabled together with the thresholds.
+ * Returns the subset of uids whose Firebase Auth account has the custom
+ * claim farm=true (set with functions/scripts/setUserClaim.js). Only those
+ * accounts may see sensor data, so only they receive IoT alerts, which
+ * contain live readings. getUsers() accepts at most 100 identifiers per call.
+ */
+async function filterFarmUsers(uids) {
+    const allowed = new Set();
+    for (let i = 0; i < uids.length; i += 100) {
+        const result = await getAuth().getUsers(uids.slice(i, i + 100).map((uid) => ({ uid })));
+        for (const u of result.users) {
+            if (u.customClaims && u.customClaims.farm === true) allowed.add(u.uid);
+        }
+    }
+    return allowed;
+}
+
+/**
+ * Farm accounts with IoT alerts on, cached per function instance for one
+ * minute. The app always writes isIotEnabled together with the thresholds.
  */
 async function getIotAdmins(firestore) {
     const now = Date.now();
@@ -315,9 +337,12 @@ async function getIotAdmins(firestore) {
         .collection("admins")
         .where("iotThresholds.isIotEnabled", "==", true)
         .get();
+    const farmUids = await filterFarmUsers(snapshot.docs.map((d) => d.id));
     iotAdminsCache = {
         fetchedAt: now,
-        admins: snapshot.docs.map((d) => ({ id: d.id, ref: d.ref, data: d.data() })),
+        admins: snapshot.docs
+            .filter((d) => farmUids.has(d.id))
+            .map((d) => ({ id: d.id, ref: d.ref, data: d.data() })),
     };
     return iotAdminsCache.admins;
 }
@@ -398,7 +423,7 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         // This runs on every ESP32 push (~8,640/day). Reading the admins on
         // every push used most of the daily Firestore read quota, so the list
         // is cached per function instance and refreshed at most once a minute.
-        const firestore = admin.firestore();
+        const firestore = getFirestore();
         const cachedAdmins = await getIotAdmins(firestore);
 
         for (const cached of cachedAdmins) {
