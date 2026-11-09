@@ -11,6 +11,8 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../../../core/services/lan_security.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:prism_app/features/monitoring/data/today_max_service.dart';
@@ -1352,9 +1354,13 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _loadNextVaccineSchedule() async {
     try {
+      // Only this user's records: without the userId filter the query read
+      // every farmer's vaccine intakes (and the Firestore rules reject it).
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
       final snapshot = await FirebaseFirestore.instance
           .collectionGroup('medicine_intakes')
-          .where('category', isEqualTo: 'Vaccine')
+          .where('userId', isEqualTo: uid)
           .get();
 
       DateTime? bestDate;
@@ -1362,6 +1368,7 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
+        if (data['category'] != 'Vaccine') continue;
         final ts = data['nextSchedule'];
         DateTime? scheduleDate;
         if (ts is Timestamp) {
@@ -1538,7 +1545,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         http
             .post(
               Uri.parse('http://$esp32Ip/sprinkler'),
-              headers: {'Content-Type': 'application/json'},
+              headers: LanSecurity.jsonHeaders,
               body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
             )
             .timeout(const Duration(seconds: 2))

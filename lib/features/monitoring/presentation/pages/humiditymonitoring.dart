@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:prism_app/core/services/lan_security.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
@@ -1682,7 +1683,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         http
             .post(
               Uri.parse('http://$esp32Ip/sprinkler'),
-              headers: {'Content-Type': 'application/json'},
+              headers: LanSecurity.jsonHeaders,
               body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
             )
             .timeout(const Duration(seconds: 2))

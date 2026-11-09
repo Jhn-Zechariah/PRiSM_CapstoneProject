@@ -42,11 +42,6 @@ class _SignupScreenState extends State<SignupScreen> {
     final String password = passwordController.text;
 
     if (_formKey.currentState!.validate()) {
-      debugPrint("Username: ${usernameController.text}");
-      debugPrint("Email: ${emailController.text}");
-      debugPrint("Password: ${passwordController.text}");
-      debugPrint("Confirm Password: ${confirmPasswordController.text}");
-
       authCubit.register(username, email, password);
     }
   }

@@ -13,7 +13,8 @@ class MlService {
     'PRISM_ML_URL',
     defaultValue: 'http://192.168.1.3:8000',
   );
-  static const String _apiKey = "prism123"; //String.fromEnvironment('PRISM_API_KEY');
+  // Never hardcode the key: anything in the source ends up in git and in the APK.
+  static const String _apiKey = String.fromEnvironment('PRISM_API_KEY');
   static const Duration _timeout = Duration(seconds: 10);
 
   /// Latest pig surface temperature forecast (+15 / +30 min) and risk level.

@@ -33,8 +33,6 @@ class LoginScreenState extends State<LoginScreen> {
     final String password = passwordController.text;
 
     if (_formKey.currentState!.validate()) {
-      debugPrint("Email: ${emailController.text}");
-      debugPrint("Password: ${passwordController.text}");
       authCubit.login(email, password);
     }
   }

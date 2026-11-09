@@ -48,9 +48,13 @@ const char* yesNo(bool v) {
   return v ? "YES" : "NO";
 }
 
+// [SEC] Passwords and keys live in secrets.h (copy secrets.example.h, never commit it).
+#include "secrets.h"
+#include "google_root_ca.h"
+
 // Home WiFi
-const char* ssid = "YOTC-E26AE7-2.4G-ext";
-const char* password = "53857950";
+const char* ssid = WIFI_SSID;
+const char* password = WIFI_PASSWORD;
 
 // Starts (or restarts) the WiFi connection. Used at boot and again
 // when cloud uploads keep failing.
@@ -71,8 +75,115 @@ void startWifi() {
 }
 
 // Firebase project settings
-const char* FIREBASE_PROJECT_ID = "prism-3cd2c";
-const char* FIREBASE_API_KEY = "AIzaSyC5vjNWD5eHZOSD9-GdcW9yCJqqcg6e0Wo";
+const char* FIREBASE_PROJECT_ID = FIREBASE_PROJECT_ID_VALUE;
+const char* FIREBASE_API_KEY = FIREBASE_API_KEY_VALUE;
+
+// ======================================================================
+// [SEC] SECURE CONNECTION + DEVICE SIGN-IN
+// Every HTTPS connection checks Google's certificate, so a fake WiFi or
+// router cannot read or change the traffic.
+// The ESP32 signs in to Firebase Auth with its own device account and sends
+// the ID token with every Firestore call, so the Firestore rules can allow
+// sensor writes from this device only (see firestore.rules, isDevice()).
+// The token lasts 1 hour; it is renewed 5 minutes before it expires.
+// ======================================================================
+void secureClient(WiFiClientSecure& client) {
+  client.setCACert(GOOGLE_ROOT_CA);
+}
+
+String fbIdToken;                 // empty = not signed in
+unsigned long fbTokenAtMs = 0;
+unsigned long fbTokenLifeMs = 0;
+unsigned long lastSignInTryMs = 0;
+const unsigned long SIGN_IN_RETRY_MS = 30000UL;  // wait between failed sign-ins
+
+bool firebaseSignIn() {
+  String url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=";
+  url += FIREBASE_API_KEY;
+
+  StaticJsonDocument<256> req;
+  req["email"] = DEVICE_EMAIL;
+  req["password"] = DEVICE_PASSWORD;
+  req["returnSecureToken"] = true;
+  String body;
+  serializeJson(req, body);
+
+  WiFiClientSecure client;
+  secureClient(client);
+  client.setTimeout(6);
+
+  HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.begin(client, url);
+  http.setTimeout(6000);
+  http.addHeader("Content-Type", "application/json");
+
+  int code = http.POST(body);
+  if (code != 200) {
+    Serial.printf("[AUTH] Device sign-in FAILED (HTTP %d)%s\n", code,
+                  code == 400 ? " - check DEVICE_EMAIL / DEVICE_PASSWORD in secrets.h" : "");
+    http.end();
+    fbIdToken = "";
+    return false;
+  }
+
+  String payload = http.getString();
+  http.end();
+
+  // Keep only the two fields we need (the token alone is ~1 KB)
+  StaticJsonDocument<64> filter;
+  filter["idToken"] = true;
+  filter["expiresIn"] = true;
+  DynamicJsonDocument doc(3072);
+  if (deserializeJson(doc, payload, DeserializationOption::Filter(filter))) {
+    Serial.println("[AUTH] Sign-in reply could not be read");
+    fbIdToken = "";
+    return false;
+  }
+
+  const char* token = doc["idToken"];
+  if (token == nullptr) {
+    fbIdToken = "";
+    return false;
+  }
+  long life = String((const char*)(doc["expiresIn"] | "3600")).toInt();
+  if (life < 600) life = 600;
+
+  fbIdToken = token;
+  fbTokenAtMs = millis();
+  fbTokenLifeMs = (unsigned long)(life - 300) * 1000UL;
+  Serial.println("[AUTH] Device signed in to Firebase");
+  return true;
+}
+
+// Signs in when there is no token or it is about to expire.
+void ensureFirebaseToken() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (fbIdToken.length() > 0 && millis() - fbTokenAtMs < fbTokenLifeMs) return;
+  if (lastSignInTryMs != 0 && millis() - lastSignInTryMs < SIGN_IN_RETRY_MS) return;
+  lastSignInTryMs = millis();
+  firebaseSignIn();
+}
+
+void addFirebaseAuth(HTTPClient& http) {
+  if (fbIdToken.length() > 0) http.addHeader("Authorization", "Bearer " + fbIdToken);
+}
+
+// A rejected token (revoked, or expired early) is dropped so the next call signs in again.
+void onFirebaseHttpCode(int code) {
+  if (code == 401 || code == 403) {
+    fbIdToken = "";
+    Serial.printf("[AUTH] Firestore refused the request (HTTP %d) - will sign in again\n", code);
+  }
+}
+
+// [SEC] Compares two strings in constant time (does not leak how many characters matched).
+bool safeEquals(const String& a, const String& b) {
+  if (a.length() != b.length()) return false;
+  uint8_t diff = 0;
+  for (unsigned int i = 0; i < a.length(); i++) diff |= (uint8_t)(a[i] ^ b[i]);
+  return diff == 0;
+}
 
 // AMG8833 thermal camera (8x8 = 64 pixels)
 Adafruit_AMG88xx amg;
@@ -386,17 +497,20 @@ int commitToFirestore(const String& body) {
   url += "/databases/(default)/documents:commit?key=";
   url += FIREBASE_API_KEY;
 
+  ensureFirebaseToken();  // [SEC] signs in again when the token is about to expire
   WiFiClientSecure client;
-  client.setInsecure();
+  secureClient(client);  // [SEC] checks Google's certificate
   client.setTimeout(6);
 
   HTTPClient http;
   http.setConnectTimeout(6000);
   http.begin(client, url);
+  addFirebaseAuth(http);  // [SEC]
   http.setTimeout(6000);
   http.addHeader("Content-Type", "application/json");
 
   int code = http.POST(body);
+  onFirebaseHttpCode(code);  // [SEC]
   if (code != 200) {
     Serial.printf("[SD] Upload error: %s\n",
                   code > 0 ? http.getString().c_str() : HTTPClient::errorToString(code).c_str());
@@ -1293,13 +1407,15 @@ void pushAllToFirestore() {
   url += "/databases/(default)/documents:commit?key=";
   url += FIREBASE_API_KEY;
 
+  ensureFirebaseToken();  // [SEC] signs in again when the token is about to expire
   WiFiClientSecure client;
-  client.setInsecure();  // skips certificate checking to keep the code simple
+  secureClient(client);  // [SEC] checks Google's certificate
   client.setTimeout(6);
 
   HTTPClient http;
   http.setConnectTimeout(6000);
   http.begin(client, url);
+  addFirebaseAuth(http);  // [SEC]
   http.setTimeout(6000);
   http.addHeader("Content-Type", "application/json");
 
@@ -1328,6 +1444,7 @@ void pushAllToFirestore() {
 
   unsigned long t0 = millis();
   int code = http.POST(body);
+  onFirebaseHttpCode(code);  // [SEC]
 
   // Success
   if (code == 200) {
@@ -1464,17 +1581,20 @@ bool writeSprinklerCommand(const char* state) {
   body += state;
   body += "\"}}}";
 
+  ensureFirebaseToken();  // [SEC] signs in again when the token is about to expire
   WiFiClientSecure client;
-  client.setInsecure();
+  secureClient(client);  // [SEC] checks Google's certificate
   client.setTimeout(3);
 
   HTTPClient http;
   http.setConnectTimeout(3000);
   http.begin(client, url);
+  addFirebaseAuth(http);  // [SEC]
   http.setTimeout(3000);
   http.addHeader("Content-Type", "application/json");
 
   int code = http.sendRequest("PATCH", body);
+  onFirebaseHttpCode(code);  // [SEC]
 
   Serial.printf("[CLOUD] Write command state=%s -> HTTP %d %s\n",
                 state, code, code == 200 ? "OK" : "FAILED (will retry)");
@@ -1505,16 +1625,19 @@ void pollSprinklerCommand() {
   url += "/databases/(default)/documents/sprinkler_command/pending?key=";
   url += FIREBASE_API_KEY;
 
+  ensureFirebaseToken();  // [SEC] signs in again when the token is about to expire
   WiFiClientSecure client;
-  client.setInsecure();
+  secureClient(client);  // [SEC] checks Google's certificate
   client.setTimeout(2);
 
   HTTPClient http;
   http.setConnectTimeout(3000);
   http.begin(client, url);
+  addFirebaseAuth(http);  // [SEC]
   http.setTimeout(2000);
 
   int code = http.GET();
+  onFirebaseHttpCode(code);  // [SEC]
 
   if (code == 200) {
     String payload = http.getString();
@@ -1555,16 +1678,19 @@ void fetchSprinklerSettings() {
   url += "/databases/(default)/documents/sprinkler_settings/config?key=";
   url += FIREBASE_API_KEY;
 
+  ensureFirebaseToken();  // [SEC] signs in again when the token is about to expire
   WiFiClientSecure client;
-  client.setInsecure();
+  secureClient(client);  // [SEC] checks Google's certificate
   client.setTimeout(2);
 
   HTTPClient http;
   http.setConnectTimeout(3000);
   http.begin(client, url);
+  addFirebaseAuth(http);  // [SEC]
   http.setTimeout(2000);
 
   int code = http.GET();
+  onFirebaseHttpCode(code);  // [SEC]
 
   if (code == 200) {
     String payload = http.getString();
@@ -1677,13 +1803,22 @@ void checkSchedule() {
 // POST /sprinkler: lets the app switch the sprinkler directly over the local
 // network. Expected body: {"state":"on"} or {"state":"off"}
 void handleSprinklerRequest() {
+  // [SEC] Only the PRISM app knows LAN_KEY. Without this check any phone,
+  // laptop or web page on the same WiFi could switch the sprinkler.
+  if (!safeEquals(server.header("X-PRISM-Key"), String(LAN_KEY))) {
+    Serial.printf("[LAN] Rejected POST /sprinkler from %s: missing or wrong X-PRISM-Key\n",
+                  server.client().remoteIP().toString().c_str());
+    server.send(401, "application/json", "{\"error\":\"unauthorized\"}");
+    return;
+  }
+
   String body = server.arg("plain");
   StaticJsonDocument<128> doc;
 
   Serial.printf("[LAN] POST /sprinkler from %s | body=%s\n",
                 server.client().remoteIP().toString().c_str(), body.c_str());
 
-  if (deserializeJson(doc, body)) {
+  if (body.length() > 100 || deserializeJson(doc, body)) {
     Serial.println("[LAN] Rejected: bad JSON");
     server.send(400, "application/json", "{\"error\":\"bad json\"}");
     return;
@@ -1691,9 +1826,9 @@ void handleSprinklerRequest() {
 
   const char* state = doc["state"];
 
-  if (state == nullptr) {
-    Serial.println("[LAN] Rejected: missing 'state'");
-    server.send(400, "application/json", "{\"error\":\"missing state\"}");
+  if (state == nullptr || (strcmp(state, "on") != 0 && strcmp(state, "off") != 0)) {
+    Serial.println("[LAN] Rejected: 'state' must be \"on\" or \"off\"");
+    server.send(400, "application/json", "{\"error\":\"state must be on or off\"}");
     return;
   }
 
@@ -1843,6 +1978,9 @@ void setup() {
   // Local web server routes
   server.on("/sensor", HTTP_GET, handleSensorRequest);
   server.on("/sprinkler", HTTP_POST, handleSprinklerRequest);
+  // [SEC] WebServer drops request headers unless they are listed here
+  const char* lanHeaders[] = { "X-PRISM-Key" };
+  server.collectHeaders(lanHeaders, 1);
   server.begin();
 
   Serial.println("[BOOT] HTTP server started on port 80");
