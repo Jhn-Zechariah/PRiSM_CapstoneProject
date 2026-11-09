@@ -250,6 +250,15 @@ def create_app(source: FirestoreSource | None = None, bundle: dict | None = None
         if not x_api_key or not secrets.compare_digest(x_api_key, expected):
             raise HTTPException(401, "Invalid or missing X-API-Key")
 
+    @app.get("/", include_in_schema=False)
+    def root():
+        b = state["bundle"]
+        return {"service": "PRISM forecast API", "api_version": SERVICE_VERSION,
+                "model_version": b.get("version") if b else None,
+                "endpoints": {"/health": "service + model status",
+                              "/predict": "forecast (requires X-API-Key header)",
+                              "/docs": "interactive API docs"}}
+
     @app.get("/health", response_model=HealthResponse)
     def health():
         b = state["bundle"]
