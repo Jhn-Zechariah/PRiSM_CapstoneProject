@@ -4,6 +4,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/core/widgets/button.dart';
 
+import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../components/social_logins.dart';
 
@@ -37,8 +38,8 @@ class _SignupScreenState extends State<SignupScreen> {
   //sign uo botton pressed
   void _signup() {
     //prepare info
-    final String username = usernameController.text;
-    final String email = emailController.text;
+    final String username = usernameController.text.trim();
+    final String email = emailController.text.trim();
     final String password = passwordController.text;
 
     if (_formKey.currentState!.validate()) {
@@ -108,9 +109,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     labelText: "Username",
                     border: 10,
                     prefixIcon: Icons.account_circle_outlined,
-                    validator: (value) => value == null || value.isEmpty
-                        ? "Please enter your username"
-                        : null,
+                    validator: Validators.username,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -120,9 +119,8 @@ class _SignupScreenState extends State<SignupScreen> {
                     labelText: "Email",
                     border: 10,
                     prefixIcon: Icons.email_outlined,
-                    validator: (value) => value == null || value.isEmpty
-                        ? "Please enter your email"
-                        : null,
+                    keyboardType: TextInputType.emailAddress,
+                    validator: Validators.email,
                   ),
                   const SizedBox(height: fieldSpacing),
 
@@ -146,9 +144,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         });
                       },
                     ),
-                    validator: (value) => value == null || value.isEmpty
-                        ? "Please enter your password"
-                        : null,
+                    validator: Validators.newPassword,
                   ),
                   const SizedBox(height: fieldSpacing),
 

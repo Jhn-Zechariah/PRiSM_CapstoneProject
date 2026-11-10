@@ -14,7 +14,6 @@ import '../../features/medication/presentation/cubits/medicine_cubit.dart';
 import '../../features/medication/presentation/pages/meds_stocks.dart';
 import '../../features/monitoring/presentation/pages/IoTControlsDialog.dart';
 import '../../features/monitoring/presentation/pages/NotificationControlsDialog.dart';
-import '../../features/monitoring/presentation/pages/sprinkler_logs_dialog.dart';
 import '../../features/feeding/presentation/pages/feedingrecord.dart';
 import '../../features/auth/data/firestore_profile_repo.dart';
 import '../../features/auth/presentation/cubits/auth_cubit.dart';
@@ -184,14 +183,6 @@ class _AppNavState extends State<AppNav> {
                 context: context,
                 builder: (BuildContext context) =>
                 const IoTControlsDialog(),
-              );
-            }),
-            _drawerTile(Icons.history, 'Sprinkler Logs', () {
-              Navigator.pop(context);
-              showDialog(
-                context: context,
-                builder: (BuildContext context) =>
-                const SprinklerLogsDialog(),
               );
             }),
             _drawerTile(Symbols.notifications_active, 'Notification', () {
