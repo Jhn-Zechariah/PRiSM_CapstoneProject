@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
+import 'package:prism_app/core/widgets/snackbar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:prism_app/features/monitoring/data/today_readings_store.dart';
@@ -1562,7 +1563,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
   void _showSnackBar(String msg) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      CustomSnackbar.show(context: context, isError: true, message: msg);
     }
   }
 

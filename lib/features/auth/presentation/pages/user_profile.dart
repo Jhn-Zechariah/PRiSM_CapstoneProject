@@ -262,7 +262,7 @@ class _MyProfileState extends State<MyProfile> {
             _emailController.text = state.email;
             _usernameController.text = state.username;
           } else if (state is ProfileError) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
+            CustomSnackbar.show(context: context, isError: true, message: state.message);
           }
         },
         builder: (context, state) {

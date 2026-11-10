@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:prism_app/core/widgets/snackbar.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_top_bar.dart';
@@ -1637,8 +1638,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (e) {
       if (mounted) {
         setState(() => _isSprinklerLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to send sprinkler command: $e")),
+        CustomSnackbar.show(
+          context: context,
+          isError: true,
+          message: "Failed to send sprinkler command: $e",
         );
       }
     }
