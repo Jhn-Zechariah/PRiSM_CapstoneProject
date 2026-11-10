@@ -12,6 +12,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:prism_app/features/monitoring/data/today_max_service.dart';
@@ -1352,10 +1353,23 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _loadNextVaccineSchedule() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
     try {
+      final now = DateTime.now();
+      final startOfToday = DateTime(now.year, now.month, now.day);
+
+      // Same query shape as the Upcoming Schedule screen (and its index):
+      // only this user's schedules from today on, earliest first.
       final snapshot = await FirebaseFirestore.instance
           .collectionGroup('medicine_intakes')
-          .where('category', isEqualTo: 'Vaccine')
+          .where('userId', isEqualTo: uid)
+          .where(
+            'nextSchedule',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday),
+          )
+          .orderBy('nextSchedule')
           .get();
 
       DateTime? bestDate;
@@ -1363,36 +1377,28 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
+        if (data['category'] != 'Vaccine') continue;
+        if (data['status'] == 'Discontinued') continue;
         final ts = data['nextSchedule'];
-        DateTime? scheduleDate;
-        if (ts is Timestamp) {
-          scheduleDate = ts.toDate();
-        } else if (ts is String) {
-          scheduleDate = DateTime.tryParse(ts);
-        }
-        if (scheduleDate == null) continue;
-        if (scheduleDate.isBefore(
-          DateTime.now().subtract(const Duration(days: 1)),
-        )) {
-          continue;
-        }
-        if (bestDate == null || scheduleDate.isBefore(bestDate)) {
-          bestDate = scheduleDate;
-          bestName = data['medName'] as String? ?? 'Unknown';
-        }
+        if (ts is! Timestamp) continue;
+        bestDate = ts.toDate();
+        bestName = data['medName'] as String? ?? 'Unknown';
+        break; // Sorted ascending, so the first match is the next one.
       }
 
       if (!mounted) return;
-      if (bestDate != null && bestName != null) {
-        final label = DateFormat('MMM dd').format(bestDate);
-        VaxScheduleMemory.medName = bestName;
-        VaxScheduleMemory.dateLabel = label;
-        VaxScheduleMemory.loaded = true;
-        setState(() {
-          _vaxMedName = bestName!;
-          _vaxDateLabel = label;
-        });
-      }
+      // "--" when nothing is upcoming, so a passed date (or a previous
+      // account's schedule) never lingers on the card.
+      final name = bestName ?? '--';
+      final label =
+          bestDate != null ? DateFormat('MMM dd').format(bestDate) : '--';
+      VaxScheduleMemory.medName = name;
+      VaxScheduleMemory.dateLabel = label;
+      VaxScheduleMemory.loaded = true;
+      setState(() {
+        _vaxMedName = name;
+        _vaxDateLabel = label;
+      });
     } catch (e) {
       debugPrint('Error loading vax schedule: $e');
     }

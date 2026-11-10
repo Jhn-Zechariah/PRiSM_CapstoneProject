@@ -37,29 +37,49 @@ async function getCachedAdmin(firestore, cache, userId) {
     return userData;
 }
 
+// The farm runs on Philippine time (UTC+8, no daylight saving). The app
+// saves dates picked on the phone as Timestamps at local midnight, which is
+// 16:00 UTC of the previous day, so calendar days must be read in UTC+8.
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "YYYY-MM-DD" of the given instant as seen in Philippine time. */
+function manilaDateStr(date) {
+    return new Date(date.getTime() + MANILA_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** The instant that Philippine-time midnight of a "YYYY-MM-DD" day begins. */
+function manilaMidnight(dateStr) {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day) - MANILA_OFFSET_MS);
+}
+
 /**
- * Returns the number of whole calendar days between today and a
- * "YYYY-MM-DD" date string, computed entirely in UTC so the result never
- * depends on the Cloud Functions runtime's local timezone. This avoids the
- * classic bug where `new Date(dateString)` (UTC midnight) is compared
- * against `new Date().setHours(0,0,0,0)` (server-local midnight) — those
- * only agree if the server happens to run in UTC.
+ * Returns the number of whole calendar days (Philippine time) between today
+ * and a date given either as a "YYYY-MM-DD" string or a Firestore Timestamp.
+ * Day counts are taken from calendar-date strings, never from raw instants,
+ * so the result doesn't depend on the Cloud Functions runtime's timezone.
  *
- * Returns null if dateStr is missing or not a valid YYYY-MM-DD string.
+ * Returns null if the value is missing or not a recognizable date.
  */
-function daysUntil(dateStr) {
-    if (!dateStr || typeof dateStr !== "string") return null;
+function daysUntil(value) {
+    if (!value) return null;
 
-    const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (!match) return null;
+    let dateStr;
+    if (typeof value === "string") {
+        const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+        if (!match) return null;
+        dateStr = match[0];
+    } else if (typeof value.toDate === "function") {
+        dateStr = manilaDateStr(value.toDate());
+    } else {
+        return null;
+    }
 
-    const [, year, month, day] = match;
-    const targetUTC = Date.UTC(Number(year), Number(month) - 1, Number(day));
+    const targetUTC = Date.parse(`${dateStr}T00:00:00Z`);
+    const todayUTC = Date.parse(`${manilaDateStr(new Date())}T00:00:00Z`);
 
-    const now = new Date();
-    const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-
-    return Math.round((targetUTC - todayUTC) / (1000 * 60 * 60 * 24));
+    return Math.round((targetUTC - todayUTC) / DAY_MS);
 }
 
 /**
@@ -200,8 +220,32 @@ exports.dailyExpirationCheck = onSchedule({
 });
 
 /**
+ * Clears nextSchedule on intakes whose scheduled day has already passed.
+ * nextSchedule exists only to drive reminders; the intake record itself is
+ * kept because it is the pig's medicine history.
+ */
+async function clearPassedSchedules(firestore, todayStart, todayStr) {
+    const intakes = firestore.collectionGroup("medicine_intakes");
+    const [timestampSnap, legacySnap] = await Promise.all([
+        intakes.where("nextSchedule", "<", admin.firestore.Timestamp.fromDate(todayStart)).get(),
+        // Older records stored nextSchedule as a "YYYY-MM-DD" string.
+        intakes.where("nextSchedule", ">=", "").where("nextSchedule", "<", todayStr).get(),
+    ]);
+
+    const writer = firestore.bulkWriter();
+    let cleared = 0;
+    for (const doc of [...timestampSnap.docs, ...legacySnap.docs]) {
+        writer.update(doc.ref, { nextSchedule: null });
+        cleared++;
+    }
+    await writer.close();
+    logger.info(`🧹 Cleared ${cleared} passed intake schedule(s).`);
+}
+
+/**
  * Scheduled function to check Intake Schedule daily at 8:00 AM.
- * Notifies 2 days before, tomorrow (1), and today (0).
+ * Notifies 2 days before, tomorrow (1), and today (0), then clears
+ * schedules whose day has already passed.
  */
 exports.dailyIntakeScheduleCheck = onSchedule({
     schedule: "0 8 * * *",
@@ -210,29 +254,33 @@ exports.dailyIntakeScheduleCheck = onSchedule({
     logger.info("⏰ Commencing daily intake schedule check...");
     const firestore = admin.firestore();
 
+    // Today .. today+2 in Philippine time, as both Timestamp bounds (current
+    // records) and "YYYY-MM-DD" bounds (older records saved as strings).
+    const todayStr = manilaDateStr(new Date());
+    const todayStart = manilaMidnight(todayStr);
+    const rangeEnd = new Date(todayStart.getTime() + 3 * DAY_MS); // exclusive
+    const rangeEndStr = manilaDateStr(new Date(rangeEnd.getTime() - DAY_MS));
+
     try {
-        // nextSchedule is stored as a plain "YYYY-MM-DD" string, which sorts
-        // correctly with lexicographic comparison — so a Firestore range
-        // query works here and avoids reading every intake doc in the system.
-        const now = new Date();
-        const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-        const rangeEndUTC = new Date(todayUTC);
-        rangeEndUTC.setUTCDate(rangeEndUTC.getUTCDate() + 2);
-
-        const todayStr = todayUTC.toISOString().slice(0, 10);
-        const rangeEndStr = rangeEndUTC.toISOString().slice(0, 10);
-
-        const snapshot = await firestore.collectionGroup("medicine_intakes")
-            .where("nextSchedule", ">=", todayStr)
-            .where("nextSchedule", "<=", rangeEndStr)
-            .get();
+        const intakes = firestore.collectionGroup("medicine_intakes");
+        const [timestampSnap, legacySnap] = await Promise.all([
+            intakes
+                .where("nextSchedule", ">=", admin.firestore.Timestamp.fromDate(todayStart))
+                .where("nextSchedule", "<", admin.firestore.Timestamp.fromDate(rangeEnd))
+                .get(),
+            intakes
+                .where("nextSchedule", ">=", todayStr)
+                .where("nextSchedule", "<=", rangeEndStr)
+                .get(),
+        ]);
 
         const pigCache = new Map();
         const adminCache = new Map();
 
-        for (const doc of snapshot.docs) {
+        for (const doc of [...timestampSnap.docs, ...legacySnap.docs]) {
             const data = doc.data();
             if (!data.nextSchedule || !data.pigId) continue;
+            if (data.status === "Discontinued") continue;
 
             const diffDays = daysUntil(data.nextSchedule);
             if (diffDays === null) continue;
@@ -282,6 +330,13 @@ exports.dailyIntakeScheduleCheck = onSchedule({
         }
     } catch (error) {
         logger.error("💥 Intake check error:", error);
+    }
+
+    // Separate try so a failed reminder run never blocks the cleanup.
+    try {
+        await clearPassedSchedules(firestore, todayStart, todayStr);
+    } catch (error) {
+        logger.error("💥 Passed schedule cleanup error:", error);
     }
 });
 
