@@ -1476,8 +1476,7 @@ void pushAllToFirestore() {
     code = http.POST(body);
     noteFirestoreResult(code);
   } else {
-    Serial.printf("[PUSH] No device ID token (auth code %d) - not sent
-", code);
+    Serial.printf("[PUSH] No device ID token (auth code %d) - not sent\n", code);
   }
 
   // Success
