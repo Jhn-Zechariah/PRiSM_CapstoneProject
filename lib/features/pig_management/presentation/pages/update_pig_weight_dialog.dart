@@ -131,6 +131,10 @@ class _UpdatePigWeightDialogState extends State<UpdatePigWeightDialog> {
                               return 'Weight must be greater than 0';
                             }
 
+                            if (parsed > 400) {
+                              return 'Weight cannot exceed 400 kg';
+                            }
+
                             if (parsed == widget.currentWeight) {
                               return 'Weight unchanged';
                             }

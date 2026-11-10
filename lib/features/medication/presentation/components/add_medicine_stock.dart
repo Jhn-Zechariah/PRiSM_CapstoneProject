@@ -82,8 +82,14 @@ class _AddNewMedStockDialogState extends State<AddNewMedStockDialog> {
       return;
     }
 
-    final double parsedQty =
-        double.tryParse(_qtyController.text) ?? -1.0;
+    final double? parsedQty = double.tryParse(_qtyController.text.trim());
+    if (parsedQty == null) {
+      CustomErrorDialog.show(
+        context: context,
+        message: 'Amount must be a valid number.',
+      );
+      return;
+    }
     if (parsedQty <= 0) {
       CustomErrorDialog.show(
         context: context,

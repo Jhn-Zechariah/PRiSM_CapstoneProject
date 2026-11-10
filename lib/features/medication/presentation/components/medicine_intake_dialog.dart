@@ -115,6 +115,18 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
     }
   }
 
+  /// A batch can be used if it has stock left and is not past its expiry
+  /// date (a batch expiring today is still usable).
+  bool _isUsableBatch(MedicineStock batch) {
+    if (batch.amount <= 0) return false;
+    if (batch.expiryDate == MedicineStock.noExpiry) return true;
+    final expiry = DateTime.tryParse(batch.expiryDate);
+    if (expiry == null) return true; // unknown format: don't hide it
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return !expiry.isBefore(today);
+  }
+
   String _formatBatch(MedicineStock batch) => '${batch.expiryDate} | (${batch.amount.round()} ${_dosageUnit})';
 
   DateTime? _selectedNextSchedule; // 🔹 new field, replaces parsing the text controller
@@ -167,12 +179,26 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
       return;
     }
     if (_selectedStockBatch == null) {
-      CustomErrorDialog.show(context: context, message: 'Please select a stock batch.');
+      CustomErrorDialog.show(
+        context: context,
+        message: _fetchedBatches.isEmpty
+            ? 'No usable stock for this item. All batches are empty or expired.'
+            : 'Please select a stock batch.',
+      );
       return;
     }
-    final dosageAmount = double.tryParse(_dosageController.text.trim()) ?? 0.0;
+    final dosageText = _dosageController.text.trim();
+    if (dosageText.isEmpty) {
+      CustomErrorDialog.show(context: context, message: 'Please enter the dosage.');
+      return;
+    }
+    final dosageAmount = double.tryParse(dosageText);
     final availableStock = _selectedStockBatch!.amount;
 
+    if (dosageAmount == null) {
+      CustomErrorDialog.show(context: context, message: 'Dosage must be a valid number.');
+      return;
+    }
     if (dosageAmount <= 0) {
       CustomErrorDialog.show(context: context, message: 'Dosage must be greater than zero.');
       return;
@@ -267,7 +293,9 @@ class _MedicineIntakeDialogState extends State<MedicineIntakeDialog> {
                           if (!mounted || _selectedMedicine != selection) return;
                           setState(() {
                             _previousRecordText = previous;
-                            _fetchedBatches = stocks;
+                            // Only offer batches that still have stock and
+                            // haven't expired
+                            _fetchedBatches = stocks.where(_isUsableBatch).toList();
                             _isLoadingSubStocks = false;
                             if (_fetchedBatches.isNotEmpty) _selectedStockBatch = _fetchedBatches.first;
                           });
