@@ -43,6 +43,14 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
+            // R8: shrink, optimize and obfuscate the Java/Kotlin side.
+            // (Dart code is obfuscated separately with --obfuscate at build time.)
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

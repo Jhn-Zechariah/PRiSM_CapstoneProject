@@ -108,7 +108,7 @@ class FirebaseProfileRepo implements ProfileRepo {
         'fcmToken': token,
         'tokenUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      print("✅ FCM Token successfully saved to Firestore for user: $userId");
+      print("✅ FCM Token successfully saved to Firestore");
     } catch (e) {
       print("❌ Error updating FCM token in Firestore: $e");
     }
@@ -122,7 +122,7 @@ class FirebaseProfileRepo implements ProfileRepo {
         'notificationPreferences': preferences,
         'preferencesUpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      print("✅ Notification preferences successfully synced to Firestore for user: $userId");
+      print("✅ Notification preferences successfully synced to Firestore");
     } catch (e) {
       print("❌ Error updating notification preferences in Firestore: $e");
     }

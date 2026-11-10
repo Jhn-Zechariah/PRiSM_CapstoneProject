@@ -14,9 +14,6 @@ class NotificationService {
     );
     print("📊 PERMISSION STATUS: ${settings.authorizationStatus}");
 
-    String? token = await _fcm.getToken();
-    print("Device Token: $token");
-
     // App open: FCM does NOT show the notification, so we show it
     // ourselves using the user's Sound/Vibrate settings.
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
