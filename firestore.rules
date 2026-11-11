@@ -97,7 +97,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['type', 'durationSec', 'timestamp']);
       allow update, delete: if false;
     }
-    // legacy hourly collections still read by lib/core/services/farm_data_service.dart
+    // legacy hourly collections still read by lib/features/dashboard/presentation/pages/Dashboard_Screen.dart
     match /temperature_hourly/{id} { allow read: if isFarmUser(); allow write: if isDevice(); }
     match /humidity_hourly/{id}    { allow read: if isFarmUser(); allow write: if isDevice(); }
 

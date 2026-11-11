@@ -2,8 +2,8 @@
 
 Forecasts the **pig surface temperature** read by the AMG8833 **15 and 30 minutes ahead**
 from the last hour of sensor data, then maps the forecast to **Good / Needs Attention /
-High Risk** for the app. It replaces the old rule-based Decision Tree (archived in
-`legacy/decision_tree/`).
+High Risk** for the app. It replaces the old rule-based Decision Tree (removed; see git
+history before the repository cleanup commit if you need it).
 
 > This is a monitoring and decision-support tool. It does **not** diagnose disease and does
 > not replace a veterinarian.
