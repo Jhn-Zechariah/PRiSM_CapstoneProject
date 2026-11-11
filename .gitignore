@@ -68,3 +68,6 @@ __pycache__/
 # Service-account credentials (never commit)
 *firebase-adminsdk*.json
 *firebase*key*.json
+
+# ESP32 firmware is kept locally only (contains Wi-Fi and device credentials)
+assets/esp32Code/
