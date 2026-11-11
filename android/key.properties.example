@@ -1,0 +1,8 @@
+# Copy this file to android/key.properties (gitignored) and fill in real values.
+# Never commit key.properties or the keystore file.
+#
+# storeFile is resolved relative to the android/ directory.
+storeFile=../../prism-release.jks
+storePassword=CHANGE_ME
+keyAlias=prism-release
+keyPassword=CHANGE_ME
