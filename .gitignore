@@ -69,5 +69,5 @@ __pycache__/
 *firebase-adminsdk*.json
 *firebase*key*.json
 
-# ESP32 secrets (WiFi password, device account, LAN key)
-assets/esp32Code/secrets.h
+# ESP32 firmware is kept locally only (contains Wi-Fi and device credentials)
+assets/esp32Code/

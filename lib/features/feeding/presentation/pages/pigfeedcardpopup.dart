@@ -250,19 +250,26 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
                                 controller: _amountController,
                                 label: 'Amount (kg):',
                                 border: 6,
-                                keyboardType: TextInputType.number,
-                                // 🔹 FIXED: Modified validator logic to block values <= 0
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
                                 validator: (value) {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'Required';
                                   }
 
-                                  final parsedAmount = double.tryParse(value);
+                                  final parsedAmount =
+                                      double.tryParse(value.trim());
                                   if (parsedAmount == null) {
-                                    return 'Invalid';
+                                    return 'Invalid number';
                                   }
-                                  if (parsedAmount <= 0) {
-                                    return 'Invalid amount';
+                                  // Same limits as the multi-pig feeding form
+                                  if (parsedAmount < 0.1) {
+                                    return 'Min 0.1kg';
+                                  }
+                                  if (parsedAmount > 500) {
+                                    return 'Max 500kg';
                                   }
                                   return null;
                                 },

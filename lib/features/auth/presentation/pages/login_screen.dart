@@ -4,6 +4,7 @@ import 'package:flutter_svg/svg.dart';
 import 'package:prism_app/features/auth/presentation/cubits/auth_cubit.dart';
 import 'package:prism_app/core/widgets/button.dart';
 
+import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/textfield.dart';
 import '../components/social_logins.dart';
@@ -29,7 +30,7 @@ class LoginScreenState extends State<LoginScreen> {
 
   //login button press
   void _login() {
-    final String email = emailController.text;
+    final String email = emailController.text.trim();
     final String password = passwordController.text;
 
     if (_formKey.currentState!.validate()) {
@@ -59,8 +60,18 @@ class LoginScreenState extends State<LoginScreen> {
           ),
           TextButton(
             onPressed: () async {
+              final emailError = Validators.email(emailController.text);
+              if (emailError != null) {
+                CustomSnackbar.show(
+                  context: context,
+                  isError: true,
+                  message: emailError,
+                );
+                return;
+              }
+
               String message = await authCubit.forgotPassword(
-                emailController.text,
+                emailController.text.trim(),
               );
 
               if (!context.mounted) return;
@@ -133,9 +144,8 @@ class LoginScreenState extends State<LoginScreen> {
                     labelText: "Email",
                     border: 10,
                     prefixIcon: Icons.email_outlined,
-                    validator: (value) => value == null || value.isEmpty
-                        ? "Please enter your email"
-                        : null,
+                    keyboardType: TextInputType.emailAddress,
+                    validator: Validators.email,
                   ),
 
                   const SizedBox(height: fieldSpacing),

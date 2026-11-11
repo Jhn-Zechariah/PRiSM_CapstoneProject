@@ -2,6 +2,7 @@ import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:prism_app/core/widgets/confirmation_box.dart';
 import 'package:prism_app/core/widgets/text.dart';
 import 'package:prism_app/core/widgets/theme_seting.dart';
 import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
@@ -219,9 +220,23 @@ class _AppNavState extends State<AppNav> {
             ),
             const Spacer(),
             const Divider(color: Colors.white24),
-            _drawerTile(Icons.logout, 'Log Out', () {
-              Navigator.pop(context);
-              context.read<AuthCubit>().logout();
+            _drawerTile(Icons.logout, 'Log Out', () async {
+              Navigator.pop(context); // close the drawer first
+
+              // Same confirmation as the Log Out button on the profile page
+              final shouldLogout = await showDialog<bool>(
+                context: context,
+                builder: (context) => const CustomConfirmDialog(
+                  title: "Confirm Logout",
+                  content: "Are you sure you want to log out?",
+                  confirmText: "Yes",
+                  confirmColor: Colors.red,
+                ),
+              );
+
+              if (shouldLogout == true && mounted) {
+                context.read<AuthCubit>().logout();
+              }
             }),
             const SizedBox(height: 20),
             const SizedBox(height: 20),

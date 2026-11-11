@@ -174,7 +174,13 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
       return;
     }
 
-    final double parsedQty = double.tryParse(_qtyController.text) ?? -1.0;
+    final double? parsedQty = double.tryParse(_qtyController.text.trim());
+    if (parsedQty == null) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Amount must be a valid number.');
+      return;
+    }
 
     // 🔹 FIXED: Changed from `<= 0` to `< 0` so users can enter "0"
     if (parsedQty < 0) {
@@ -184,8 +190,16 @@ class _UpdateMedicineDialogState extends State<UpdateMedicineDialog> {
       return;
     }
 
-    final double parsedReorder =
-        double.tryParse(_reorderController.text) ?? 0.0;
+    // Re-order level is optional (empty = 0), but must be a number if given
+    final reorderText = _reorderController.text.trim();
+    final double? parsedReorder =
+        reorderText.isEmpty ? 0.0 : double.tryParse(reorderText);
+    if (parsedReorder == null) {
+      CustomErrorDialog.show(
+          context: context,
+          message: 'Re-order alert level must be a valid number.');
+      return;
+    }
     if (parsedReorder < 0) {
       CustomErrorDialog.show(
           context: context,

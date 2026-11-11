@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:prism_app/core/widgets/snackbar.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_top_bar.dart';
@@ -12,7 +13,6 @@ import '../../../../core/widgets/text.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../../../core/services/lan_security.dart';
 import '../../../../core/services/ml_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:prism_app/features/monitoring/data/today_max_service.dart';
@@ -1353,14 +1353,25 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _loadNextVaccineSchedule() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
     try {
-      // Only this user's records: without the userId filter the query read
-      // every farmer's vaccine intakes (and the Firestore rules reject it).
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return;
+      final now = DateTime.now();
+      final startOfToday = DateTime(now.year, now.month, now.day);
+
+      // Same query shape as the Upcoming Schedule screen (and its index):
+      // only this user's schedules from today on, earliest first. The
+      // userId filter is also required: firestore.rules only allows
+      // collection-group reads of the signed-in user's own intakes.
       final snapshot = await FirebaseFirestore.instance
           .collectionGroup('medicine_intakes')
           .where('userId', isEqualTo: uid)
+          .where(
+            'nextSchedule',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday),
+          )
+          .orderBy('nextSchedule')
           .get();
 
       DateTime? bestDate;
@@ -1369,36 +1380,27 @@ class _DashboardScreenState extends State<DashboardScreen>
       for (final doc in snapshot.docs) {
         final data = doc.data();
         if (data['category'] != 'Vaccine') continue;
+        if (data['status'] == 'Discontinued') continue;
         final ts = data['nextSchedule'];
-        DateTime? scheduleDate;
-        if (ts is Timestamp) {
-          scheduleDate = ts.toDate();
-        } else if (ts is String) {
-          scheduleDate = DateTime.tryParse(ts);
-        }
-        if (scheduleDate == null) continue;
-        if (scheduleDate.isBefore(
-          DateTime.now().subtract(const Duration(days: 1)),
-        )) {
-          continue;
-        }
-        if (bestDate == null || scheduleDate.isBefore(bestDate)) {
-          bestDate = scheduleDate;
-          bestName = data['medName'] as String? ?? 'Unknown';
-        }
+        if (ts is! Timestamp) continue;
+        bestDate = ts.toDate();
+        bestName = data['medName'] as String? ?? 'Unknown';
+        break; // Sorted ascending, so the first match is the next one.
       }
 
       if (!mounted) return;
-      if (bestDate != null && bestName != null) {
-        final label = DateFormat('MMM dd').format(bestDate);
-        VaxScheduleMemory.medName = bestName;
-        VaxScheduleMemory.dateLabel = label;
-        VaxScheduleMemory.loaded = true;
-        setState(() {
-          _vaxMedName = bestName!;
-          _vaxDateLabel = label;
-        });
-      }
+      // "--" when nothing is upcoming, so a passed date (or a previous
+      // account's schedule) never lingers on the card.
+      final name = bestName ?? '--';
+      final label =
+          bestDate != null ? DateFormat('MMM dd').format(bestDate) : '--';
+      VaxScheduleMemory.medName = name;
+      VaxScheduleMemory.dateLabel = label;
+      VaxScheduleMemory.loaded = true;
+      setState(() {
+        _vaxMedName = name;
+        _vaxDateLabel = label;
+      });
     } catch (e) {
       debugPrint('Error loading vax schedule: $e');
     }
@@ -1545,7 +1547,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         http
             .post(
               Uri.parse('http://$esp32Ip/sprinkler'),
-              headers: LanSecurity.jsonHeaders,
+              headers: {'Content-Type': 'application/json'},
               body: jsonEncode({'state': turnOn ? 'on' : 'off'}),
             )
             .timeout(const Duration(seconds: 2))
@@ -1638,8 +1640,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     } catch (e) {
       if (mounted) {
         setState(() => _isSprinklerLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to send sprinkler command: $e")),
+        CustomSnackbar.show(
+          context: context,
+          isError: true,
+          message: "Failed to send sprinkler command: $e",
         );
       }
     }

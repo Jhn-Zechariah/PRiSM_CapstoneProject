@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:prism_app/core/widgets/app_top_bar.dart';
+import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/confirmation_box.dart';
 import '../../../../core/widgets/snackbar.dart';
@@ -129,9 +130,20 @@ class _MyProfileState extends State<MyProfile> {
   Widget _buildEditMode(bool hasPassword, bool isDarkMode) {
     return Column(
       children: [
-        _buildLabelledField("Email Address", _emailController, isDarkMode),
+        _buildLabelledField(
+          "Email Address",
+          _emailController,
+          isDarkMode,
+          validator: Validators.email,
+          keyboardType: TextInputType.emailAddress,
+        ),
         const SizedBox(height: 16),
-        _buildLabelledField("Username", _usernameController, isDarkMode),
+        _buildLabelledField(
+          "Username",
+          _usernameController,
+          isDarkMode,
+          validator: Validators.username,
+        ),
         const SizedBox(height: 16),
 
         if (hasPassword) ...[
@@ -151,6 +163,11 @@ class _MyProfileState extends State<MyProfile> {
           isDarkMode: isDarkMode,
           validator: (val) {
             if ((val == null || val.isEmpty) && _confirmPasswordController.text.isNotEmpty) return "Please enter new password";
+            // Only check length when the user is actually changing it
+            if (val != null && val.isNotEmpty) {
+              final lengthError = Validators.newPassword(val);
+              if (lengthError != null) return lengthError;
+            }
             if (val != _confirmPasswordController.text && _confirmPasswordController.text.isNotEmpty) return "Passwords do not match";
             return null;
           },
@@ -199,7 +216,13 @@ class _MyProfileState extends State<MyProfile> {
     );
   }
 
-  Widget _buildLabelledField(String label, TextEditingController controller, bool isDarkMode) {
+  Widget _buildLabelledField(
+    String label,
+    TextEditingController controller,
+    bool isDarkMode, {
+    String? Function(String?)? validator,
+    TextInputType? keyboardType,
+  }) {
     final borderColor = isDarkMode ? Colors.white24 : Colors.black26;
     final textColor = isDarkMode ? Colors.white : Colors.black87;
     return Column(
@@ -209,6 +232,8 @@ class _MyProfileState extends State<MyProfile> {
         const SizedBox(height: 6),
         TextFormField(
           controller: controller,
+          validator: validator,
+          keyboardType: keyboardType,
           style: TextStyle(color: textColor, fontSize: 14),
           decoration: InputDecoration(
             filled: true,
@@ -237,7 +262,7 @@ class _MyProfileState extends State<MyProfile> {
             _emailController.text = state.email;
             _usernameController.text = state.username;
           } else if (state is ProfileError) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
+            CustomSnackbar.show(context: context, isError: true, message: state.message);
           }
         },
         builder: (context, state) {
@@ -331,7 +356,13 @@ class _MyProfileState extends State<MyProfile> {
                           );
 
                           if (shouldLogout == true && context.mounted) {
-                            context.read<AuthCubit>().logout();
+                            // Grab the cubit before popping: this page's
+                            // context is no longer valid once it's removed.
+                            final authCubit = context.read<AuthCubit>();
+                            // Close the profile page (it sits above the root
+                            // route), so the root can show the landing page.
+                            Navigator.of(context).popUntil((route) => route.isFirst);
+                            authCubit.logout();
                           }
                         },
                         style: OutlinedButton.styleFrom(

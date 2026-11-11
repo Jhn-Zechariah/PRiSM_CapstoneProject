@@ -383,8 +383,16 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                         if (value == null || value.isEmpty) {
                                           return 'Required';
                                         }
-                                        if (double.tryParse(value) == null) {
+                                        final weight =
+                                            double.tryParse(value.trim());
+                                        if (weight == null) {
                                           return 'Invalid number';
+                                        }
+                                        if (weight <= 0) {
+                                          return 'Must be > 0';
+                                        }
+                                        if (weight > 400) {
+                                          return 'Max 400 kg';
                                         }
                                         return null;
                                       },

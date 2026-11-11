@@ -1,18 +1,19 @@
 rules_version = '2';
 
-// PRISM Firestore rules.
+// PRISM Firestore security rules (deployed via firebase.json).
 //
-// BEFORE DEPLOYING (otherwise sensor logging stops):
-//   1. Firebase console > Authentication > Users > Add user: the ESP32's
-//      device account (same email/password as DEVICE_EMAIL / DEVICE_PASSWORD
-//      in the ESP32's secrets.h). Copy its User UID.
-//   2. Replace REPLACE_WITH_ESP32_DEVICE_UID below with that UID.
-//   3. Flash the ESP32 with the firmware that signs in, and check the serial
-//      monitor shows "[AUTH] Device signed in to Firebase".
-//   4. firebase deploy --only firestore:rules
+// Who writes what:
+//   - App users (Firebase Auth): their own farm records + sprinkler controls.
+//   - ESP32: signs in as a dedicated Firebase Auth user that carries the
+//     custom claim device=true. It sends that ID token with every Firestore
+//     REST call.
+//   - Farm owner: the ONE user account with the custom claim farm=true. Only
+//     it can see sensor data and control the sprinkler. Other signed-in users
+//     can use their own pig/medicine records but see no sensor data.
+//   Claims are set with: node functions/scripts/setUserClaim.js <email> <device|farm>
+//   - Cloud Functions / Python pipeline: Admin SDK, NOT subject to these rules.
 //
-// Cloud Functions and the Python forecast API use the Admin SDK, which
-// bypasses these rules, so they are not affected.
+// Anything not matched below is denied.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -20,23 +21,22 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function uid() { return request.auth.uid; }
     function isAdmin() { return signedIn() && request.auth.token.get('role', '') == 'admin'; }
-    // The ESP32 signs in with its own Firebase Auth account (see secrets.h).
-    function isDevice() { return signedIn() && request.auth.uid == 'REPLACE_WITH_ESP32_DEVICE_UID'; }
-    function isUser() { return signedIn() && !isDevice(); }
-    function ownsNew() { return isUser() && request.resource.data.userId == uid(); }
-    function ownsExisting() { return isUser() && resource.data.userId == uid(); }
+    function isDevice() { return signedIn() && request.auth.token.get('device', false) == true; }
+    function isFarmUser() { return signedIn() && request.auth.token.get('farm', false) == true; }
+    function ownsNew() { return signedIn() && request.resource.data.userId == uid(); }
+    function ownsExisting() { return signedIn() && resource.data.userId == uid(); }
     function ownsPig(pigId) {
-      return isUser() && get(/databases/$(database)/documents/pigs/$(pigId)).data.userId == uid();
+      return signedIn() && get(/databases/$(database)/documents/pigs/$(pigId)).data.userId == uid();
     }
     // getAfter(): the parent may be created in the same transaction (firestore_pig_repo.dart addPig)
     function ownsPigAfter(pigId) {
-      return isUser() && getAfter(/databases/$(database)/documents/pigs/$(pigId)).data.userId == uid();
+      return signedIn() && getAfter(/databases/$(database)/documents/pigs/$(pigId)).data.userId == uid();
     }
     function ownsMedicine(medId) {
-      return isUser() && get(/databases/$(database)/documents/medicines/$(medId)).data.userId == uid();
+      return signedIn() && get(/databases/$(database)/documents/medicines/$(medId)).data.userId == uid();
     }
     function ownsMedicineAfter(medId) {
-      return isUser() && getAfter(/databases/$(database)/documents/medicines/$(medId)).data.userId == uid();
+      return signedIn() && getAfter(/databases/$(database)/documents/medicines/$(medId)).data.userId == uid();
     }
     // Limits which keys a write CHANGES (merge-safe: other fields already in the doc are untouched).
     function changesOnly(keys) {
@@ -46,13 +46,12 @@ service cloud.firestore {
     }
 
     // ---------------- users (the app calls this collection "admins"; it holds EVERY user)
-    // Each user can only see and change their own profile (FCM token, thresholds, ...).
     match /admins/{userId} {
-      allow read, create, update: if isUser() && userId == uid();
+      allow read, create, update: if signedIn() && userId == uid();
       allow delete: if false;
     }
     match /counters/{userId} {
-      allow read, write: if isUser() && userId == uid();
+      allow read, write: if signedIn() && userId == uid();
     }
 
     // ---------------- manual farm records (owner only)
@@ -63,7 +62,7 @@ service cloud.firestore {
       match /feeding_records/{id}  { allow read: if ownsPig(pigId); allow write: if ownsPigAfter(pigId); }
       match /medicine_intakes/{id} { allow read: if ownsPig(pigId); allow write: if ownsPigAfter(pigId); }
     }
-    // collection-group queries must filter on userId (rules are not filters)
+    // collection-group queries used by the app always filter on userId
     match /{path=**}/feeding_records/{id}  { allow read: if ownsExisting(); }
     match /{path=**}/medicine_intakes/{id} { allow read: if ownsExisting(); }
 
@@ -73,50 +72,55 @@ service cloud.firestore {
       match /medicine_stock/{id} { allow read: if ownsMedicine(medId); allow write: if ownsMedicineAfter(medId); }
     }
 
-    // ---------------- sensor data: only the ESP32 writes, signed-in users read
-    // The ESP32 uploads with "update" writes, which are an UPDATE when a retry
-    // re-sends a reading that already arrived, so update must be allowed for
-    // the device or one lost reply would block the whole backlog.
+    // ---------------- sensor data: only the ESP32 writes, only the farm account reads
+    // The ESP32 uploads with a Firestore :commit "update" (an upsert). When a
+    // commit reaches the server but the reply is lost, the ESP32 re-sends the
+    // same documents, which is an UPDATE. Allowing device updates keeps that
+    // retry from being denied (a denied write fails the whole batch forever).
     match /sensor_readings_seconds/{id} {
-      allow read: if signedIn();
+      allow read: if isFarmUser();
       allow create, update: if isDevice();
-      allow delete: if false;                   // the TTL policy deletes old readings
+      allow delete: if false;                   // old docs are removed by the expireAt TTL policy
     }
     match /sensor_readings_hourly/{id} {
-      allow read: if signedIn();
+      allow read: if isFarmUser();
       allow create, update: if isDevice();
       allow delete: if false;
     }
+    match /live_sensor/{doc} {
+      allow read: if isFarmUser();
+      allow write: if isDevice();
+    }
     match /sprinkler_logs/{id} {
-      allow read: if signedIn();
-      allow create: if isDevice();
+      allow read: if isFarmUser();
+      allow create: if isDevice()
+        && request.resource.data.keys().hasOnly(['type', 'durationSec', 'timestamp']);
       allow update, delete: if false;
     }
-    match /live_sensor/{doc} {
-      allow read: if signedIn();
-      allow write: if isDevice();               // also holds the ESP32's LAN IP the app connects to
-    }
-    // legacy hourly collections read by lib/core/services/farm_data_service.dart
-    match /temperature_hourly/{id} { allow read: if signedIn(); allow write: if isDevice(); }
-    match /humidity_hourly/{id}    { allow read: if signedIn(); allow write: if isDevice(); }
+    // legacy hourly collections still read by lib/core/services/farm_data_service.dart
+    match /temperature_hourly/{id} { allow read: if isFarmUser(); allow write: if isDevice(); }
+    match /humidity_hourly/{id}    { allow read: if isFarmUser(); allow write: if isDevice(); }
 
-    // ---------------- sprinkler control
+    // ---------------- sprinkler control (farm account + ESP32 only)
+    // App and ESP32 both write only the 'state' field ('on' / 'off').
     match /sprinkler_command/{doc} {
-      allow read: if signedIn();
-      allow write: if signedIn() && changesOnly(['state']) && request.resource.data.state in ['on', 'off'];
+      allow read: if isFarmUser() || isDevice();
+      allow write: if (isFarmUser() || isDevice())
+        && changesOnly(['state'])
+        && request.resource.data.state in ['on', 'off'];
     }
+    // Written by the app (IoTControlsDialog), read by the ESP32.
     match /sprinkler_settings/{doc} {
-      allow read: if signedIn();
-      // the ESP32 clamps durationMins to 1..120 itself
-      allow write: if isUser()
+      allow read: if isFarmUser() || isDevice();
+      allow write: if isFarmUser()
         && changesOnly(['isIotEnabled', 'isSprinklerAuto', 'schedule', 'durationMins']);
     }
+    // App-side shared farm state (Dashboard_Screen.dart, today_max_service.dart)
     match /sprinkler_state/{doc} {
-      allow read: if signedIn();
-      allow write: if signedIn();
+      allow read, write: if isFarmUser();
     }
     match /sensor_memory/{doc} {
-      allow read, write: if isUser();
+      allow read, write: if isFarmUser();
     }
 
     // ---------------- derived results (never raw data)
@@ -130,7 +134,7 @@ service cloud.firestore {
       allow update, delete: if false;           // results are append-only
     }
     match /sensor_corrections/{id} {
-      allow read: if signedIn();
+      allow read: if isFarmUser();
       allow create: if isAdmin();
       allow update, delete: if false;
     }

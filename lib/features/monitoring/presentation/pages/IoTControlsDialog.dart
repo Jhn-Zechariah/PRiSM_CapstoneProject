@@ -25,6 +25,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   static const double _maxHumidityLimit = 70.0;
   static const double _minAirTemp = 15.6;
   static const double _maxAirTempLimit = 23.9;
+  static const int _minDurationMins = 1;
+  static const int _maxDurationMins = 30;
 
   // Only digits with at most 3 before and 1 after the decimal point
   // (e.g. "39", "39.5", "100"). Anything else is rejected as it is typed.
@@ -233,6 +235,21 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
       return;
     }
 
+    // Validate duration (empty = default of 5 mins)
+    final durationText = _durationController.text.trim();
+    final durationValue = int.tryParse(durationText);
+    if (durationText.isNotEmpty &&
+        (durationValue == null ||
+            durationValue < _minDurationMins ||
+            durationValue > _maxDurationMins)) {
+      _showError(
+        "Activation duration must be between $_minDurationMins and $_maxDurationMins mins",
+      );
+      return;
+    }
+    // Store the clean number, e.g. "05" becomes "5"
+    _durationController.text = durationValue?.toString() ?? '';
+
     // Clean version, e.g. "06:00pm" becomes "6:00 PM"
     final scheduleText = match == null
         ? ''
@@ -260,7 +277,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
           'isIotEnabled': isIotEnabled,
           'isSprinklerAuto': isSprinklerAuto,
           'schedule': scheduleText,
-          'durationMins': int.tryParse(_durationController.text.trim()) ?? 5,
+          'durationMins': durationValue ?? 5,
         }, SetOptions(merge: true));
 
     // 🔹 Synchronize thresholds to Firestore so the backend (Cloud
@@ -276,7 +293,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
           'maxHumidity': maxHumidity,
           'maxAirTemp': maxAirTemp,
           'schedule': scheduleText,
-          'durationMins': int.tryParse(_durationController.text),
+          'durationMins': durationValue,
         });
       }
 
@@ -433,8 +450,13 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               dotColor: Colors.orange[800]!,
               label: 'Activation duration',
               controller: _durationController,
-              hintText: 'mins',
+              hintText: '1-30 mins',
               enabled: isIotEnabled,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(2),
+              ],
             ),
             const SizedBox(height: 24),
 
@@ -533,6 +555,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     bool readOnly = false,
     VoidCallback? onTap,
     List<TextInputFormatter>? inputFormatters,
+    TextInputType? keyboardType,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -601,9 +624,10 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
                     vertical: 12,
                   ),
                 ),
-                keyboardType: label.contains("schedule")
-                    ? TextInputType.text
-                    : const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: keyboardType ??
+                    (label.contains("schedule")
+                        ? TextInputType.text
+                        : const TextInputType.numberWithOptions(decimal: true)),
               ),
             ),
           ),

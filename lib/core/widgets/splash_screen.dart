@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:prism_app/core/widgets/snackbar.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:lottie/lottie.dart';
 import 'package:prism_app/features/auth/presentation/pages/landing_page.dart';
@@ -62,8 +63,10 @@ class SplashScreenState extends State<SplashScreen>
         builder: (_) => BlocConsumer<AuthCubit, AuthState>(
           listener: (context, state) {
             if (state is AuthError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(state.message)),
+              CustomSnackbar.show(
+                context: context,
+                isError: true,
+                message: state.message,
               );
             }
           },

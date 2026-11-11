@@ -36,6 +36,10 @@ def save(bundle: dict, path: Path) -> Path:
 
 
 def load(path: Path | str = CURRENT_MODEL_PATH) -> dict:
+    # SECURITY: joblib.load unpickles, so it can run arbitrary code from the file.
+    # Only load model bundles this project produced (the committed model or
+    # models/archive/). Never point PRISM_MODEL_PATH at a downloaded or
+    # user-supplied file.
     return joblib.load(path)
 
 

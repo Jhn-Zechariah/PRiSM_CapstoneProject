@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "666163168561",
+    "firebase_url": "https://prism-3cd2c-default-rtdb.firebaseio.com",
     "project_id": "prism-3cd2c",
     "storage_bucket": "prism-3cd2c.firebasestorage.app"
   },
@@ -13,6 +14,14 @@
         }
       },
       "oauth_client": [
+        {
+          "client_id": "666163168561-089t6vbo6iu8vsq41vhv2eicjclrpdq1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.codeVibers.prism_app",
+            "certificate_hash": "12ea0282e21188b69d31970bd1db6dfdeb41fece"
+          }
+        },
         {
           "client_id": "666163168561-d4a8la1qga6278c043p6ptd9qcm77fgt.apps.googleusercontent.com",
           "client_type": 1,
