@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -136,10 +137,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   int _selectedTab = 0;
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
-  bool _isLoading =
-      !_todayBufferReady() &&
-      (!SensorMemory.tempChartLoaded ||
-          SensorMemory.lastTempChartDate != SensorMemory.todayKey());
+  late bool _isLoading;
 
   String _connectionStatus = LiveSensorService.connectionStatus.value;
   String _sensorStatus = LiveSensorService.sensorStatus.value;
@@ -176,6 +174,20 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   static bool _syncing = false;
   static bool _fullSyncRunning = false;
 
+  static String? _cacheOwner;
+  static void prepareCache() {
+    final uid = AccountCachePolicy.currentUid;
+    if (_cacheOwner == uid && AccountCachePolicy.canUseCache) return;
+    _cacheOwner = uid;
+    _minuteBufferToday.clear();
+    _rangeCache.clear();
+    _minuteBufferDayKey = '';
+    _todayHistoryFetchedDayKey = '';
+    _lastDocTs = null;
+    _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
+    _resetStats();
+  }
+
   static void _resetStats() {
     _statMax = null;
     _statMin = null;
@@ -204,6 +216,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   }
 
   static Future<void> _persistToday() async {
+    if (!AccountCachePolicy.canUseCache) return;
     try {
       final out = <List<double>>[];
       double lastX = -1;
@@ -237,17 +250,18 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         'lastTs': _lastDocTs?.millisecondsSinceEpoch,
       });
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, payload);
+      await prefs.setString('${_prefsKey}_${AccountCachePolicy.designatedUid}', payload);
     } catch (e) {
       debugPrint('[Temp persist] failed: $e');
     }
   }
 
   static Future<bool> _restoreToday() async {
+    if (!AccountCachePolicy.canUseCache) return false;
     if (_minuteBufferToday.isNotEmpty || _syncing) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
+      final raw = prefs.getString('${_prefsKey}_${AccountCachePolicy.designatedUid}');
       if (raw == null) return false;
       final m = jsonDecode(raw) as Map<String, dynamic>;
       if (m['day'] != SensorMemory.todayKey()) return false;
@@ -347,6 +361,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   }
 
   static bool _tempCacheIsToday() =>
+      AccountCachePolicy.canUseCache &&
       SensorMemory.lastTempChartDate == SensorMemory.todayKey();
 
   // True when today's readings are already in memory (or restored from
@@ -379,9 +394,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     }
   }
 
-  final List<Map<String, double>> _chartData = _tempCacheIsToday()
-      ? List.of(SensorMemory.lastTempChartData)
-      : [];
+  late final List<Map<String, double>> _chartData;
 
   List<Map<String, double>> get _activeChartData {
     if (_selectedTimeRange == 2) {
@@ -468,6 +481,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   @override
   void initState() {
     super.initState();
+    SensorMemory.prepareCache();
+    prepareCache();
+    _chartData = _tempCacheIsToday()
+        ? List.of(SensorMemory.lastTempChartData)
+        : [];
+    _isLoading = !_todayBufferReady() && !_tempCacheIsToday();
+    _connectionStatus = LiveSensorService.connectionStatus.value;
+    _sensorStatus = LiveSensorService.sensorStatus.value;
+    LiveSensorService.start();
     WidgetsBinding.instance.addObserver(this);
     _seedLivePointFromLatest(); // show the newest reading right away
     _initData();
@@ -827,7 +849,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     // Already loaded this hour: restore from memory, no Firestore reads.
     final cached = _rangeCache[rangeIndex];
-    if (rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
+    if (AccountCachePolicy.canUseCache && rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
       if (!mounted) return;
       setState(() {
         _minuteBufferCustom
@@ -959,7 +981,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
           .limit(pageSize)
-          .get()
+          .getForAccount()
           .timeout(const Duration(seconds: 20));
 
       if (requestId != _rangeRequestId) return [];
@@ -1137,7 +1159,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         )
         .where('timestamp', isLessThan: Timestamp.fromDate(effectiveEnd))
         .orderBy('timestamp')
-        .get()
+        .getForAccount()
         .timeout(const Duration(seconds: 30));
 
     if (requestId != _rangeRequestId) return [];
@@ -1177,7 +1199,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
           query = query.startAfterDocument(lastDocument);
         }
 
-        final snap = await query.get().timeout(const Duration(seconds: 30));
+        final snap = await query.getForAccount().timeout(const Duration(seconds: 30));
 
         if (requestId != _rangeRequestId) return;
         if (snap.docs.isEmpty) break;

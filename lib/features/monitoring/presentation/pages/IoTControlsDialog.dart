@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -89,7 +90,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
       final snap = await FirebaseFirestore.instance
           .collection('sprinkler_settings')
           .doc('config')
-          .get();
+          .getForAccount();
       final data = snap.data();
       if (data != null) {
         iot = data['isIotEnabled'] ?? iot;

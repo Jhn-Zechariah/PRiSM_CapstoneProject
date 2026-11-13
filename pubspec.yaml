@@ -50,7 +50,7 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false
   image_path: "assets/app_icon.png"
 
 flutter:
@@ -74,5 +74,5 @@ flutter_native_splash:
   image: assets/prism_logo.svg
   image_dark: assets/prism_logo_dark.svg
   android: true
-  ios: true
-  web: true
+  ios: false
+  web: false

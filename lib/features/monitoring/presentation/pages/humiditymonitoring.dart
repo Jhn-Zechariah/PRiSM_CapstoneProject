@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -178,10 +179,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   int _selectedTimeRange = 2;
   bool _isSprinklerLoading = false;
 
-  bool _isLoading =
-      !_todayBufferReady() &&
-      (!SensorMemory.humidityChartLoaded ||
-          SensorMemory.lastHumidityChartDate != SensorMemory.todayKey());
+  late bool _isLoading;
 
   String _connectionStatus = LiveSensorService.connectionStatus.value;
   String _sensorStatus = LiveSensorService.sensorStatus.value;
@@ -230,6 +228,20 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   static bool _syncing = false;
   static bool _fullSyncRunning = false;
 
+  static String? _cacheOwner;
+  static void prepareCache() {
+    final uid = AccountCachePolicy.currentUid;
+    if (_cacheOwner == uid && AccountCachePolicy.canUseCache) return;
+    _cacheOwner = uid;
+    _minuteBufferToday.clear();
+    _rangeCache.clear();
+    _minuteBufferDayKey = '';
+    _todayHistoryFetchedDayKey = '';
+    _lastDocTs = null;
+    _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
+    _resetStats();
+  }
+
   static void _resetStats() {
     _statMax = null;
     _statMin = null;
@@ -277,6 +289,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   static Future<void> _persistToday() async {
+    if (!AccountCachePolicy.canUseCache) return;
     try {
       final out = <List<double>>[];
       double lastX = -1;
@@ -318,17 +331,18 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         'lastTs': _lastDocTs?.millisecondsSinceEpoch,
       });
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, payload);
+      await prefs.setString('${_prefsKey}_${AccountCachePolicy.designatedUid}', payload);
     } catch (e) {
       debugPrint('[Hum persist] failed: $e');
     }
   }
 
   static Future<bool> _restoreToday() async {
+    if (!AccountCachePolicy.canUseCache) return false;
     if (_minuteBufferToday.isNotEmpty || _syncing) return false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
+      final raw = prefs.getString('${_prefsKey}_${AccountCachePolicy.designatedUid}');
       if (raw == null) return false;
       final m = jsonDecode(raw) as Map<String, dynamic>;
       if (m['day'] != SensorMemory.todayKey()) return false;
@@ -437,6 +451,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   static bool _humidityCacheIsToday() =>
+      AccountCachePolicy.canUseCache &&
       SensorMemory.lastHumidityChartDate == SensorMemory.todayKey();
 
   // True when today's readings are already in memory (or restored from
@@ -471,9 +486,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     return t < 0 ? "LOW" : (t == 0 ? "NORMAL" : "HIGH");
   }
 
-  final List<Map<String, double>> _chartData = _humidityCacheIsToday()
-      ? List.of(SensorMemory.lastHumidityChartData)
-      : [];
+  late final List<Map<String, double>> _chartData;
 
   List<Map<String, double>> get _activeChartData {
     // Today uses the live/full-day minute buffer plus live points that
@@ -548,6 +561,15 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   @override
   void initState() {
     super.initState();
+    SensorMemory.prepareCache();
+    prepareCache();
+    _chartData = _humidityCacheIsToday()
+        ? List.of(SensorMemory.lastHumidityChartData)
+        : [];
+    _isLoading = !_todayBufferReady() && !_humidityCacheIsToday();
+    _connectionStatus = LiveSensorService.connectionStatus.value;
+    _sensorStatus = LiveSensorService.sensorStatus.value;
+    LiveSensorService.start();
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -776,7 +798,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
 
     // Already loaded this hour: restore from memory, no Firestore reads.
     final cached = _rangeCache[rangeIndex];
-    if (rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
+    if (AccountCachePolicy.canUseCache && rangeIndex != 3 && cached != null && cached['key'] == rangeKey) {
       if (!mounted) return;
       setState(() {
         _minuteBufferCustom
@@ -922,7 +944,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           .where('timestamp', isGreaterThan: Timestamp.fromDate(cursor))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
           .limit(pageSize)
-          .get()
+          .getForAccount()
           .timeout(const Duration(seconds: 20));
 
       if (requestId != _rangeRequestId) return [];
@@ -1308,7 +1330,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
         )
         .where('timestamp', isLessThan: Timestamp.fromDate(effectiveEnd))
         .orderBy('timestamp')
-        .get()
+        .getForAccount()
         .timeout(const Duration(seconds: 30));
 
     if (requestId != _rangeRequestId) return [];
@@ -1352,7 +1374,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           query = query.startAfterDocument(lastDocument);
         }
 
-        final snap = await query.get().timeout(const Duration(seconds: 30));
+        final snap = await query.getForAccount().timeout(const Duration(seconds: 30));
 
         if (requestId != _rangeRequestId) return;
         if (snap.docs.isEmpty) break;

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import '../domain/model/app_feeding_history.dart';
 import '../domain/model/app_feeding_record.dart';
 import '../domain/repo/feeding_record_repo.dart';
@@ -78,7 +79,7 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
         .collection('feeding_records')
         .orderBy('timestamp', descending: true)
         .limit(1)
-        .get();
+        .getForAccount();
 
     if (snapshot.docs.isEmpty) return null;
 
@@ -123,7 +124,7 @@ class FirestoreFeedingRecordRepo implements FeedingRecordRepo {
       query = query.startAfterDocument(startAfter);
     }
 
-    final snapshot = await query.get();
+    final snapshot = await query.getForAccount();
 
     final records = snapshot.docs
         .map((doc) => AppFeedingHistory.fromJson(doc.data(), doc.id))

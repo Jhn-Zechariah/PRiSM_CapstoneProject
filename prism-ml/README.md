@@ -2,8 +2,8 @@
 
 Forecasts the **pig surface temperature** read by the AMG8833 **15 and 30 minutes ahead**
 from the last hour of sensor data, then maps the forecast to **Good / Needs Attention /
-High Risk** for the app. It replaces the old rule-based Decision Tree (archived in
-`legacy/decision_tree/`).
+High Risk** for the app. It replaces the old rule-based Decision Tree (removed; see git
+history before the repository cleanup commit if you need it).
 
 > This is a monitoring and decision-support tool. It does **not** diagnose disease and does
 > not replace a veterinarian.
@@ -173,7 +173,12 @@ Plots: `reports/synthetic_20261026_day.png` (forecast vs actual),
 
 ## API
 
-`GET /predict` (header `X-API-Key: <PRISM_API_KEY>`):
+`GET /predict` requires both `X-API-Key: <PRISM_API_KEY>` and
+`Authorization: Bearer <Firebase ID token>`. Only Firebase UID
+`QaXqv3SX9YfdzRpyMbJXGYjxMnw1` (angelinacanete76@gmail.com) is authorized.
+The verified UID is authoritative; an email or UID supplied by the client is not trusted.
+Missing/invalid tokens return 401; other accounts return 403, including for cached forecasts.
+Restart/redeploy the ML server and rebuild the Flutter app for this restriction to take effect.
 
 ```json
 {

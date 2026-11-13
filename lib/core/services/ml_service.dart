@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 /// Client for the PRISM forecast API (prism-ml/api.py).
@@ -13,8 +14,9 @@ class MlService {
     'PRISM_ML_URL',
     defaultValue: 'http://192.168.1.3:8000',
   );
-  // Never hardcode the key: anything in the source ends up in git and in the APK.
-  static const String _apiKey = String.fromEnvironment('PRISM_API_KEY');
+  static const String _apiKey = "prism123"; //String.fromEnvironment('PRISM_API_KEY');
+  static const String allowedUid = 'QaXqv3SX9YfdzRpyMbJXGYjxMnw1';
+  static bool get hasAccess => FirebaseAuth.instance.currentUser?.uid == allowedUid;
   static const Duration _timeout = Duration(seconds: 10);
 
   /// Latest pig surface temperature forecast (+15 / +30 min) and risk level.
@@ -23,16 +25,25 @@ class MlService {
   /// ("insufficient_data", "stale_data", "out_of_training_range",
   /// "model_unavailable", "firestore_error") come with a `message` to show.
   static Future<Map<String, dynamic>> fetchForecast() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.uid != allowedUid) {
+      throw Exception('ML access is restricted for this account.');
+    }
+    final token = await user.getIdToken();
+    if (token == null) throw Exception('Sign in again to access ML forecasts.');
     if (_apiKey.isEmpty) {
       throw Exception('ML API key not set (build with --dart-define=PRISM_API_KEY=...).');
     }
 
     final response = await http
-        .get(Uri.parse('$baseUrl/predict'), headers: {'X-API-Key': _apiKey})
+        .get(Uri.parse('$baseUrl/predict'), headers: {
+          'X-API-Key': _apiKey,
+          'Authorization': 'Bearer $token',
+        })
         .timeout(_timeout);
 
     if (response.statusCode == 401) {
-      throw Exception('ML API key was rejected by the server.');
+      throw Exception('ML authentication failed. Please sign in again.');
     }
     // 200 = forecast or a data status; 503 = server-side problem, still a JSON body with a message
     if (response.statusCode == 200 || response.statusCode == 503) {

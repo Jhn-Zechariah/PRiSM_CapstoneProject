@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -52,7 +53,7 @@ String currentHourKey() {
 // LiveSensorService — SINGLE shared poller for live sensor data.
 //
 // Replaces the old pattern where Dashboard, Temperature, and Humidity each
-// ran their own Timer.periodic + http.get() against the ESP32. Now there's
+// ran their own Timer.periodic + http.getForAccount() against the ESP32. Now there's
 // exactly ONE polling loop system-wide:
 //
 //   1. Try the ESP32's local HTTP endpoint first (fast, ~50-200ms, zero
@@ -96,7 +97,7 @@ class LiveSensorService {
 
   /// How old the 'timestamp' field on a one-shot Firestore GET is allowed
   /// to be before it's trusted as proof the sensor is currently live. A
-  /// plain .get() (unlike a LAN response or a listener's change event)
+  /// plain .getForAccount() (unlike a LAN response or a listener's change event)
   /// just returns whatever is currently stored, so this is what actually
   /// catches the "ESP32 unplugged, doc frozen" case for that path.
   static const int _oneShotGetFreshnessLimitSeconds = 30;
@@ -184,7 +185,7 @@ class LiveSensorService {
   /// Age (in seconds) of a Firestore-sourced reading's own 'timestamp'
   /// field, vs. the phone's wall clock. Null if there's no usable
   /// timestamp. Used to tell a genuinely fresh reading apart from "this is
-  /// just whatever was last stored," which a plain .get() or the first
+  /// just whatever was last stored," which a plain .getForAccount() or the first
   /// event after a listener (re)subscribe can both hand back even when the
   /// ESP32 has been unplugged for hours.
   static int? _dataAgeSeconds(Map<String, dynamic>? data) {
@@ -218,6 +219,7 @@ class LiveSensorService {
   }
 
   static Future<void> _pollOnce() async {
+    final requestUid = AccountCachePolicy.currentUid;
     // Check real internet reachability IN PARALLEL with the LAN attempt,
     // instead of only after LAN + Firestore both fail. Updates the badge
     // almost immediately instead of waiting behind ~8s of other timeouts.
@@ -249,8 +251,10 @@ class LiveSensorService {
       debugPrint('[LiveSensorService] LAN poll failed: $e');
     }
 
+    if (requestUid != AccountCachePolicy.currentUid) return;
     unawaited(
       internetCheckFuture.then((hasNet) {
+        if (requestUid != AccountCachePolicy.currentUid) return;
         if (connectionStatus.value != "Live") {
           connectionStatus.value = hasNet ? "Live" : "No Connection";
           SensorMemory.lastConnectionStatus = connectionStatus.value;
@@ -285,10 +289,10 @@ class LiveSensorService {
     // (which the snapshot listener below depends on) while still letting
     // discrete short HTTPS request/response calls through fine — exactly
     // like the ESP32's own pushes, which always succeed on the same kind
-    // of network. A plain .get() is a single request/response, so it isn't
+    // of network. A plain .getForAccount() is a single request/response, so it isn't
     // affected by that.
     //
-    // Unlike a LAN response or a listener's change event, a one-shot .get()
+    // Unlike a LAN response or a listener's change event, a one-shot .getForAccount()
     // is NOT proof the sensor is live right now — it just returns whatever
     // document is currently stored, even if it's hours old (e.g. the ESP32
     // got unplugged). So this path — and only this path — has to check the
@@ -299,7 +303,7 @@ class LiveSensorService {
       final doc = await FirebaseFirestore.instance
           .collection('live_sensor')
           .doc('latest')
-          .get(const GetOptions(source: Source.server))
+          .getForAccount(const GetOptions(source: Source.server))
           .timeout(const Duration(seconds: 3));
       final d = doc.data();
       final ageSeconds = _dataAgeSeconds(d);
@@ -367,7 +371,7 @@ class LiveSensorService {
     _firestoreSub = FirebaseFirestore.instance
         .collection('live_sensor')
         .doc('latest')
-        .snapshots()
+        .snapshotsForAccount()
         .listen(
           (snap) {
             if (!snap.exists) {
@@ -491,7 +495,7 @@ class LiveSensorService {
     _sprinklerCmdSub = FirebaseFirestore.instance
         .collection('sprinkler_command')
         .doc('pending')
-        .snapshots()
+        .snapshotsForAccount()
         .listen(
           (snap) {
             // First event is only the stored value, not a new change.
@@ -595,7 +599,7 @@ class SprinklerMemory {
         doc = await FirebaseFirestore.instance
             .collection('sprinkler_state')
             .doc('latest')
-            .get(const GetOptions(source: Source.cache));
+            .getForAccount(const GetOptions(source: Source.cache));
       } catch (_) {
         doc = null;
       }
@@ -604,7 +608,7 @@ class SprinklerMemory {
           doc = await FirebaseFirestore.instance
               .collection('sprinkler_state')
               .doc('latest')
-              .get(const GetOptions(source: Source.server))
+              .getForAccount(const GetOptions(source: Source.server))
               .timeout(const Duration(seconds: 4));
         } catch (_) {
           doc = null;
@@ -626,6 +630,64 @@ class SprinklerMemory {
 }
 
 class SensorMemory {
+  static String? _cacheOwner;
+  static void prepareCache() {
+    final uid = AccountCachePolicy.currentUid;
+    final accountChanged = _cacheOwner != uid;
+    if (!accountChanged && AccountCachePolicy.canUseCache) return;
+    _cacheOwner = uid;
+    lastTemp = 0;
+    lastHumidity = 0;
+    lastTempMaxToday = 0;
+    lastTempMaxDate = "--";
+    lastHumidityMaxToday = 0;
+    lastHumidityMaxDate = "--";
+    lastPigStatus = "--";
+    lastConnectionStatus = "Connecting...";
+    lastSensorStatus = "Sensor Offline";
+    lastGraphSpots = [];
+    graphLoaded = false;
+    lastGraphHourKey = "";
+    lastTempChartData = [];
+    tempChartLoaded = false;
+    lastTempChartDate = "";
+    lastTempChartHourKey = "";
+    lastHumidityChartData = [];
+    humidityChartLoaded = false;
+    lastHumidityChartDate = "";
+    lastHumidityChartHourKey = "";
+    _loaded = false;
+    _lastSavedJson = '';
+    _lastSaveAt = DateTime.fromMillisecondsSinceEpoch(0);
+    lastTempDisplayMax = null;
+    lastTempDisplayMin = null;
+    lastTempDisplayAvg = null;
+    lastTempSessionMax = null;
+    lastTempSessionMin = null;
+    lastHumidityDisplayMax = null;
+    lastHumidityDisplayMin = null;
+    lastHumidityDisplayAvg = null;
+    lastHumiditySessionMax = null;
+    lastHumiditySessionMin = null;
+    VaxScheduleMemory.medName = '--';
+    VaxScheduleMemory.dateLabel = '--';
+    VaxScheduleMemory.loaded = false;
+    SprinklerMemory.lastActivated = '--';
+    SprinklerMemory.date = '--';
+    SprinklerMemory.duration = '--';
+    SprinklerMemory.status = 'OFF';
+    SprinklerMemory.activatedAt = null;
+    tempMaxTodayNotifier.value = 0;
+    humidityMaxTodayNotifier.value = 0;
+    if (accountChanged) {
+      LiveSensorService.stop();
+      LiveSensorService.latestData.value = null;
+      LiveSensorService.sensorStatus.value = 'Sensor Offline';
+      LiveSensorService.connectionStatus.value = 'Connecting...';
+      sprinklerNotifier.value = false;
+    }
+  }
+
   static double lastTemp = 0;
   static double lastHumidity = 0;
   static double lastTempMaxToday = 0;
@@ -712,6 +774,7 @@ class SensorMemory {
   static Future<void> save({
     Duration minInterval = const Duration(seconds: 60),
   }) async {
+    if (!AccountCachePolicy.canUseCache) return;
     final nowT = DateTime.now();
     if (nowT.difference(_lastSaveAt) < minInterval) return;
     final payload = {
@@ -746,14 +809,14 @@ class SensorMemory {
   // older, cached) document each time used to overwrite the correct max
   // that the Temperature/Humidity screens had just set.
   static Future<void> load() async {
-    if (_loaded) return;
+    if (!AccountCachePolicy.canUseCache || _loaded) return;
     try {
       DocumentSnapshot? doc;
       try {
         doc = await FirebaseFirestore.instance
             .collection('sensor_memory')
             .doc('latest')
-            .get(const GetOptions(source: Source.cache));
+            .getForAccount(const GetOptions(source: Source.cache));
       } catch (_) {
         doc = null;
       }
@@ -762,7 +825,7 @@ class SensorMemory {
           doc = await FirebaseFirestore.instance
               .collection('sensor_memory')
               .doc('latest')
-              .get(const GetOptions(source: Source.server));
+              .getForAccount(const GetOptions(source: Source.server));
         } catch (_) {
           doc = null;
         }
@@ -949,8 +1012,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     with SingleTickerProviderStateMixin {
   bool _isLoading = true;
 
-  String _vaxMedName = VaxScheduleMemory.medName;
-  String _vaxDateLabel = VaxScheduleMemory.dateLabel;
+  late String _vaxMedName;
+  late String _vaxDateLabel;
 
   // _tempMax and _humidityLive intentionally start at 0 and are NEVER
   // restored from cache — they must come from a live ESP32 response.
@@ -1004,6 +1067,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+
+    SensorMemory.prepareCache();
+    _vaxMedName = VaxScheduleMemory.medName;
+    _vaxDateLabel = VaxScheduleMemory.dateLabel;
 
     // Starts the single shared LAN-first/Firestore-fallback poller.
     // Guarded internally — safe to call even if Dashboard remounts.
@@ -1372,7 +1439,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday),
           )
           .orderBy('nextSchedule')
-          .get();
+          .getForAccount();
 
       DateTime? bestDate;
       String? bestName;
@@ -1416,6 +1483,19 @@ class _DashboardScreenState extends State<DashboardScreen>
   };
 
   Future<void> _fetchMLInsights() async {
+    if (!MlService.hasAccess) {
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = 'Restricted';
+        _mlRecommendations = ['ML access is restricted for this account.'];
+        _mlForecast15 = null;
+        _mlForecast30 = null;
+        _mlSyntheticOnly = false;
+        _mlDisclaimer = '';
+        _mlLoading = false;
+      });
+      return;
+    }
     setState(() => _mlLoading = true);
 
     try {
@@ -1424,6 +1504,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       final result = await MlService.fetchForecast();
 
       if (!mounted) return;
+      if (!MlService.hasAccess) {
+        await _fetchMLInsights();
+        return;
+      }
       final status = result['status'] as String? ?? '';
       final isOk = status == 'ok';
       setState(() {

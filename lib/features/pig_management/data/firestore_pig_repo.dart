@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../domain/model/app_pig.dart';
@@ -19,7 +20,7 @@ class FirebasePigRepo implements PigRepo {
     return _pigsCollection
         .where('userId', isEqualTo: userId)
         .orderBy('createdAt', descending: true)
-        .snapshots(includeMetadataChanges: false)
+        .snapshotsForAccount(includeMetadataChanges: false)
         .map((snapshot) {
       return snapshot.docs.map((doc) {
         return AppPig.fromJson(doc.data() as Map<String, dynamic>, doc.id);
@@ -144,11 +145,11 @@ class FirebasePigRepo implements PigRepo {
     final startOfToday = DateTime(now.year, now.month, now.day);
 
     final results = await Future.wait([
-      intakes.where('status', isEqualTo: 'Ongoing').get(),
+      intakes.where('status', isEqualTo: 'Ongoing').getForAccount(),
       intakes
           .where('nextSchedule',
               isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday))
-          .get(),
+          .getForAccount(),
     ]);
 
     final openIntakes = {
@@ -196,7 +197,7 @@ class FirebasePigRepo implements PigRepo {
         .doc(pigId)
         .collection('weight_history')
         .orderBy('dateRecorded', descending: true)
-        .snapshots(includeMetadataChanges: false)
+        .snapshotsForAccount(includeMetadataChanges: false)
         .map((snapshot) {
       return snapshot.docs.map((doc) {
         return AppWeightRecord.fromJson(doc.data(), doc.id);
@@ -221,7 +222,7 @@ class FirebasePigRepo implements PigRepo {
   @override
   Future<void> migrateCounterForUser(String userId) async {
     final counterRef = _countersCollection.doc(userId);
-    final counterSnap = await counterRef.get();
+    final counterSnap = await counterRef.getForAccount();
     if (counterSnap.exists) return; // already migrated
 
 
