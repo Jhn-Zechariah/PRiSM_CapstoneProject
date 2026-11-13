@@ -2507,15 +2507,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                "Temperature Forcast",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: isDark ? Colors.white : Colors.black,
+              Expanded(
+                child: Text(
+                  "Temperature Forecast",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               if (!_mlLoading && _mlCondition.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -2548,9 +2550,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  "Forecasting pig temperature...",
-                  style: TextStyle(fontSize: 12, color: mutedText),
+                Expanded(
+                  child: Text(
+                    "Forecasting pig temperature...",
+                    style: TextStyle(fontSize: 12, color: mutedText),
+                  ),
                 ),
               ],
             )
@@ -2570,14 +2574,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                   children: [
                     Icon(Icons.thermostat, size: 14, color: conditionColor),
                     const SizedBox(width: 4),
-                    Text(
-                      "Pig temp forecast:  "
-                      "${_mlForecast15!.toStringAsFixed(1)}°C in 15 min  ·  "
-                      "${_mlForecast30!.toStringAsFixed(1)}°C in 30 min",
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
+                    Expanded(
+                      child: Text(
+                        "Pig temp forecast:  "
+                        "${_mlForecast15!.toStringAsFixed(1)}°C in 15 min  ·  "
+                        "${_mlForecast30!.toStringAsFixed(1)}°C in 30 min",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
                       ),
                     ),
                   ],
@@ -2613,13 +2619,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                     color: isDark ? Colors.white30 : Colors.black26,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    _mlSyntheticOnly
-                        ? "PRISM forecast model · prototype (trained on simulated data)"
-                        : "PRISM forecast model · live sensor data",
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isDark ? Colors.white30 : Colors.black38,
+                  Expanded(
+                    child: Text(
+                      _mlSyntheticOnly
+                          ? "PRISM forecast model · prototype (trained on simulated data)"
+                          : "PRISM forecast model · live sensor data",
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isDark ? Colors.white30 : Colors.black38,
+                      ),
                     ),
                   ),
                 ],
