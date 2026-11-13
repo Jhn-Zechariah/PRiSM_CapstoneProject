@@ -85,6 +85,15 @@ def persistence_bundle(cfg):
 def make_client(cfg, monkeypatch):
     monkeypatch.setenv("PRISM_API_KEY", KEY)
 
+    def verify(token):
+        if token == "allowed-token":
+            return {"uid": api.ALLOWED_ML_UID}
+        if token == "other-token":
+            return {"uid": "another-account"}
+        raise ValueError("Invalid token")
+
+    monkeypatch.setattr(api, "verify_ml_token", verify)
+
     def _make(docs, clock=lambda: NOW, live=None, logs=()):
         fake = FakeClient()
         fake.docs[cfg["firestore"]["readings_collection"]] = docs
@@ -97,7 +106,7 @@ def make_client(cfg, monkeypatch):
 
 
 def get(client):
-    return client.get("/predict", headers={"X-API-Key": KEY})
+    return client.get("/predict", headers={"X-API-Key": KEY, "Authorization": "Bearer allowed-token"})
 
 
 def test_requires_api_key(make_client):
@@ -105,6 +114,32 @@ def test_requires_api_key(make_client):
     assert client.get("/predict").status_code == 401
     assert client.get("/predict", headers={"X-API-Key": "wrong"}).status_code == 401
     assert client.get("/health").status_code == 200
+
+
+@pytest.mark.parametrize("authorization,expected", [
+    (None, 401),
+    ("Basic allowed-token", 401),
+    ("Bearer invalid-token", 401),
+    ("Bearer other-token", 403),
+])
+def test_rejects_unauthorized_accounts(make_client, authorization, expected):
+    client, fake = make_client(readings(60))
+    headers = {"X-API-Key": KEY}
+    if authorization is not None:
+        headers["Authorization"] = authorization
+    assert client.get("/predict", headers=headers).status_code == expected
+    assert fake.reads == 0
+
+
+def test_cached_forecast_still_requires_allowed_account(make_client):
+    client, fake = make_client(readings(60))
+    assert get(client).status_code == 200
+    reads = fake.reads
+    response = client.get("/predict", headers={
+        "X-API-Key": KEY, "Authorization": "Bearer other-token",
+    })
+    assert response.status_code == 403
+    assert fake.reads == reads
 
 
 def test_ok_prediction(make_client):

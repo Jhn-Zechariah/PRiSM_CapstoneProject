@@ -34,6 +34,28 @@ from risk import recommendation, risk_level
 from sanity import check_live_window
 
 SERVICE_VERSION = "2.0.0"
+ALLOWED_ML_UID = "QaXqv3SX9YfdzRpyMbJXGYjxMnw1"
+
+
+def verify_ml_token(token: str) -> dict:
+    from firebase_admin import auth
+
+    # Reuse the existing credential initialization; no sensor query is performed.
+    get_firestore_client()
+    return auth.verify_id_token(token, check_revoked=True)
+
+
+def require_ml_account(authorization: str | None = Header(default=None)):
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(401, "Missing Firebase ID token")
+    try:
+        claims = verify_ml_token(token.strip())
+    except Exception:
+        raise HTTPException(401, "Invalid or expired Firebase ID token") from None
+    if claims.get("uid") != ALLOWED_ML_UID:
+        raise HTTPException(403, "ML access is restricted for this account")
+
 
 Status = Literal["ok", "insufficient_data", "stale_data", "out_of_training_range",
                  "model_unavailable", "firestore_error"]
@@ -256,7 +278,7 @@ def create_app(source: FirestoreSource | None = None, bundle: dict | None = None
         return {"service": "PRISM forecast API", "api_version": SERVICE_VERSION,
                 "model_version": b.get("version") if b else None,
                 "endpoints": {"/health": "service + model status",
-                              "/predict": "forecast (requires X-API-Key header)",
+                              "/predict": "forecast (requires X-API-Key and authorized Firebase bearer token)",
                               "/docs": "interactive API docs"}}
 
     @app.get("/health", response_model=HealthResponse)
@@ -268,7 +290,7 @@ def create_app(source: FirestoreSource | None = None, bundle: dict | None = None
             model_data_source=b and b.get("data_source"), synthetic_only_model=b and b.get("synthetic_only"),
             trained_at=b and b.get("trained_at"), uptime_s=round(time.monotonic() - state["started"], 1))
 
-    @app.get("/predict", response_model=PredictResponse, dependencies=[Depends(require_key)])
+    @app.get("/predict", response_model=PredictResponse, dependencies=[Depends(require_key), Depends(require_ml_account)])
     def predict():
         ttl = cfg["api"]["cache_ttl_s"]
         with lock:

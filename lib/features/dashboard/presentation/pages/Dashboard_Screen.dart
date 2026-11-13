@@ -1483,6 +1483,19 @@ class _DashboardScreenState extends State<DashboardScreen>
   };
 
   Future<void> _fetchMLInsights() async {
+    if (!MlService.hasAccess) {
+      if (!mounted) return;
+      setState(() {
+        _mlCondition = 'Restricted';
+        _mlRecommendations = ['ML access is restricted for this account.'];
+        _mlForecast15 = null;
+        _mlForecast30 = null;
+        _mlSyntheticOnly = false;
+        _mlDisclaimer = '';
+        _mlLoading = false;
+      });
+      return;
+    }
     setState(() => _mlLoading = true);
 
     try {
@@ -1491,6 +1504,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       final result = await MlService.fetchForecast();
 
       if (!mounted) return;
+      if (!MlService.hasAccess) {
+        await _fetchMLInsights();
+        return;
+      }
       final status = result['status'] as String? ?? '';
       final isOk = status == 'ok';
       setState(() {

@@ -173,7 +173,12 @@ Plots: `reports/synthetic_20261026_day.png` (forecast vs actual),
 
 ## API
 
-`GET /predict` (header `X-API-Key: <PRISM_API_KEY>`):
+`GET /predict` requires both `X-API-Key: <PRISM_API_KEY>` and
+`Authorization: Bearer <Firebase ID token>`. Only Firebase UID
+`QaXqv3SX9YfdzRpyMbJXGYjxMnw1` (angelinacanete76@gmail.com) is authorized.
+The verified UID is authoritative; an email or UID supplied by the client is not trusted.
+Missing/invalid tokens return 401; other accounts return 403, including for cached forecasts.
+Restart/redeploy the ML server and rebuild the Flutter app for this restriction to take effect.
 
 ```json
 {
