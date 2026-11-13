@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'dart:developer' as dev;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -195,11 +196,13 @@ class MedicineCubit extends Cubit<MedicineState> {
       String medId, {
         bool forceRefresh = false,
       }) async {
-    if (!forceRefresh && _stockCache.containsKey(medId)) {
+    if (AccountCachePolicy.canUseCache && !forceRefresh && _stockCache.containsKey(medId)) {
       return _stockCache[medId]!;
     }
+    final uid = AccountCachePolicy.currentUid;
     final stocks = await repository.getMedicineStocks(medId);
-    _stockCache[medId] = stocks;
+    AccountCachePolicy.checkSession(uid);
+    if (AccountCachePolicy.canUseCache) _stockCache[medId] = stocks;
     return stocks;
   }
 

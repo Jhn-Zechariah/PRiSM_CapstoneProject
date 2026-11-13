@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../domain/model/app_feeding_history.dart';
@@ -45,7 +48,22 @@ class FeedingHistoryCubit extends Cubit<FeedingHistoryState> {
 
   FeedingHistoryCubit({required FeedingRecordRepo repo})
       : _repo = repo,
-        super(const FeedingHistoryInitial());
+        super(const FeedingHistoryInitial()) {
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
+      ++_requestToken;
+      invalidateCache();
+      _userId = null;
+      emit(const FeedingHistoryInitial());
+    });
+  }
+
+  StreamSubscription? _authSubscription;
+
+  @override
+  Future<void> close() {
+    _authSubscription?.cancel();
+    return super.close();
+  }
 
   String get _currentKey => '$_userId|${_pigId ?? 'All'}';
 
@@ -70,7 +88,7 @@ class FeedingHistoryCubit extends Cubit<FeedingHistoryState> {
     final token = ++_requestToken;
 
     final cached = _cache[key];
-    if (!forceRefresh &&
+    if (AccountCachePolicy.canUseCache && !forceRefresh &&
         cached != null &&
         DateTime.now().difference(cached.fetchedAt) < _cacheDuration) {
       emit(FeedingHistoryLoaded(cached.records, hasMore: cached.hasMore));

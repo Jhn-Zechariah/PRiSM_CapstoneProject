@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -17,6 +18,7 @@ class TodayReading {
 // instead of once per screen.
 class TodayReadingsStore {
   static String _dayKey = '';
+  static String? _cacheOwner;
   // Everything after this time (exclusive) is in _readings.
   static DateTime? _coveredFrom;
   static DateTime? _lastTs;
@@ -36,7 +38,14 @@ class TodayReadingsStore {
   }
 
   static Future<List<TodayReading>> _readingsAfter(DateTime after) async {
-    final todayKey = SensorMemory.todayKey();
+    final uid = AccountCachePolicy.currentUid;
+    if (!AccountCachePolicy.canUseCache) {
+      final fresh = await _fetch(after);
+      AccountCachePolicy.checkSession(uid);
+      return fresh;
+    }
+    final todayKey = '${uid}_${SensorMemory.todayKey()}';
+    _cacheOwner = uid;
     if (_dayKey != todayKey) {
       _dayKey = todayKey;
       _readings.clear();
@@ -61,6 +70,7 @@ class TodayReadingsStore {
       _lastFetchAt = DateTime.now();
     }
 
+    AccountCachePolicy.checkSession(_cacheOwner);
     return _readings.where((r) => r.ts.isAfter(after)).toList();
   }
 
@@ -138,7 +148,7 @@ class TodayReadingsStore {
         query = query.startAfterDocument(lastPageDocument);
       }
 
-      final snap = await query.get();
+      final snap = await query.getForAccount();
 
       for (final doc in snap.docs) {
         final d = doc.data();

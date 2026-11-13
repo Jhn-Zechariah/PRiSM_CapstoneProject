@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -20,11 +21,13 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
   }
 
   final Map<String, AppFeedingRecord?> _latestRecordCache = {};
+  String? _cacheUid;
 
   // 🔹 NEW
   void _listenToAuthChanges() {
     _authSubscription = FirebaseAuth.instance.userChanges().listen((user) {
-      if (user == null) {
+      if (user?.uid != _cacheUid) {
+        _cacheUid = user?.uid;
         clearLatestCache();
         emit(FeedingRecordInitial());
       }
@@ -32,7 +35,7 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
   }
 
   AppFeedingRecord? getCachedLatestRecord(String pigId) =>
-      _latestRecordCache[pigId];
+      AccountCachePolicy.canUseCache ? _latestRecordCache[pigId] : null;
 
   void clearLatestCache() => _latestRecordCache.clear();
 
@@ -40,16 +43,18 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
       String pigId, {
         bool forceRefresh = false,
       }) async {
-    if (!forceRefresh && _latestRecordCache.containsKey(pigId)) {
+    if (AccountCachePolicy.canUseCache && !forceRefresh && _latestRecordCache.containsKey(pigId)) {
       emit(LatestFeedingRecordLoaded(pigId, _latestRecordCache[pigId]));
       return;
     }
 
     emit(LatestFeedingRecordLoading(pigId));
     try {
+      final uid = AccountCachePolicy.currentUid;
       final record = await feedingRepo.getLatestFeedingRecord(pigId);
+      AccountCachePolicy.checkSession(uid);
       if (isClosed) return;
-      _latestRecordCache[pigId] = record;
+      if (AccountCachePolicy.canUseCache) _latestRecordCache[pigId] = record;
       emit(LatestFeedingRecordLoaded(pigId, record));
     } catch (e) {
       if (isClosed) return;
@@ -60,7 +65,7 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
   Future<bool> addRecord(AppFeedingRecord record) async {
     try {
       await feedingRepo.addFeedingRecord(record);
-      _latestRecordCache[record.pigId] = record;
+      if (AccountCachePolicy.canUseCache) _latestRecordCache[record.pigId] = record;
       if (isClosed) return false;
       emit(LatestFeedingRecordLoaded(record.pigId, record));
       onRecordSaved?.call();
@@ -78,7 +83,7 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
 
       final updates = <String, AppFeedingRecord?>{};
       for (final record in records) {
-        _latestRecordCache[record.pigId] = record;
+        if (AccountCachePolicy.canUseCache) _latestRecordCache[record.pigId] = record;
         updates[record.pigId] = record;
       }
 

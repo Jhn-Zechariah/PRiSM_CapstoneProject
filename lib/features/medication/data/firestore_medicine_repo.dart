@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../domain/model/app_medicine.dart';
 import '../domain/model/app_medicine_intake.dart';
@@ -13,7 +14,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .collection('medicines')
         .where('userId', isEqualTo: userId)
     // ignoreMetadataChanges prevents extra reads during local sync
-        .snapshots(includeMetadataChanges: false)
+        .snapshotsForAccount(includeMetadataChanges: false)
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => Medicine.fromMap(doc.data(), doc.id))
@@ -35,7 +36,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
       isGreaterThanOrEqualTo: Timestamp.fromDate(startOfToday),
     )
         .orderBy('nextSchedule')
-        .snapshots()
+        .snapshotsForAccount()
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => MedicineIntake.fromMap(doc.data(), documentId: doc.id))
@@ -53,7 +54,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .collectionGroup('medicine_intakes')
         .where('userId', isEqualTo: userId)
         .orderBy('dateTaken', descending: true) // server sorts; no Dart sort needed
-        .snapshots()
+        .snapshotsForAccount()
         .map((snapshot) {
       return snapshot.docs
           .map((doc) => MedicineIntake.fromMap(doc.data(), documentId: doc.id))
@@ -84,7 +85,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .doc(medicineId)
         .collection('medicine_stock')
         .orderBy('expiryDate') // stable order: soonest-expiring batch first
-        .get();
+        .getForAccount();
 
     return snapshot.docs
         .map((doc) => MedicineStock.fromMap(doc.data(), doc.id))
@@ -99,7 +100,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .collection('medicine_stock')
         .orderBy('expiryDate')
         .limit(1)
-        .get();
+        .getForAccount();
 
     if (snapshot.docs.isEmpty) return 'N/A';
     return snapshot.docs.first.data()['expiryDate'] as String? ?? 'N/A';
@@ -118,7 +119,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
         .doc(pigId)
         .collection('medicine_intakes')
         .where('medName', isEqualTo: medName)
-        .get();
+        .getForAccount();
 
     MedicineIntake? latest;
     for (final doc in snapshot.docs) {
@@ -156,7 +157,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
       final QuerySnapshot querySnapshot = await stockCollectionRef
           .where('expiryDate', isEqualTo: updatedStock.expiryDate)
           .limit(1)
-          .get();
+          .getForAccount();
 
       final existingDocsWithSameDate =
       querySnapshot.docs.where((doc) => doc.id != stockDocId).toList();
@@ -203,7 +204,7 @@ class FirestoreMedicineRepo implements MedicineRepository {
     final querySnapshot = await stockCollectionRef
         .where('expiryDate', isEqualTo: newStock.expiryDate)
         .limit(1)
-        .get();
+        .getForAccount();
 
     final batch = _firestore.batch();
 

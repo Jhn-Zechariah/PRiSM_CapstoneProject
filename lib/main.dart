@@ -34,8 +34,8 @@ void main() async {
         '666163168561-gugikgqvg7mhrruqj0clqmrlchrg45qn.apps.googleusercontent.com',
   );
 
-  // Disable Firestore cache so sensor offline is always detected correctly
-  // Enable persistence so cached data survives hot restart and offline opens
+  // Keep persistence available for the designated account. All app reads go
+  // through AccountCachePolicy, which requires server data for other accounts.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,

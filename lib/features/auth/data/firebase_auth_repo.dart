@@ -1,3 +1,4 @@
+import 'package:prism_app/core/services/account_cache_policy.dart';
 /*
 
 FIREBASE AS A BACKEND - replace backend here
@@ -19,7 +20,7 @@ class FirebaseAuthRepo implements AuthRepo {
   //saved user data
   Future<void> createUserDocument(AppUser user) async {
     final docRef = firestore.collection('admins').doc(user.uid);
-    final docSnap = await docRef.get();
+    final docSnap = await docRef.getForAccount();
 
     if (!docSnap.exists) {
       // Create new document (first time)

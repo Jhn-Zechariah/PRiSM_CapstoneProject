@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:prism_app/core/services/account_cache_policy.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,7 @@ class TodayMaxService {
   static bool _running = false;
   static DateTime _lastSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
   static String _appliedDayKey = '';
+  static String? _syncOwner;
 
   // Syncs now and then every few minutes while the app is running. Safe to
   // call on every Dashboard mount.
@@ -33,6 +35,12 @@ class TodayMaxService {
   }
 
   static Future<void> sync() async {
+    final uid = AccountCachePolicy.currentUid;
+    if (uid != _syncOwner) {
+      _syncOwner = uid;
+      _appliedDayKey = '';
+      _lastSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
+    }
     if (_running) return;
     if (DateTime.now().difference(_lastSyncAt) < _minSyncInterval) return;
     _running = true;
@@ -47,7 +55,7 @@ class TodayMaxService {
         now.day,
       ).subtract(const Duration(milliseconds: 1));
 
-      final snap = await _doc.get(const GetOptions(source: Source.server));
+      final snap = await _doc.getForAccount(const GetOptions(source: Source.server));
       final d = snap.data();
       final sameDay = d?['date'] == todayKey;
       final docCursor = sameDay
@@ -109,6 +117,7 @@ class TodayMaxService {
         }
       }
 
+      AccountCachePolicy.checkSession(uid);
       _apply(todayKey, tempMax, humMax);
     } catch (e) {
       // Try again on the next call instead of waiting the full interval.
