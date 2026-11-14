@@ -47,8 +47,8 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
   void initState() {
     super.initState();
 
-    // Breed is always "Hybrid"
-    _breedController.text = 'Hybrid';
+    // Keep the saved breed; Hybrid is only the default for a new pig.
+    _breedController.text = widget.existingPig?.breed ?? 'Hybrid';
 
 
     if (widget.existingPig != null) {
@@ -57,7 +57,6 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
 
 
       final pig = widget.existingPig!;
-      // Note: We ignore the breed from the existing pig to enforce "Hybrid"
       _weightController.text = pig.currentWeightKg.toString();
       _birthDateController.text = pig.birthDate.toString().split(' ')[0];
       if (_sexOptions.contains(pig.sex)) {
@@ -160,7 +159,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         pigId: widget.existingPig!.pigId,
         userId: widget.existingPig!.userId,
         displayId: widget.existingPig!.displayId,
-        breed: _breedController.text,
+        breed: _breedController.text.trim(),
         birthDate:
         DateTime.tryParse(_birthDateController.text) ??
             widget.existingPig!.birthDate,
@@ -202,7 +201,7 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
         pigId: '',
         userId: '',
         displayId: '',
-        breed: _breedController.text,
+        breed: _breedController.text.trim(),
         birthDate:
         DateTime.tryParse(_birthDateController.text) ?? DateTime.now(),
         sex: _selectedSex!,
@@ -360,9 +359,13 @@ class _PigInformationScreenState extends State<PigInformationScreen> {
                                   Expanded(
                                     child: CustomTextField(
                                       label: 'Breed:',
-                                      readonly: true, // Breed is now always read-only
-                                      enabled: false, // Breed is now always disabled
+                                      readonly: isReadOnly || widget.existingPig != null,
+                                      enabled: !isReadOnly && widget.existingPig == null,
                                       controller: _breedController,
+                                      validator: (value) =>
+                                          value == null || value.trim().isEmpty
+                                              ? 'Required'
+                                              : null,
                                       borderColor: Colors.black54,
                                       border: 6,
                                       contentPadding: fieldPadding,

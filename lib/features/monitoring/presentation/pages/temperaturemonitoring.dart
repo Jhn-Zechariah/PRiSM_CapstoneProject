@@ -10,6 +10,7 @@ import 'package:prism_app/core/widgets/snackbar.dart';
 import '../../../../core/widgets/build_tab_bar.dart';
 import 'package:prism_app/features/dashboard/presentation/pages/Dashboard_Screen.dart';
 import 'package:prism_app/features/monitoring/data/today_readings_store.dart';
+import 'package:prism_app/features/monitoring/data/monitoring_history_store.dart';
 
 const List<String> kTimeRanges = ['This Month', 'This Week', 'Today', 'Custom'];
 const int _kHourlyMinSpanHours =
@@ -298,6 +299,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   String _minuteCustomRangeKey = '';
   bool _minuteCustomLoading = false;
   bool _rangeLoadFailed = false;
+  bool _rangeHasGaps = false;
   int _rangeRequestId = 0;
 
   // Keeps the loaded Week/Month so re-tapping a tab costs no Firestore reads.
@@ -344,9 +346,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     return _kChartLeftPad + frac * chartWidth;
   }
 
-  // Exact statistics for This Month, This Week, and Custom.
-  // These are calculated from EVERY Firestore reading in the selected range,
-  // not from the compressed graph points.
+  // Statistics combine available hourly sums/counts/extremes and raw partial
+  // hours. Missing completed-hour summaries are disclosed below the graph.
   double? _rangeStatMax;
   double? _rangeStatMin;
   double _rangeStatSum = 0;
@@ -806,23 +807,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     }
   }
 
-  // Loads persisted per-minute readings for any non-Today range (Month,
-  // Week, or Custom). Unlike the Today buffer, these ranges are fixed and
-  // never get live updates, so they're simply re-fetched whenever the
-  // range actually changes (guarded by _minuteCustomRangeKey, keyed by
-  // range + hour so Month/Week re-check once per hour as "now" advances).
-
-  // Loads persisted per-minute readings for any non-Today range (Month,
-  // Week, or Custom). Unlike the Today buffer, these ranges are fixed and
-  // never get live updates, so they're simply re-fetched whenever the
-  // range actually changes (guarded by _minuteCustomRangeKey, keyed by
-  // range + hour so Month/Week re-check once per hour as "now" advances).
-  //
-  // Month/Week can span tens of thousands of minute docs — far too many to
-  // fetch or render in one shot — so this always takes the MOST RECENT
-  // ~1500 readings within the range (via descending order + limit, then
-  // reversed back to chronological order) rather than the oldest, since
-  // recent trends are what actually matter for monitoring.
+  // Historical ranges use shared hourly summaries for spans of six hours
+  // or more, and raw readings for shorter spans and partial boundary hours.
   Future<void> _loadMinuteChartForRange(int rangeIndex) async {
     final range = _resolveTimeRange(rangeIndex, _customStart, _customEnd);
 
@@ -860,6 +846,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
         _rangeStatMin = cached['min'] as double?;
         _rangeStatSum = cached['sum'] as double;
         _rangeStatCount = cached['count'] as int;
+        _rangeHasGaps = cached['hasGaps'] as bool? ?? false;
         _minuteCustomLoading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -880,6 +867,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     final requestId = ++_rangeRequestId;
     _rangeLoadFailed = false;
+    _rangeHasGaps = false;
 
     try {
       final points = await _fetchCompleteTempRange(start, end, requestId);
@@ -911,6 +899,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
             'min': _rangeStatMin,
             'sum': _rangeStatSum,
             'count': _rangeStatCount,
+            'hasGaps': _rangeHasGaps,
           };
         }
       });
@@ -1150,29 +1139,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     final firstHour = DateTime(start.year, start.month, start.day, start.hour);
 
-    final summarySnap = await _db
-        .collection('sensor_readings_hourly')
-        .where(
-          'timestamp',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(firstHour),
-        )
-        .where('timestamp', isLessThan: Timestamp.fromDate(effectiveEnd))
-        .orderBy('timestamp')
-        .getForAccount()
-        .timeout(const Duration(seconds: 30));
-
+    final summaries = await MonitoringHistoryStore.hourly(firstHour, effectiveEnd);
     if (requestId != _rangeRequestId) return [];
-
-    final summaries = <int, Map<String, dynamic>>{};
-
-    for (final doc in summarySnap.docs) {
-      final data = doc.data();
-      final ts = (data['timestamp'] as Timestamp?)?.toDate();
-
-      if (ts != null) {
-        summaries[ts.millisecondsSinceEpoch] = data;
-      }
-    }
+    var hasGaps = false;
 
     Future<void> loadRaw(DateTime segmentStart, DateTime segmentEnd) async {
       QueryDocumentSnapshot<Map<String, dynamic>>? lastDocument;
@@ -1291,8 +1260,12 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
             count,
             midpoint.difference(start).inMilliseconds / 3600000.0,
           );
-        } else {
+        } else if (!fullHour) {
+          // At most two partial hours. Never scan raw history to replace
+          // missing summaries across a week or month.
           await loadRaw(segmentStart, segmentEnd);
+        } else {
+          hasGaps = true;
         }
       }
 
@@ -1301,6 +1274,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
 
     if (requestId != _rangeRequestId) return [];
 
+    _rangeHasGaps = hasGaps;
     points.sort((a, b) => a['x']!.compareTo(b['x']!));
 
     _rangeStatMin = overallMin;
@@ -1495,6 +1469,9 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
     _minuteBufferCustom.clear();
     _minuteCustomRangeKey = '';
     _minuteBufferRangeStart = null;
+    _rangeHasGaps = false;
+    _rangeLoadFailed = false;
+    _minuteCustomLoading = false;
 
     // Clear exact Week/Month/Custom statistics too.
     _resetRangeStats();
@@ -2025,28 +2002,24 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
       children: List.generate(kTimeRanges.length, (index) {
         final isSelected = _selectedTimeRange == index;
         final isCustom = index == 3;
-        // Only Today is enabled; This Month, This Week, and Custom are disabled.
-        final isDisabled = index != 2;
         return Expanded(
           child: GestureDetector(
-            onTap: isDisabled
-                ? null
-                : () async {
-                    // Clear stale stats immediately on tap so the Temperature
-                    // Review never shows values from the previous range while
-                    // the new range's data is loading.
-                    setState(() {
-                      _selectedTimeRange = index;
-                      _clearStatsForRangeSwitch();
-                    });
-                    if (isCustom) {
-                      await _showCustomRangePicker();
-                    } else if (index == 2) {
-                      unawaited(_syncToday());
-                    } else {
-                      _loadMinuteChartForRange(index);
-                    }
-                  },
+            onTap: () async {
+              // Clear stale stats immediately on tap so the Temperature
+              // Review never shows values from the previous range while
+              // the new range's data is loading.
+              setState(() {
+                _selectedTimeRange = index;
+                _clearStatsForRangeSwitch();
+              });
+              if (isCustom) {
+                await _showCustomRangePicker();
+              } else if (index == 2) {
+                unawaited(_syncToday());
+              } else {
+                _loadMinuteChartForRange(index);
+              }
+            },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               margin: EdgeInsets.only(
@@ -2073,12 +2046,6 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                       ]
                     : [],
               ),
-              foregroundDecoration: isDisabled
-                  ? BoxDecoration(
-                      color: _cardBg(isDark).withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(20),
-                    )
-                  : null,
               alignment: Alignment.center,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -2216,6 +2183,8 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
               ? "Waiting for live readings..."
               : _rangeLoadFailed
               ? "Could not load data. Tap the range again to retry."
+              : _rangeHasGaps
+              ? "Hourly history unavailable for this range."
               : "No data for selected range",
           style: TextStyle(color: _textSecondary(isDark)),
         ),
@@ -2298,9 +2267,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
                     rangeStart: chartRange.start,
                     showYAxisLabels: false,
 
-                    gapHours:
-                        (spanHours >= _kHourlyMinSpanHours &&
-                            spanHours / 300 * 2.5 < 1.6)
+                    gapHours: spanHours >= _kHourlyMinSpanHours
                         ? 1.6
                         : spanHours / 300 * 2.5,
                     gapBlankHours: double.infinity,
@@ -2359,6 +2326,15 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
               ),
               const SizedBox(height: 8),
               SizedBox(height: 320, width: double.infinity, child: chartBody),
+              if (!isTodayTab && !isBusy && _rangeHasGaps)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Some hourly history is unavailable. Graph and statistics '
+                    'show available readings only.',
+                    style: TextStyle(fontSize: 12, color: _textSecondary(isDark)),
+                  ),
+                ),
             ],
           ),
         ),
@@ -2578,16 +2554,18 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
     _endTime.hour,
     _endTime.minute,
   );
-  bool get _isValid =>
-      _fullStart.isBefore(_fullEnd) &&
-      _fullEnd.difference(_fullStart).inDays <= 31;
+  bool get _isValid => MonitoringHistoryStore.isValidCustomRange(
+    _fullStart,
+    _fullEnd,
+    DateTime.now(),
+  );
 
   Future<void> _pickDate(bool isStart) async {
     final picked = await showDatePicker(
       context: context,
       initialDate: isStart ? _startDate : _endDate,
       firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
+      lastDate: DateTime.now(),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.light(primary: Color(0xFFE8622A)),
@@ -2727,7 +2705,7 @@ class _CustomRangeSheetState extends State<_CustomRangeSheet> {
                 Icon(Icons.error_outline, size: 14, color: Colors.red),
                 SizedBox(width: 4),
                 Text(
-                  'Start must be before end (max 31 days).',
+                  'Choose a past range of up to 31 days.',
                   style: TextStyle(color: Colors.red, fontSize: 12),
                 ),
               ],
