@@ -24,6 +24,7 @@ String esp32Ip = "192.168.1.8";
 final sprinklerNotifier = ValueNotifier<bool>(false);
 final tempMaxTodayNotifier = ValueNotifier<double>(0);
 final humidityMaxTodayNotifier = ValueNotifier<double>(0);
+final airTempMaxTodayNotifier = ValueNotifier<double>(0);
 
 // Stores the time when the sprinkler was last toggled.
 // Shared with Temperature and Humidity monitoring screens.
@@ -69,11 +70,25 @@ String currentHourKey() {
 // Firestore reads (when away from home) only happen once system-wide
 // instead of once per open screen.
 // ─────────────────────────────────────────────
+
+class _LiveLifecycle with WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      LiveSensorService.pause();
+    } else if (state == AppLifecycleState.resumed) {
+      LiveSensorService.resume();
+    }
+  }
+}
+
 class LiveSensorService {
   static Timer? _timer;
   static StreamSubscription<DocumentSnapshot>? _firestoreSub;
   static StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   static bool _started = false;
+  static bool _paused = false;
+  static final _LiveLifecycle _lifecycle = _LiveLifecycle();
 
   // Staleness is judged against the PHONE's own clock at the moment a
   // reading is received (LAN response or Firestore snapshot) — never
@@ -172,6 +187,27 @@ class LiveSensorService {
       }
     });
 
+    WidgetsBinding.instance.addObserver(_lifecycle);
+    _poll();
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
+  }
+
+  /// App went to the background: stop polling and close the listeners.
+  static void pause() {
+    _paused = true;
+    _timer?.cancel();
+    _timer = null;
+    _firestoreSub?.cancel();
+    _firestoreSub = null;
+    _lastListenerEventAt = null;
+    _sprinklerCmdSub?.cancel();
+    _sprinklerCmdSub = null;
+  }
+
+  /// App is back in the foreground: start again right away.
+  static void resume() {
+    _paused = false;
+    if (!_started || _timer != null) return;
     _poll();
     _timer = Timer.periodic(const Duration(seconds: 10), (_) => _poll());
   }
@@ -208,6 +244,7 @@ class LiveSensorService {
   }
 
   static Future<void> _poll() async {
+    if (_paused) return;
     _attachSprinklerCommandListener();
     if (_polling) return;
     _polling = true;
@@ -366,6 +403,7 @@ class LiveSensorService {
   }
 
   static void _attachFirestoreFallbackIfNeeded() {
+    if (_paused) return;
     if (_firestoreSub != null) return;
     debugPrint('[LiveSensorService] attaching Firestore fallback listener');
     _firestoreSub = FirebaseFirestore.instance
@@ -490,6 +528,7 @@ class LiveSensorService {
   static bool _sprinklerCmdFirstEvent = true;
 
   static void _attachSprinklerCommandListener() {
+    if (_paused) return;
     if (_sprinklerCmdSub != null) return;
     _sprinklerCmdFirstEvent = true;
     _sprinklerCmdSub = FirebaseFirestore.instance
@@ -553,7 +592,9 @@ class LiveSensorService {
     _connectivitySub = null;
     _sprinklerCmdSub?.cancel();
     _sprinklerCmdSub = null;
+    WidgetsBinding.instance.removeObserver(_lifecycle);
     _started = false;
+    _paused = false;
   }
 }
 
@@ -642,6 +683,8 @@ class SensorMemory {
     lastTempMaxDate = "--";
     lastHumidityMaxToday = 0;
     lastHumidityMaxDate = "--";
+    lastAirTempMaxToday = 0;
+    lastAirTempMaxDate = "--";
     lastPigStatus = "--";
     lastConnectionStatus = "Connecting...";
     lastSensorStatus = "Sensor Offline";
@@ -679,6 +722,7 @@ class SensorMemory {
     SprinklerMemory.activatedAt = null;
     tempMaxTodayNotifier.value = 0;
     humidityMaxTodayNotifier.value = 0;
+    airTempMaxTodayNotifier.value = 0;
     if (accountChanged) {
       LiveSensorService.stop();
       LiveSensorService.latestData.value = null;
@@ -694,6 +738,8 @@ class SensorMemory {
   static String lastTempMaxDate = "--";
   static double lastHumidityMaxToday = 0;
   static String lastHumidityMaxDate = "--";
+  static double lastAirTempMaxToday = 0;
+  static String lastAirTempMaxDate = "--";
   static String lastPigStatus = "--";
   static String lastConnectionStatus = "Connecting...";
   static String lastSensorStatus = "Sensor Offline";
@@ -731,6 +777,11 @@ class SensorMemory {
     humidityMaxTodayNotifier.value = v;
   }
 
+  static void setAirTempMaxToday(double v) {
+    lastAirTempMaxToday = v;
+    airTempMaxTodayNotifier.value = v;
+  }
+
   static String todayKey() {
     final n = DateTime.now();
     return "${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}";
@@ -745,6 +796,10 @@ class SensorMemory {
     if (lastHumidityMaxDate != today) {
       setHumidityMaxToday(0);
       lastHumidityMaxDate = today;
+    }
+    if (lastAirTempMaxDate != today) {
+      setAirTempMaxToday(0);
+      lastAirTempMaxDate = today;
     }
     if (lastTempChartDate != today && lastTempChartDate.isNotEmpty) {
       lastTempChartData = [];
@@ -784,6 +839,8 @@ class SensorMemory {
       'tempMaxDate': lastTempMaxDate,
       'humidityMaxToday': lastHumidityMaxToday,
       'humidityMaxDate': lastHumidityMaxDate,
+      'airTempMaxToday': lastAirTempMaxToday,
+      'airTempMaxDate': lastAirTempMaxDate,
       'lastPigStatus': lastPigStatus,
     };
     // Every write counts toward Firestore's daily write limit, which the
@@ -854,6 +911,11 @@ class SensorMemory {
             savedHum > lastHumidityMaxToday) {
           lastHumidityMaxDate = today;
           setHumidityMaxToday(savedHum);
+        }
+        final savedAir = (data['airTempMaxToday'] as num?)?.toDouble() ?? 0;
+        if (data['airTempMaxDate'] == today && savedAir > lastAirTempMaxToday) {
+          lastAirTempMaxDate = today;
+          setAirTempMaxToday(savedAir);
         }
       }
       _loaded = true;
@@ -1026,6 +1088,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _isSprinklerLoading = false;
   double _tempMaxToday = 0;
   double _humidityMaxToday = 0;
+  double _airTempMaxToday = 0;
   double _humidityLive = 0;
 
   // AMG8833 thermal heatmap — 64 pixels (8x8)
@@ -1080,6 +1143,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     _localIsActivated = sprinklerNotifier.value;
     _tempMaxToday = tempMaxTodayNotifier.value;
     _humidityMaxToday = humidityMaxTodayNotifier.value;
+    _airTempMaxToday = airTempMaxTodayNotifier.value;
 
     _fadeController = AnimationController(
       vsync: this,
@@ -1096,6 +1160,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     sprinklerNotifier.addListener(_onSprinklerNotifierChanged);
     tempMaxTodayNotifier.addListener(_onTempMaxNotifierChanged);
     humidityMaxTodayNotifier.addListener(_onHumidityMaxNotifierChanged);
+    airTempMaxTodayNotifier.addListener(_onAirTempMaxNotifierChanged);
 
     // Listen to the shared service instead of polling ourselves.
     LiveSensorService.latestData.addListener(_onLiveDataChanged);
@@ -1114,6 +1179,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     sprinklerNotifier.removeListener(_onSprinklerNotifierChanged);
     tempMaxTodayNotifier.removeListener(_onTempMaxNotifierChanged);
     humidityMaxTodayNotifier.removeListener(_onHumidityMaxNotifierChanged);
+    airTempMaxTodayNotifier.removeListener(_onAirTempMaxNotifierChanged);
     LiveSensorService.latestData.removeListener(_onLiveDataChanged);
     LiveSensorService.connectionStatus.removeListener(
       _onConnectionStatusChanged,
@@ -1195,6 +1261,19 @@ class _DashboardScreenState extends State<DashboardScreen>
         _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
       }
 
+      final airValid = data['ambientTempValid'] as bool? ?? true;
+      final newAirTemp = airValid
+          ? (data['ambientTemp'] as num?)?.toDouble()
+          : null;
+      if (newAirTemp != null && newAirTemp > 0 && newAirTemp <= 80) {
+        SensorMemory.resetIfNewDay();
+        if (newAirTemp > SensorMemory.lastAirTempMaxToday) {
+          SensorMemory.setAirTempMaxToday(newAirTemp);
+          SensorMemory.save();
+        }
+        _airTempMaxToday = SensorMemory.lastAirTempMaxToday;
+      }
+
       _tempStatus = data['pigBodyTempStatus'] as String? ?? _tempStatus;
 
       if (!_sprinklerJustToggled) {
@@ -1215,7 +1294,8 @@ class _DashboardScreenState extends State<DashboardScreen>
       // Last-known values only seed the screen on the next launch, so they
       // are persisted rarely. New maximums above still save within 60s.
       if ((newTempLive != null && newTempLive > 0) ||
-          (newHumidity != null && newHumidity > 0)) {
+          (newHumidity != null && newHumidity > 0) ||
+          (newAirTemp != null && newAirTemp > 0)) {
         SensorMemory.save(minInterval: const Duration(minutes: 10));
       }
 
@@ -1308,6 +1388,12 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (v != _humidityMaxToday) setState(() => _humidityMaxToday = v);
   }
 
+  void _onAirTempMaxNotifierChanged() {
+    if (!mounted) return;
+    final v = airTempMaxTodayNotifier.value;
+    if (v != _airTempMaxToday) setState(() => _airTempMaxToday = v);
+  }
+
   void _startDurationTimer(DateTime activatedAt) {
     _durationTimer?.cancel();
     _sprinklerActivatedAt = activatedAt;
@@ -1355,6 +1441,9 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       if (SensorMemory.lastHumidityMaxToday > 0) {
         _humidityMaxToday = SensorMemory.lastHumidityMaxToday;
+      }
+      if (SensorMemory.lastAirTempMaxToday > 0) {
+        _airTempMaxToday = SensorMemory.lastAirTempMaxToday;
       }
 
       if (SprinklerMemory.lastActivated != "--") {
@@ -1560,7 +1649,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           title: const Row(
             children: [
-              Icon(Icons.sensors_off, color: Colors.red, size: 20),
+              Icon(Icons.sensors_off, color: Color.fromARGB(255, 85, 21, 17), size: 20),
               SizedBox(width: 8),
               Text('Sensor Offline'),
             ],
@@ -1945,7 +2034,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       Icon(icon, size: 14, color: iconColor),
                       const SizedBox(width: 4),
                       Text(
-                        showTemp ? "Pig Body Temperature" : "Air Humidity",
+                        showTemp ? "Pig Body Temperature" : "Ambient Humidity",
                         style: TextStyle(
                           color: isDark ? Colors.white60 : Colors.grey,
                           fontSize: 12,
@@ -2282,26 +2371,154 @@ class _DashboardScreenState extends State<DashboardScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: _buildInfoCard(
-              isDark,
-              Symbols.bar_chart_4_bars,
-              "Quick Stats",
-              [
-                "Max Temperature Today: ${_tempMaxToday == 0 ? '…' : '${_tempMaxToday.toStringAsFixed(1)}°C'}",
-                "Max Humidity Today: ${_humidityMaxToday == 0 ? '…' : '${_humidityMaxToday.toStringAsFixed(1)}%'}",
-              ],
-              const Color(0xFFE53935),
-            ),
+            child: _buildQuickStatsCard(isDark),
           ),
           const SizedBox(width: 5),
           Expanded(
-            child: _buildInfoCard(isDark, Symbols.shower, "Sprinkler Info", [
-              "Status: $_sprinklerStatus",
-              "Time: $_lastActivated",
-              "Date: $_date",
-              "Duration: $_duration",
-            ], const Color(0xFF1E88E5)),
+            child: _buildSprinklerInfoCard(isDark),
           ),
+        ],
+      ),
+    );
+  }
+
+    Widget _buildQuickStatsCard(bool isDark) {
+    const accent = Color(0xFFE53935);
+    final muted = isDark ? Colors.white60 : const Color(0xFF707070);
+
+    Widget stat(String label, String value) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 10, color: muted)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: _bentoDecoration(isDark, accentColor: accent),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Symbols.bar_chart_4_bars,
+                  size: 15,
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  "Quick Stats",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          stat(
+            "Max Pig Temperature Today",
+            _tempMaxToday == 0 ? '…' : '${_tempMaxToday.toStringAsFixed(1)}°C',
+          ),
+          stat(
+            "Max Ambient Temperature Today",
+            _airTempMaxToday == 0
+                ? '…'
+                : '${_airTempMaxToday.toStringAsFixed(1)}°C',
+          ),
+          stat(
+            "Max Ambient Humidity Today",
+            _humidityMaxToday == 0
+                ? '…'
+                : '${_humidityMaxToday.toStringAsFixed(1)}%',
+          ),
+        ],
+      ),
+    );
+  }
+
+    Widget _buildSprinklerInfoCard(bool isDark) {
+    const accent = Color(0xFF1E88E5);
+    final muted = isDark ? Colors.white60 : const Color(0xFF707070);
+
+    Widget stat(String label, String value, {Color? valueColor}) => Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 10, color: muted)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: valueColor ?? (isDark ? Colors.white : Colors.black),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: _bentoDecoration(isDark, accentColor: accent),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Symbols.shower, size: 15, color: accent),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  "Sprinkler Info",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          stat(
+            "Status",
+            _sprinklerStatus,
+            valueColor: _sprinklerStatus == "ON" ? Colors.green : null,
+          ),
+          stat("Last Activated Time", _lastActivated),
+          stat("Last Activated Date", _date),
+          stat("Duration", _duration),
         ],
       ),
     );

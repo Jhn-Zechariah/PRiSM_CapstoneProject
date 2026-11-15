@@ -54,8 +54,7 @@ class TodayReadingsStore {
       _lastFetchAt = DateTime.fromMillisecondsSinceEpoch(0);
     }
 
-    if (_coveredFrom == null || after.isBefore(_coveredFrom!)) {
-      // Asked for older readings than we have: download from [after].
+    if (_coveredFrom == null) {
       final fetched = await _fetch(after);
       _readings
         ..clear()
@@ -63,11 +62,19 @@ class TodayReadingsStore {
       _coveredFrom = after;
       _lastTs = fetched.isNotEmpty ? fetched.last.ts : after;
       _lastFetchAt = DateTime.now();
-    } else if (DateTime.now().difference(_lastFetchAt) >= _minFetchInterval) {
-      final fetched = await _fetch(_lastTs ?? _coveredFrom!);
-      _readings.addAll(fetched);
-      if (fetched.isNotEmpty) _lastTs = fetched.last.ts;
-      _lastFetchAt = DateTime.now();
+    } else {
+      if (after.isBefore(_coveredFrom!)) {
+        // Download only the missing older part and put it in front.
+        final older = await _fetch(after, upTo: _coveredFrom);
+        _readings.insertAll(0, older);
+        _coveredFrom = after;
+      }
+      if (DateTime.now().difference(_lastFetchAt) >= _minFetchInterval) {
+        final fetched = await _fetch(_lastTs ?? _coveredFrom!);
+        _readings.addAll(fetched);
+        if (fetched.isNotEmpty) _lastTs = fetched.last.ts;
+        _lastFetchAt = DateTime.now();
+      }
     }
 
     AccountCachePolicy.checkSession(_cacheOwner);
@@ -77,12 +84,19 @@ class TodayReadingsStore {
   // On the same WiFi as the ESP32 the readings come from its SD card
   // (GET /history), which costs no Firestore reads. Anywhere else, or if
   // the ESP32 does not answer properly, they come from Firestore.
-  static Future<List<TodayReading>> _fetch(DateTime after) async {
+  static Future<List<TodayReading>> _fetch(
+    DateTime after, {
+    DateTime? upTo,
+  }) async {
     if (LiveSensorService.isOnLan) {
       final fromEsp32 = await _fetchFromEsp32(after);
-      if (fromEsp32 != null) return fromEsp32;
+      if (fromEsp32 != null) {
+        return upTo == null
+            ? fromEsp32
+            : fromEsp32.where((r) => !r.ts.isAfter(upTo)).toList();
+      }
     }
-    return _fetchFromFirestore(after);
+    return _fetchFromFirestore(after, upTo: upTo);
   }
 
   // Returns null when the ESP32 cannot give a complete answer.
@@ -133,16 +147,24 @@ class TodayReadingsStore {
     }
   }
 
-  static Future<List<TodayReading>> _fetchFromFirestore(DateTime after) async {
+  static Future<List<TodayReading>> _fetchFromFirestore(
+    DateTime after, {
+    DateTime? upTo,
+  }) async {
     final out = <TodayReading>[];
     QueryDocumentSnapshot<Map<String, dynamic>>? lastPageDocument;
 
     while (true) {
       Query<Map<String, dynamic>> query = FirebaseFirestore.instance
           .collection('sensor_readings_seconds')
-          .where('timestamp', isGreaterThan: Timestamp.fromDate(after))
-          .orderBy('timestamp', descending: false)
-          .limit(1000);
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(after));
+      if (upTo != null) {
+        query = query.where(
+          'timestamp',
+          isLessThanOrEqualTo: Timestamp.fromDate(upTo),
+        );
+      }
+      query = query.orderBy('timestamp', descending: false).limit(1000);
 
       if (lastPageDocument != null) {
         query = query.startAfterDocument(lastPageDocument);

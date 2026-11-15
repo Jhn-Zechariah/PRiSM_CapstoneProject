@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:prism_app/core/services/account_cache_policy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 typedef HourlySummaries = Map<int, Map<String, dynamic>>;
 typedef HourlyLoader = Future<HourlySummaries> Function(
@@ -90,6 +93,12 @@ class MonitoringHistoryStore {
   static String? _owner;
   static HourlySummaryCache? _cache;
 
+  // Disk copy of finished hours (older than 2 hours). Survives closing the app.
+  static Map<int, Map<String, num>>? _disk;
+  static String? _diskUid;
+  static const String _diskPrefix = 'hourly_disk_v1_';
+  static const int _diskMaxHours = 1500; // about 62 days
+
   static bool isValidCustomRange(
     DateTime start,
     DateTime end,
@@ -103,11 +112,12 @@ class MonitoringHistoryStore {
     if (_owner != uid) {
       _owner = uid;
       _cache = null;
+      _disk = null;
     }
     // Preserve the explicit server-only policy for other accounts.
     if (!AccountCachePolicy.canUseCache) {
       _cache = null;
-      return _loadHourly(start, end);
+      return _loadFromFirestore(start, end);
     }
     final cache = _cache ??= HourlySummaryCache(_loadHourly);
     final result = await cache.read(start, end);
@@ -115,7 +125,95 @@ class MonitoringHistoryStore {
     return result;
   }
 
+  static Future<void> _ensureDisk() async {
+    final uid = AccountCachePolicy.currentUid;
+    if (_disk != null && _diskUid == uid) return;
+    _diskUid = uid;
+    final loaded = <int, Map<String, num>>{};
+    try {
+      final raw = (await SharedPreferences.getInstance())
+          .getString('$_diskPrefix$uid');
+      if (raw != null) {
+        (jsonDecode(raw) as Map<String, dynamic>).forEach((k, v) {
+          loaded[int.parse(k)] = (v as Map<String, dynamic>)
+              .map((a, b) => MapEntry(a, b as num));
+        });
+      }
+    } catch (_) {
+      loaded.clear(); // damaged data: start clean
+    }
+    _disk = loaded;
+  }
+
+  static Future<void> _saveDisk() async {
+    final disk = _disk;
+    if (disk == null) return;
+    try {
+      if (disk.length > _diskMaxHours) {
+        final keys = disk.keys.toList()..sort();
+        for (final k in keys.take(disk.length - _diskMaxHours)) {
+          disk.remove(k);
+        }
+      }
+      final payload = jsonEncode({
+        for (final e in disk.entries) '${e.key}': e.value,
+      });
+      await (await SharedPreferences.getInstance())
+          .setString('$_diskPrefix$_diskUid', payload);
+    } catch (_) {}
+  }
+
+  /// Serves finished hours from the phone and only asks Firestore for hours
+  /// that are missing on disk or too recent to be final.
   static Future<HourlySummaries> _loadHourly(
+    DateTime start,
+    DateTime end,
+  ) async {
+    await _ensureDisk();
+    final disk = _disk!;
+    final settledBefore = DateTime.now().subtract(const Duration(hours: 2));
+
+    final out = <int, Map<String, dynamic>>{};
+    final runs = <List<DateTime>>[];
+    DateTime? runStart;
+    var h = DateTime(start.year, start.month, start.day, start.hour);
+    while (h.isBefore(end)) {
+      final hit = disk[h.millisecondsSinceEpoch];
+      if (hit != null && h.isBefore(settledBefore)) {
+        out[h.millisecondsSinceEpoch] = Map<String, dynamic>.from(hit);
+        if (runStart != null) {
+          runs.add([runStart, h]);
+          runStart = null;
+        }
+      } else {
+        runStart ??= h;
+      }
+      h = DateTime(h.year, h.month, h.day, h.hour + 1);
+    }
+    if (runStart != null) runs.add([runStart, h]);
+
+    var changed = false;
+    for (final r in runs) {
+      final fetched = await _loadFromFirestore(r[0], r[1]);
+      out.addAll(fetched);
+      for (final e in fetched.entries) {
+        final hourStart = DateTime.fromMillisecondsSinceEpoch(e.key);
+        if (!hourStart.isBefore(settledBefore)) continue; // not final yet
+        final nums = <String, num>{
+          for (final f in e.value.entries)
+            if (f.value is num) f.key: f.value as num,
+        };
+        if (nums.isNotEmpty) {
+          disk[e.key] = nums;
+          changed = true;
+        }
+      }
+    }
+    if (changed) await _saveDisk();
+    return out;
+  }
+
+  static Future<HourlySummaries> _loadFromFirestore(
     DateTime start,
     DateTime end,
   ) async {
