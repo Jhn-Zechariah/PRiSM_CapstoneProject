@@ -58,6 +58,7 @@ prism-ml/*.pyc
 firebase_credentials.json
 
 # Local environment variables
+/config/prism_ml.local.json
 *serviceAccount*.json
 prism-firebase-key.json
 .env
@@ -75,3 +76,23 @@ assets/esp32Code/
 # Editor / unrelated tool folders
 .sfdx/
 .vscode/
+
+
+# Flutter generated platform files
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+**/Flutter/ephemeral/
+
+# Generated Flutter plugin registrants
+/linux/flutter/generated_plugin_registrant.cc
+/linux/flutter/generated_plugin_registrant.h
+/linux/flutter/generated_plugins.cmake
+/macos/Flutter/GeneratedPluginRegistrant.swift
+/ios/Runner/GeneratedPluginRegistrant.h
+/ios/Runner/GeneratedPluginRegistrant.m
+
+# Generated plugin symlinks
+**/flutter/ephemeral/.plugin_symlinks/
+
+# Additional Flutter generated files
+.flutter-plugins

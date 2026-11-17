@@ -2,7 +2,7 @@
 // ignore_for_file: type=lint
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+    show defaultTargetPlatform, kDebugMode, kIsWeb, TargetPlatform;
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
@@ -21,7 +21,7 @@ class DefaultFirebaseOptions {
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        return android;
+        return kDebugMode ? androidDebug : android;
       case TargetPlatform.iOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for ios - '
@@ -63,6 +63,15 @@ class DefaultFirebaseOptions {
     projectId: 'prism-3cd2c',
     storageBucket: 'prism-3cd2c.firebasestorage.app',
   );
+  // Registered for com.codeVibers.prism_app.debug in the same Firebase project.
+  static const FirebaseOptions androidDebug = FirebaseOptions(
+    apiKey: 'AIzaSyC5vjNWD5eHZOSD9-GdcW9yCJqqcg6e0Wo',
+    appId: '1:666163168561:android:6f00a538030a0aa2b29c10',
+    messagingSenderId: '666163168561',
+    projectId: 'prism-3cd2c',
+    storageBucket: 'prism-3cd2c.firebasestorage.app',
+  );
+
   static const FirebaseOptions windows = FirebaseOptions(
     apiKey: 'AIzaSyBDu6tAG0VauEOmpp9xrZ4Ct9AlPE2qd24',
     appId: '1:666163168561:web:4a3d315576664fb9b29c10',
