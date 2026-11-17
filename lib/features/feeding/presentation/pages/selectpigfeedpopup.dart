@@ -7,6 +7,7 @@ import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/confirmation_box.dart';
 import '../../domain/model/app_feeding_record.dart';
 import '../cubits/feeding_record_cubit.dart';
+import '../components/feeding_date_time_fields.dart';
 
 class SelectPigFeedPopup extends StatefulWidget {
   final List<AppPig> pigs;
@@ -24,6 +25,7 @@ class SelectPigFeedPopup extends StatefulWidget {
 
 class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
   final _formKey = GlobalKey<FormState>();
+  DateTime _feedingDateTime = DateTime.now();
 
   late List<bool> _checked;
   final TextEditingController _feedTypeController = TextEditingController();
@@ -135,7 +137,7 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
         pigId: pig.pigId,
         feedType: feedType,
         amount: amount,
-        timestamp: DateTime.now(),
+        timestamp: _feedingDateTime,
       ),
     )
         .toList();
@@ -169,185 +171,193 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Container(
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 10,
-                decoration: BoxDecoration(
-                  color: widget.pigColor,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    bottomLeft: Radius.circular(16),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Pigs to feed:',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () => Navigator.pop(context),
-                              child: Icon(
-                                Icons.close,
-                                size: 22,
-                                color:
-                                isDark ? Colors.white60 : Colors.black54,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Select:',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isDark ? Colors.white60 : Colors.black54,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: isDark
-                                  ? Colors.white12
-                                  : Colors.grey.shade300,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              _buildCheckRow(
-                                label: 'Select All',
-                                checked: _checked[0],
-                                isSelectAll: true,
-                                isDark: isDark,
-                                onChanged: _onSelectAll,
-                              ),
-                              Divider(
-                                height: 1,
-                                color: isDark
-                                    ? Colors.white12
-                                    : Colors.grey.shade200,
-                              ),
-                              ...List.generate(widget.pigs.length, (i) {
-                                final pig = widget.pigs[i];
-                                final displayLabel =
-                                    '${pig.breed} | ${pig.displayId} - ${pig.stage}';
-
-                                return Column(
-                                  children: [
-                                    _buildCheckRow(
-                                      label: displayLabel,
-                                      checked: _checked[i + 1],
-                                      isSelectAll: false,
-                                      isDark: isDark,
-                                      onChanged: (val) =>
-                                          _onPigChecked(i, val),
-                                    ),
-                                    if (i < widget.pigs.length - 1)
-                                      Divider(
-                                        height: 1,
-                                        color: isDark
-                                            ? Colors.white12
-                                            : Colors.grey.shade200,
-                                      ),
-                                  ],
-                                );
-                              }),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: CustomTextField(
-                                controller: _feedTypeController,
-                                label: 'Feed Type:',
-                                border: 6,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 12,
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: CustomTextField(
-                                controller: _amountController,
-                                label: 'Amount (kg):',
-                                border: 6,
-                                keyboardType:
-                                const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 12,
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  final val = double.tryParse(value.trim());
-                                  if (val == null) return 'Invalid number';
-                                  if (val < _minAmount) {
-                                    return 'Min ${_minAmount}kg';
-                                  }
-                                  if (val > _maxAmount) {
-                                    return 'Max ${_maxAmount.toInt()}kg';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        CustomButton(
-                          text: 'Save Records',
-                          onPressed: _onSave,
-                          backgroundColor: const Color(0xFF2563EB),
-                          color: Colors.white,
-                          border: 10,
-                          borderColor: false,
-                        ),
-                      ],
+      child: SingleChildScrollView(
+        child: Container(
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: 10,
+                  decoration: BoxDecoration(
+                    color: widget.pigColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
                     ),
                   ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Pigs to feed:',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => Navigator.pop(context),
+                                child: Icon(
+                                  Icons.close,
+                                  size: 22,
+                                  color:
+                                  isDark ? Colors.white60 : Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Select:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isDark ? Colors.white60 : Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white12
+                                    : Colors.grey.shade300,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                _buildCheckRow(
+                                  label: 'Select All',
+                                  checked: _checked[0],
+                                  isSelectAll: true,
+                                  isDark: isDark,
+                                  onChanged: _onSelectAll,
+                                ),
+                                Divider(
+                                  height: 1,
+                                  color: isDark
+                                      ? Colors.white12
+                                      : Colors.grey.shade200,
+                                ),
+                                ...List.generate(widget.pigs.length, (i) {
+                                  final pig = widget.pigs[i];
+                                  final displayLabel =
+                                      '${pig.breed} | ${pig.displayId} - ${pig.stage}';
+
+                                  return Column(
+                                    children: [
+                                      _buildCheckRow(
+                                        label: displayLabel,
+                                        checked: _checked[i + 1],
+                                        isSelectAll: false,
+                                        isDark: isDark,
+                                        onChanged: (val) =>
+                                            _onPigChecked(i, val),
+                                      ),
+                                      if (i < widget.pigs.length - 1)
+                                        Divider(
+                                          height: 1,
+                                          color: isDark
+                                              ? Colors.white12
+                                              : Colors.grey.shade200,
+                                        ),
+                                    ],
+                                  );
+                                }),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: CustomTextField(
+                                  controller: _feedTypeController,
+                                  label: 'Feed Type:',
+                                  border: 6,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 12,
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Required';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: CustomTextField(
+                                  controller: _amountController,
+                                  label: 'Amount (kg):',
+                                  border: 6,
+                                  keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 12,
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Required';
+                                    }
+                                    final val = double.tryParse(value.trim());
+                                    if (val == null) return 'Invalid number';
+                                    if (val < _minAmount) {
+                                      return 'Min ${_minAmount}kg';
+                                    }
+                                    if (val > _maxAmount) {
+                                      return 'Max ${_maxAmount.toInt()}kg';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          FeedingDateTimeFields(
+                            value: _feedingDateTime,
+                            onChanged: (value) =>
+                                setState(() => _feedingDateTime = value),
+                          ),
+                          const SizedBox(height: 16),
+                          CustomButton(
+                            text: 'Save Records',
+                            onPressed: _onSave,
+                            backgroundColor: const Color(0xFF2563EB),
+                            color: Colors.white,
+                            border: 10,
+                            borderColor: false,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

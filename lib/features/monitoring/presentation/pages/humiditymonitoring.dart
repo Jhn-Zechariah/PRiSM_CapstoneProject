@@ -3166,10 +3166,12 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
     super.initState();
     final now = DateTime.now();
     final defaultStart = now.subtract(const Duration(hours: 24));
-    _startDate = widget.initialStart ?? defaultStart;
-    _startTime = TimeOfDay.fromDateTime(widget.initialStart ?? defaultStart);
-    _endDate = widget.initialEnd ?? now;
-    _endTime = TimeOfDay.fromDateTime(widget.initialEnd ?? now);
+    final start = _clampToWindow(widget.initialStart ?? defaultStart, now);
+    final end = _clampToWindow(widget.initialEnd ?? now, now);
+    _startDate = start;
+    _startTime = TimeOfDay.fromDateTime(start);
+    _endDate = end;
+    _endTime = TimeOfDay.fromDateTime(end);
   }
 
   DateTime get _fullStart => DateTime(
@@ -3186,8 +3188,17 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
     _endTime.hour,
     _endTime.minute,
   );
-    // Raise this if you want longer ranges.
   static const int _kMaxCustomDays = 31;
+
+  // Include the whole earliest allowed calendar day.
+  DateTime _firstAllowedDate(DateTime now) =>
+      DateTime(now.year, now.month, now.day - _kMaxCustomDays);
+
+  DateTime _clampToWindow(DateTime value, DateTime now) {
+    final firstDate = _firstAllowedDate(now);
+    if (value.isBefore(firstDate)) return firstDate;
+    return value.isAfter(now) ? now : value;
+  }
 
   // The end can never be in the future: a later time today means "now".
   DateTime get _effectiveEnd {
@@ -3196,14 +3207,16 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
   }
 
   String? get _error {
-    if (_fullStart.isAfter(DateTime.now())) {
+    final now = DateTime.now();
+    final firstDate = _firstAllowedDate(now);
+    if (_fullStart.isBefore(firstDate) || _fullEnd.isBefore(firstDate)) {
+      return 'Choose dates within the past $_kMaxCustomDays days.';
+    }
+    if (_fullStart.isAfter(now)) {
       return 'Start time cannot be in the future.';
     }
     if (!_effectiveEnd.isAfter(_fullStart)) {
       return 'End must be after the start.';
-    }
-    if (_effectiveEnd.difference(_fullStart).inDays > _kMaxCustomDays) {
-      return 'Choose a range of up to $_kMaxCustomDays days.';
     }
     return null;
   }
@@ -3211,11 +3224,12 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
   bool get _isValid => _error == null;
 
   Future<void> _pickDate(bool isStart) async {
+    final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: isStart ? _startDate : _endDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      initialDate: _clampToWindow(isStart ? _startDate : _endDate, now),
+      firstDate: _firstAllowedDate(now),
+      lastDate: now,
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.light(primary: Color(0xFFE8622A)),
@@ -3223,7 +3237,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
         child: child!,
       ),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() => isStart ? _startDate = picked : _endDate = picked);
   }
 
@@ -3242,7 +3256,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
         ),
       ),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() => isStart ? _startTime = picked : _endTime = picked);
   }
 
@@ -3296,6 +3310,11 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
                 child: Icon(Icons.close, color: Colors.grey.shade400, size: 22),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Select dates within the past 31 days.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
           ),
           const SizedBox(height: 20),
           _rowLabel('From'),
@@ -3370,6 +3389,11 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
             child: ElevatedButton(
               onPressed: _isValid
                   ? () {
+                      // Recheck if the sheet was left open across midnight.
+                      if (!_isValid) {
+                        setState(() {});
+                        return;
+                      }
                       // Returning `true` tells the caller a range was
                       // actually applied, so it should NOT snap back to Today.
                       Navigator.pop(context, true);

@@ -65,9 +65,11 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
   Future<bool> addRecord(AppFeedingRecord record) async {
     try {
       await feedingRepo.addFeedingRecord(record);
-      if (AccountCachePolicy.canUseCache) _latestRecordCache[record.pigId] = record;
       if (isClosed) return false;
-      emit(LatestFeedingRecordLoaded(record.pigId, record));
+      // A backdated entry may not be the latest feeding for this pig.
+      _latestRecordCache.remove(record.pigId);
+      await loadLatestRecord(record.pigId, forceRefresh: true);
+      if (isClosed) return false;
       onRecordSaved?.call();
       return true;
     } catch (e) {
@@ -81,14 +83,16 @@ class FeedingRecordCubit extends Cubit<FeedingRecordState> {
     try {
       await feedingRepo.addBatchFeedingRecords(records);
 
-      final updates = <String, AppFeedingRecord?>{};
-      for (final record in records) {
-        if (AccountCachePolicy.canUseCache) _latestRecordCache[record.pigId] = record;
-        updates[record.pigId] = record;
-      }
-
       if (isClosed) return false;
-      emit(LatestFeedingRecordsBulkUpdated(updates));
+      // Refresh by feeding time instead of treating every new entry as latest.
+      final pigIds = records.map((record) => record.pigId).toSet();
+      for (final pigId in pigIds) {
+        _latestRecordCache.remove(pigId);
+      }
+      await Future.wait(
+        pigIds.map((pigId) => loadLatestRecord(pigId, forceRefresh: true)),
+      );
+      if (isClosed) return false;
       onRecordSaved?.call();
       return true;
     } catch (e) {
