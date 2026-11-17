@@ -7,7 +7,6 @@ import 'package:prism_app/core/widgets/button.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../../core/widgets/textfield.dart';
-import '../components/social_logins.dart';
 
 class LoginScreen extends StatefulWidget {
   final void Function()? togglePages;
@@ -100,166 +99,154 @@ class LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: isDarkMode ? const Color(0xFF121212) : Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 20),
-                  SvgPicture.asset(
-                    isDarkMode
-                        ? 'assets/logo_dark.svg'
-                        : 'assets/logo_light.svg',
-                    width: 120,
-                    errorBuilder: (context, error, stackTrace) => Icon(
-                      Icons.business,
-                      size: 80,
-                      color: isDarkMode ? Colors.white24 : Colors.grey,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - 48).clamp(0.0, double.infinity),
+              ),
+              child: Center(
+                child: SizedBox(
+                  width: 440,
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SvgPicture.asset(
+                          isDarkMode
+                              ? 'assets/logo_dark.svg'
+                              : 'assets/logo_light.svg',
+                          width: 120,
+                          errorBuilder: (context, error, stackTrace) => Icon(
+                            Icons.business,
+                            size: 80,
+                            color: isDarkMode ? Colors.white24 : Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          "Welcome Back!",
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.bold,
+                            color: isDarkMode ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "Sign in with your team-provided account",
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: isDarkMode ? Colors.white70 : Colors.black54,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+
+                        const SizedBox(height: 32),
+
+                        // Email
+                        CustomTextField(
+                          controller: emailController,
+                          labelText: "Email",
+                          border: 10,
+                          prefixIcon: Icons.email_outlined,
+                          keyboardType: TextInputType.emailAddress,
+                          validator: Validators.email,
+                        ),
+
+                        const SizedBox(height: fieldSpacing),
+
+                        // Password
+                        CustomTextField(
+                          controller: passwordController,
+                          labelText: "Password",
+                          border: 10,
+                          prefixIcon: Icons.lock_outlined,
+                          obscureText: _obscurePassword,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              color: isDarkMode ? Colors.white60 : Colors.black54,
+                            ),
+                            onPressed: () =>
+                                setState(() => _obscurePassword = !_obscurePassword),
+                          ),
+                          validator: (value) => value == null || value.isEmpty
+                              ? "Please enter your password"
+                              : null,
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        // Forgot password
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            GestureDetector(
+                              onTap: () =>
+                                  openForgotPasswordBox(emailController.text),
+                              child: const Text(
+                                "forgot password?",
+                                style: TextStyle(fontSize: 14, color: Colors.blue),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // Sign in button
+                        CustomButton(
+                          text: "Sign In",
+                          borderColor: false,
+                          onPressed: _login,
+                          backgroundColor: Colors.blue,
+                          color: Colors.white,
+                        ),
+
+                        const SizedBox(height: 24),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isDarkMode
+                                ? const Color(0xFF1B2635)
+                                : const Color(0xFFF0F6FF),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 20,
+                                color: isDarkMode
+                                    ? Colors.blue.shade200
+                                    : Colors.blue.shade700,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Accounts are provided by our team. Contact us if you need an account or help signing in.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    height: 1.5,
+                                    color: isDarkMode
+                                        ? Colors.white70
+                                        : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    "Welcome Back!",
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                      color: isDarkMode ? Colors.white : Colors.black,
-                    ),
-                  ),
-                  Text(
-                    "Sign in to continue",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: isDarkMode ? Colors.white : Colors.black,
-                    ),
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  // Email
-                  CustomTextField(
-                    controller: emailController,
-                    labelText: "Email",
-                    border: 10,
-                    prefixIcon: Icons.email_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: Validators.email,
-                  ),
-
-                  const SizedBox(height: fieldSpacing),
-
-                  // Password
-                  CustomTextField(
-                    controller: passwordController,
-                    labelText: "Password",
-                    border: 10,
-                    prefixIcon: Icons.lock_outlined,
-                    obscureText: _obscurePassword,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: isDarkMode ? Colors.white60 : Colors.black54,
-                      ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                    ),
-                    validator: (value) => value == null || value.isEmpty
-                        ? "Please enter your password"
-                        : null,
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // Forgot password
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      GestureDetector(
-                        onTap: () =>
-                            openForgotPasswordBox(emailController.text),
-                        child: const Text(
-                          "forgot password?",
-                          style: TextStyle(fontSize: 14, color: Colors.blue),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 50),
-
-                  // Sign in button
-                  CustomButton(
-                    text: "Sign In",
-                    borderColor: false,
-                    onPressed: _login,
-                    backgroundColor: Colors.blue,
-                    color: Colors.white,
-                  ),
-
-                  const SizedBox(height: fieldSpacing),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Divider(
-                          thickness: 1,
-                          color: isDarkMode ? Colors.white10 : Colors.grey[300],
-                        ),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8.0),
-                        child: Text(
-                          "or sign in with",
-                          style: TextStyle(fontSize: 14, color: Colors.grey),
-                        ),
-                      ),
-                      Expanded(
-                        child: Divider(
-                          thickness: 1,
-                          color: isDarkMode ? Colors.white10 : Colors.grey[300],
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  // Social login
-                  SocialLoginButton(
-                    asset: 'assets/google.svg',
-                    label: "Sign in with Google",
-                    isDarkMode: isDarkMode,
-                    onTap: () async {
-                      authCubit.googleSignIn();
-                    },
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        "Don't have an account?",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: isDarkMode ? Colors.white70 : Colors.black54,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: widget.togglePages ?? () {},
-                        child: const Text(
-                          " Sign Up",
-                          style: TextStyle(fontSize: 14, color: Colors.blue),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
             ),
           ),
