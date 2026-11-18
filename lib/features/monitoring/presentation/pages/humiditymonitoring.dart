@@ -23,20 +23,18 @@ const int _kHumHourlyMinSpanHours =
 
 // The air temperature line uses a right-hand axis of 0 to this many °C.
 const double _kHumAmbientAxisMax = 50;
-// Air temperature limits (same as the Arduino code).
-const double _kAirLowNormal = 15.6;
-const double _kAirHighNormal = 23.9;
+const double _kAirLowNormal = 15;
+const double _kAirHighNormal = 30;
 const double _kHumLowNormal = 60;
 const double _kHumHighNormal = 70;
-const double _kAirCritical = 30.0; // always HIGH at or above this (PAES max)
 
-// -1 = below range, 0 = in range, 1 = above range.
-// Rounded to the 1 decimal shown on screen.
-int _band(double v, double low, double high) {
-  final r = (v * 10).round() / 10;
-  if (r < low) return -1;
-  if (r > high) return 1;
-  return 0;
+String _readingStatus(double? reading, double low, double high) {
+  if (reading == null) return "";
+  // Classify the reading to the same precision shown on screen.
+  final rounded = (reading * 10).round() / 10;
+  if (rounded < low) return "LOW";
+  if (rounded > high) return "HIGH";
+  return "NORMAL";
 }
 
 Color _statusColorFor(String s) {
@@ -494,31 +492,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       _minuteBufferToday.isNotEmpty &&
       _minuteBufferDayKey == SensorMemory.todayKey();
 
-  String get _humidityStatus {
-    // Both readings are required.
-    if (_currentHumidity == null || _currentAmbient == null) return "";
+  String get _humidityStatus =>
+      _readingStatus(_currentHumidity, _kHumLowNormal, _kHumHighNormal);
 
-    final h = _band(_currentHumidity!, _kHumLowNormal, _kHumHighNormal);
-    final a = _band(_currentAmbient!, _kAirLowNormal, _kAirHighNormal);
-
-    // Very hot: heat stress whatever the humidity.
-    if (_currentAmbient! >= _kAirCritical) return "HIGH";
-
-    // Hot: humid or moderate humidity is a risk, dry air is tolerable.
-    if (a > 0) return h < 0 ? "NORMAL" : "HIGH";
-
-    // Comfortable air.
-    if (a == 0) return "NORMAL";
-
-    // Cold air: not heat stress.
-    return "LOW";
-  }
-
-  String get _airStatus {
-    if (_currentAmbient == null) return "";
-    final t = _band(_currentAmbient!, _kAirLowNormal, _kAirHighNormal);
-    return t < 0 ? "LOW" : (t == 0 ? "NORMAL" : "HIGH");
-  }
+  String get _airStatus =>
+      _readingStatus(_currentAmbient, _kAirLowNormal, _kAirHighNormal);
 
   late final List<Map<String, double>> _chartData;
 
