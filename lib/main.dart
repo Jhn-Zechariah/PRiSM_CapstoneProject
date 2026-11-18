@@ -42,9 +42,9 @@ void main() async {
   );
 
   print("🔔 INITIALIZING NOTIFICATIONS...");
-  final notificationService = NotificationService();
-  await notificationService.init();
   await initLocalNotifications();
+  final notificationService = NotificationService(FirebaseProfileRepo());
+  await notificationService.init();
 
   // 🔹 1. Load the saved theme mode BEFORE the app runs
   final prefs = await SharedPreferences.getInstance();

@@ -49,6 +49,17 @@ service cloud.firestore {
     match /admins/{userId} {
       allow read, create, update: if signedIn() && userId == uid();
       allow delete: if false;
+
+      match /notificationDevices/{installationId} {
+        allow create, update: if signedIn() && userId == uid()
+          && installationId.matches('^[0-9a-f]{32}$')
+          && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.token.size() <= 4096
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if signedIn() && userId == uid();
+      }
     }
     match /counters/{userId} {
       allow read, write: if signedIn() && userId == uid();

@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:prism_app/features/auth/presentation/cubits/profile_states.dart';
 import '../../domain/repo/profile_repo.dart';
 
@@ -21,27 +20,12 @@ class ProfileCubit extends Cubit<ProfileState> {
         final email = user.email ?? "No email";
         final hasPassword = user.providerData.any((provider) => provider.providerId == 'password');
         
-        // Update FCM token whenever user data is loaded (login/app start)
-        updateFcmToken(user.uid);
-
         emit(ProfileLoaded(username: username, email: email, hasPassword: hasPassword));
       } else {
         emit(ProfileError(message: "No user logged in"));
       }
     } catch (e) {
       emit(ProfileError(message: e.toString()));
-    }
-  }
-
-  // --- Update FCM Token ---
-  Future<void> updateFcmToken(String userId) async {
-    try {
-      String? token = await FirebaseMessaging.instance.getToken();
-      if (token != null) {
-        await profileRepo.updateFcmToken(userId, token);
-      }
-    } catch (e) {
-      print("Error updating FCM token in Cubit: $e");
     }
   }
 

@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:prism_app/features/auth/domain/model/app_user.dart';
 import 'package:prism_app/features/auth/domain/repo/auth_repo.dart';
+import 'firestore_profile_repo.dart';
 
 class FirebaseAuthRepo implements AuthRepo {
   //access to firebase
@@ -152,7 +153,16 @@ class FirebaseAuthRepo implements AuthRepo {
   //LOG OUT
   @override
   Future<void> logout() async {
-    // 1. Sign out of Firebase
+    final userId = firebaseAuth.currentUser?.uid;
+    if (userId != null) {
+      try {
+        await FirebaseProfileRepo()
+            .updateFcmToken(userId, null)
+            .timeout(const Duration(seconds: 5));
+      } catch (error) {
+        debugPrint('Could not unregister notifications on sign-out: $error');
+      }
+    }
     await firebaseAuth.signOut();
 
     // 2. Sign out of Google
