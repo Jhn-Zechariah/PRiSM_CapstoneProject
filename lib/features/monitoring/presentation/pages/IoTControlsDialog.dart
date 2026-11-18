@@ -24,8 +24,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   static const double _maxTempLimit = 37.0;
   static const double _minHumidity = 60.0;
   static const double _maxHumidityLimit = 70.0;
-  static const double _minAirTemp = 15.6;
-  static const double _maxAirTempLimit = 23.9;
+  static const double _minAirTemp = 15;
+  static const double _maxAirTempLimit = 30;
   static const int _minDurationMins = 1;
   static const int _maxDurationMins = 30;
 
@@ -231,7 +231,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
             airTempValue < _minAirTemp ||
             airTempValue > _maxAirTempLimit)) {
       _showError(
-        "Max air temperature must be between ${_minAirTemp.toStringAsFixed(1)} and ${_maxAirTempLimit.toStringAsFixed(1)} °C",
+        "Max air temperature must be between ${_minAirTemp.toStringAsFixed(0)} and ${_maxAirTempLimit.toStringAsFixed(0)} °C",
       );
       return;
     }
@@ -416,7 +416,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
               dotColor: Colors.orange[800]!,
               label: 'Max air temperature',
               controller: _airTempController,
-              hintText: '15.6–23.9 °C',
+              hintText: '${_minAirTemp.toStringAsFixed(0)}–${_maxAirTempLimit.toStringAsFixed(0)} °C',
               enabled: isIotEnabled,
               inputFormatters: [_decimalFormatter],
             ),

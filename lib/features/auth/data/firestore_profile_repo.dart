@@ -1,4 +1,7 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../domain/repo/profile_repo.dart';
 
@@ -99,19 +102,46 @@ class FirebaseProfileRepo implements ProfileRepo {
     }
   }
 
-  // --- UPDATE FCM TOKEN ---
+  static final Future<String> _installationId = _loadInstallationId();
+
+  static Future<String> _loadInstallationId() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'notificationInstallationId';
+    final saved = prefs.getString(key);
+    if (saved != null) return saved;
+
+    final random = Random.secure();
+    final id = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    if (!await prefs.setString(key, id)) {
+      throw StateError('Could not save notification installation ID');
+    }
+    return id;
+  }
+
   @override
   Future<void> updateFcmToken(String userId, String? token) async {
-    try {
-      // Use set with merge: true to ensure the field is created even if it doesn't exist
-      await firestore.collection('admins').doc(userId).set({
-        'fcmToken': token,
-        'tokenUpdatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      print("✅ FCM Token successfully saved to Firestore");
-    } catch (e) {
-      print("❌ Error updating FCM token in Firestore: $e");
+    final id = await _installationId;
+    if (firebaseAuth.currentUser?.uid != userId) return;
+    final account = firestore.collection('admins').doc(userId);
+    final device = account.collection('notificationDevices').doc(id);
+    if (token == null) {
+      await device.delete();
+      return;
     }
+
+    await firestore.runTransaction((transaction) async {
+      final profile = await transaction.get(account);
+      transaction.set(device, {
+        'token': token,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (profile.data()?['fcmToken'] == token) {
+        transaction.update(account, {'fcmToken': FieldValue.delete()});
+      }
+    });
   }
 
   // --- UPDATE NOTIFICATION PREFERENCES ---
