@@ -112,14 +112,21 @@ Assumptions:
 
 | | Ambient temp | Humidity | Pig surface (AMG8833) |
 |---|---|---|---|
-| A. Normal band (paper/team) | 15.6–23.9 °C *(team-provided, citation needed)* | 60–70 % | 34–37 °C |
+| A. Normal reference band | 15–30 °C (growers and finishers) | 60–70 % | 34–37 °C |
 | B. Observed in the field | 26–32 °C | 67–96 % | 27–35 °C |
-| Training envelope (A ∪ B + margin) | 14.6–33.5 °C | 57–99 % | 26–40 °C |
+| Training envelope (A ∪ B + margin) | 14.0–33.5 °C | 57–99 % | 26–40 °C |
 
-Real readings sit mostly outside band A: warmer, more humid, and the AMG8833 reads lower
-than the literature skin range (likely distance and 8x8 resolution). The simulator
-therefore produces both regimes:
-- **cool/normal days** follow band A, with the AMG reading bias at 0;
+Table 4 of DA Administrative Order No. 41, s. 2000 gives the 15–30 °C range for housed
+growers and finishers in still air. PAES 401:2001, §8.5.6.1, Table 8 gives the 30 °C maximum.
+[DA AO No. 41, Table 4](https://www.bai.gov.ph/Transparencies/ViewPdf?Id=8499) ·
+[PAES 401:2001, Table 8](https://amtec.uplb.edu.ph/wp-content/uploads/2019/07/401.pdf#page=15)
+
+The observed air range overlaps the reference band and extends to 32 °C. The API checks
+live readings against the envelope saved in the active model bundle.
+
+Field humidity often exceeds band A, and the AMG8833 often reads below the literature
+skin range. The simulator covers both regimes:
+- **cool/normal days** cover the cooler part of band A, with the AMG reading bias at 0;
 - **warm, hot and cloudy/rainy days** cover band B. Each spell is randomly either "paper"
   (bias 0, so heat-stress readings above 37 °C occur) or "field" (`amg8833_reading_bias`
   4–6.5 °C, plus occasional "pig out of view" episodes where the hottest pixel drops toward

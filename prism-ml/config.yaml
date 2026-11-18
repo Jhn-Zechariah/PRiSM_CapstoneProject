@@ -25,15 +25,15 @@ firestore:
 # -----------------------------------------------------------------------------
 # REFERENCE RANGES
 # -----------------------------------------------------------------------------
-# A. Normal reference ranges (paper / project team).
+# A. Normal reference ranges for the monitored grower/finisher pen.
 #    NOTE: the ESP32 firmware comments state different "normal" values
 #    (pig skin 32-35 C, humidity 50-70 %). The values below are the ones the
 #    team asked us to use; reconcile the firmware comments separately.
 normal_band:
   ambientTemp:
-    min: 15.6
-    max: 23.9
-    source: "team-provided, citation needed (paper does not cite a source for this range)"
+    min: 15.0
+    max: 30.0
+    source: "DA AO No. 41, s. 2000, Table 4 (growers and finishers); PAES 401:2001, Table 8 (30 C maximum in still air)"
   ambientHumidity:
     min: 60.0
     max: 70.0
@@ -44,10 +44,9 @@ normal_band:
     source: "Gomez-Prado et al. 2022; Valavan et al. 2024; Teixeira et al. 2020"
 
 # B. Field-observed ranges from the deployed sensors (real readings so far).
-#    Real readings sit mostly OUTSIDE band A: warmer air, more humid air, and an
-#    AMG8833 that reads LOWER than the 34-37 C literature range (likely sensor
-#    distance and the 8x8 resolution averaging skin with background). This is
-#    kept visible on purpose - see amg8833_reading_bias below and the README.
+#    Field air temperatures overlap band A and reach 32 C. Humidity reaches
+#    96%, and AMG8833 readings often fall below the 34-37 C literature range.
+#    See amg8833_reading_bias below and the README.
 observed_band:
   ambientTemp: {min: 26.0, max: 32.0}
   ambientHumidity: {min: 67.0, max: 96.0}
@@ -155,8 +154,8 @@ simulator:
   n_pigs: 3                     # pen of 2-4 pigs; AMG8833 reports the hottest pixel = hottest pig
 
   # Scenario sampled per simulated day. Ranges are inclusive [low, high] and
-  # sampled uniformly. "cool_normal" follows normal_band (range A); the others
-  # cover the field-observed band (range B).
+  # sampled uniformly. "cool_normal" covers the cooler part of the reference
+  # band (range A); the other scenarios cover the field-observed band (range B).
   scenario_weights: {cool_normal: 0.30, warm: 0.25, hot: 0.25, cloudy_rainy: 0.20}
   scenario_persistence: 0.5     # chance a day repeats yesterday's scenario (weather spells)
   scenarios:
