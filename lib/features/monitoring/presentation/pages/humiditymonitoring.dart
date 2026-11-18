@@ -567,6 +567,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   DateTime? _customStart;
   DateTime? _customEnd;
   bool _zoomHumidity = false; // false = 0–100 %, true = 40–100 %
+  bool _fitTodayToDay = false;
   bool _zoomAmbient = false; // false = 0–50 °C, true = 10–40 °C
   double? _holdX; // hours from range start of the held point
   double? _holdValue; // reading of the held hour
@@ -2463,7 +2464,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   void _scrollChartToNow() {
-    if (!mounted) return;
+    if (!mounted || _fitTodayToDay) return;
     final c = _todayChartScrollController;
     if (!c.hasClients) {
       // Chart not mounted yet: allow the next build to try again.
@@ -2557,7 +2558,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     }
 
     final bool isFitTab = isCustomTab;
-    final bool zoom = isFitTab && (ambient ? _zoomAmbient : _zoomHumidity);
+    final bool zoom = ambient ? _zoomAmbient : _zoomHumidity;
     final yMin = zoom ? (ambient ? 10.0 : 40.0) : 0.0;
     final yMax = ambient ? (zoom ? 40.0 : _kHumAmbientAxisMax) : 100.0;
     final yStep = ambient ? 5.0 : 10.0;
@@ -2575,7 +2576,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     // The scroll view is destroyed in these cases, so the next time the Today
     // chart appears it must jump to the latest reading again. The humidity
     // graph drives this; the temperature graph follows its scrolling.
-    if (!ambient && (!isTodayTab || isBusy || data.isEmpty)) {
+    if (!ambient && (!isTodayTab || _fitTodayToDay || isBusy || data.isEmpty)) {
       _hasScrolledChartToNow = false;
     }
 
@@ -2593,6 +2594,30 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               ? "Hourly history unavailable for this range."
               : "No data for selected range",
           style: TextStyle(color: _textSecondary(isDark)),
+        ),
+      );
+    } else if (isTodayTab && _fitTodayToDay) {
+      // Preserve the full midnight-to-midnight timeline, including gaps.
+      chartBody = ClipRect(
+        child: RepaintBoundary(
+          child: CustomPaint(
+            painter: _HumidityChartPainter(
+              data: List.from(data),
+              isDark: isDark,
+              color: lineColor,
+              valueKey: valueKey,
+              yMin: yMin,
+              yMax: yMax,
+              yStep: yStep,
+              unit: unit,
+              xDomainMin: 0,
+              xDomainMax: 24,
+              fitMode: true,
+              gapHours: _kHumGapHours,
+              gapBlankHours: double.infinity,
+            ),
+            child: const SizedBox(height: 320, width: double.infinity),
+          ),
         ),
       );
     } else if (isTodayTab) {
@@ -2627,6 +2652,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                     isDark: isDark,
                     color: lineColor,
                     valueKey: valueKey,
+                    yMin: yMin,
                     yMax: yMax,
                     yStep: yStep,
                     unit: unit,
@@ -2646,7 +2672,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           // Fixed overlay so the axis labels stay visible on the left edge
           // of the card while the chart itself scrolls.
           Positioned.fill(
-            child: _buildFixedYAxisLabels(isDark, yMax, yStep, unit),
+            child: _buildFixedYAxisLabels(isDark, yMax, yStep, unit, yMin: yMin),
           ),
         ],
       );
@@ -2797,7 +2823,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                   ),
                 ),
               ),
-              if (isFitTab && !isBusy && data.isNotEmpty) ...[
+              if ((isTodayTab || isFitTab) && !isBusy && data.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () => setState(() {
@@ -2827,7 +2853,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.zoom_in,
+                          zoom ? Icons.zoom_out : Icons.zoom_in,
                           size: 14,
                           color: zoom
                               ? const Color(0xFFE8622A)
@@ -2835,7 +2861,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'Zoom axis',
+                          zoom ? 'Zoom out axis' : 'Zoom axis',
                           style: TextStyle(
                             fontSize: 11,
                             color: zoom
@@ -2850,6 +2876,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               ],
             ],
           ),
+          if (isTodayTab)
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilterChip(
+                label: const Text('12 AM–12 AM', style: TextStyle(fontSize: 11)),
+                avatar: const Icon(Icons.fit_screen, size: 16),
+                selected: _fitTodayToDay,
+                onSelected: (selected) => setState(() {
+                  _fitTodayToDay = selected;
+                  _hasScrolledChartToNow = false;
+                }),
+              ),
+            ),
           const SizedBox(height: 8),
           SizedBox(height: 320, width: double.infinity, child: chartBody),
         ],
@@ -2864,8 +2903,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     bool isDark,
     double yMax,
     double yStep,
-    String unit,
-  ) {
+    String unit, {
+    double yMin = 0,
+  }) {
     const double topPadding = 8;
     const double bottomPadding = 44;
     const double chartHeight = 320 - topPadding - bottomPadding;
@@ -2874,15 +2914,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       fontSize: 10,
       fontWeight: FontWeight.w500,
     );
-    final steps = [for (double v = 0; v <= yMax + 1e-9; v += yStep) v];
+    final steps = [for (double v = yMin; v <= yMax + 1e-9; v += yStep) v];
     return IgnorePointer(
       child: Stack(
         children: steps.map((v) {
-          final y = topPadding + chartHeight - (v / yMax) * chartHeight;
+          final y = topPadding +
+              chartHeight -
+              ((v - yMin) / (yMax - yMin)) * chartHeight;
           return Positioned(
             // 0 sits just above the baseline so it never covers the
             // first date/time label
-            top: v == 0 ? y - 18 : y - 8,
+            top: v == yMin ? y - 18 : y - 8,
             left: 0,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),

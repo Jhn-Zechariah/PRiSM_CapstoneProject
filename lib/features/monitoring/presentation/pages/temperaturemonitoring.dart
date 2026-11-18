@@ -490,6 +490,7 @@ class _TemperatureMonitoringState extends State<TemperatureMonitoring>
   DateTime? _customStart;
   DateTime? _customEnd;
   bool _zoomAxis = false; // false = 0–50°C, true = 30–42°C
+  bool _fitTodayToDay = false;
 double? _holdX;         // hours from range start of the held point
 double? _holdTemp;      // average reading of the held hour
   Timer? _hourlyRefreshTimer;
@@ -2181,7 +2182,7 @@ double? _holdTemp;      // average reading of the held hour
   }
 
   void _scrollChartToNow() {
-    if (!mounted) return;
+    if (!mounted || _fitTodayToDay) return;
     final c = _todayChartScrollController;
     if (!c.hasClients) {
       // Chart not mounted yet: allow the next build to try again.
@@ -2252,7 +2253,7 @@ double? _holdTemp;      // average reading of the held hour
 
     // The scroll view is destroyed in these cases, so the next time the Today
     // chart appears it must jump to the latest reading again.
-    if (!isTodayTab || isBusy || _activeChartData.isEmpty) {
+    if (!isTodayTab || _fitTodayToDay || isBusy || _activeChartData.isEmpty) {
       _hasScrolledChartToNow = false;
     }
 
@@ -2270,6 +2271,26 @@ double? _holdTemp;      // average reading of the held hour
               ? "Hourly history unavailable for this range."
               : "No data for selected range",
           style: TextStyle(color: _textSecondary(isDark)),
+        ),
+      );
+    } else if (isTodayTab && _fitTodayToDay) {
+      // Preserve the full midnight-to-midnight timeline, including gaps.
+      chartBody = ClipRect(
+        child: RepaintBoundary(
+          child: CustomPaint(
+            painter: _TemperatureChartPainter(
+              data: List.from(_activeChartData),
+              isDark: isDark,
+              yMinV: _zoomAxis ? 30 : 0,
+              yMaxV: _zoomAxis ? 42 : 50,
+              xDomainMin: 0,
+              xDomainMax: 24,
+              fitMode: true,
+              gapHours: _kTodayGapHours,
+              gapBlankHours: double.infinity,
+            ),
+            child: const SizedBox(height: 320, width: double.infinity),
+          ),
         ),
       );
     } else if (isTodayTab) {
@@ -2306,6 +2327,8 @@ double? _holdTemp;      // average reading of the held hour
                     xDomainMin: 0,
                     xDomainMax: endHours, // 12:00 AM -> now
                     showYAxisLabels: false,
+                    yMinV: _zoomAxis ? 30 : 0,
+                    yMaxV: _zoomAxis ? 42 : 50,
                     rawTailCount: 360, // last hour, every reading
                     dotTailCount: 360, // a dot on each of them
                     gapHours: _kTodayGapHours,
@@ -2318,7 +2341,14 @@ double? _holdTemp;      // average reading of the held hour
           ),
           // Fixed overlay so the °C labels stay visible on the right
           // edge of the card while the chart itself scrolls.
-          Positioned.fill(child: _buildFixedYAxisLabels(isDark)),
+          Positioned.fill(
+            child: _buildFixedYAxisLabels(
+              isDark,
+              yMin: _zoomAxis ? 30 : 0,
+              yMax: _zoomAxis ? 42 : 50,
+              yStep: _zoomAxis ? 2 : 5,
+            ),
+          ),
         ],
       );
     } else if (isCustomTab) {
@@ -2438,16 +2468,21 @@ double? _holdTemp;      // average reading of the held hour
                     size: 16,
                   ),
                   const SizedBox(width: 6),
-                  Text(
-                    'Body Temperature (°C)',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: _textPrimary(isDark),
+                  Expanded(
+                    child: Text(
+                      'Body Temperature (°C)',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _textPrimary(isDark),
+                      ),
                     ),
                   ),
-                  if (isFitTab && !isBusy && _activeChartData.isNotEmpty) ...[
-                    const Spacer(),
+                  if ((isTodayTab || isFitTab) &&
+                      !isBusy &&
+                      _activeChartData.isNotEmpty) ...[
+                    const SizedBox(width: 8),
                     GestureDetector(
                       onTap: () => setState(() => _zoomAxis = !_zoomAxis),
                       child: Container(
@@ -2470,7 +2505,7 @@ double? _holdTemp;      // average reading of the held hour
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              Icons.zoom_in,
+                              _zoomAxis ? Icons.zoom_out : Icons.zoom_in,
                               size: 14,
                               color: _zoomAxis
                                   ? const Color(0xFFE8622A)
@@ -2478,7 +2513,7 @@ double? _holdTemp;      // average reading of the held hour
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'Zoom axis',
+                              _zoomAxis ? 'Zoom out axis' : 'Zoom axis',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: _zoomAxis
@@ -2493,6 +2528,19 @@ double? _holdTemp;      // average reading of the held hour
                   ],
                 ],
               ),
+              if (isTodayTab)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilterChip(
+                    label: const Text('12 AM–12 AM', style: TextStyle(fontSize: 11)),
+                    avatar: const Icon(Icons.fit_screen, size: 16),
+                    selected: _fitTodayToDay,
+                    onSelected: (selected) => setState(() {
+                      _fitTodayToDay = selected;
+                      _hasScrolledChartToNow = false;
+                    }),
+                  ),
+                ),
               const SizedBox(height: 8),
               SizedBox(height: 320, width: double.infinity, child: chartBody),
             ],
@@ -2506,12 +2554,18 @@ double? _holdTemp;      // average reading of the held hour
   // edge of the chart card. Used only for the Today tab, whose chart
   // canvas scrolls horizontally — without this, the labels would scroll
   // away with the rest of the painted content.
-  Widget _buildFixedYAxisLabels(bool isDark) {
+  Widget _buildFixedYAxisLabels(
+    bool isDark, {
+    double yMin = 0,
+    double yMax = 50,
+    double yStep = 5,
+  }) {
     const double topPadding = 8;
     const double bottomPadding = 44;
     const double chartHeight = 320 - topPadding - bottomPadding;
-    const double yMin = 0.0;
-    const double yMax = 50.0;
+    final steps = [
+      for (double v = yMin; v <= yMax + 1e-9; v += yStep) v,
+    ];
     final labelStyle = TextStyle(
       color: isDark ? Colors.white54 : Colors.grey.shade500,
       fontSize: 10,
@@ -2519,13 +2573,13 @@ double? _holdTemp;      // average reading of the held hour
     );
     return IgnorePointer(
       child: Stack(
-        children: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((v) {
+        children: steps.map((v) {
           final y =
               topPadding +
               chartHeight -
               ((v - yMin) / (yMax - yMin)) * chartHeight;
           return Positioned(
-            top: v == 0 ? y - 18 : y - 8,
+            top: v == yMin ? y - 18 : y - 8,
             left: 0,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -2534,7 +2588,7 @@ double? _holdTemp;      // average reading of the held hour
                     .withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: Text('$v°C', style: labelStyle),
+              child: Text('${v.round()}°C', style: labelStyle),
             ),
           );
         }).toList(),
@@ -3154,7 +3208,7 @@ class _TemperatureChartPainter extends CustomPainter {
     final double yMax = yMaxV;
     // Full axis (0–50) uses 5° steps like Today; the zoomed 30–42 axis keeps
     // 2° steps so it still has enough labels.
-    final double yStep = (fitMode && (yMax - yMin) <= 20) ? 2.0 : 5.0;
+    final double yStep = (yMax - yMin) <= 20 ? 2.0 : 5.0;
 
     // Gaps (connection lost) found in the raw data.
     final gapTailStart = data.length - rawTailCount.clamp(0, data.length);
