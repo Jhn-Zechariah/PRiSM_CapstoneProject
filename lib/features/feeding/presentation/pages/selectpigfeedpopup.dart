@@ -26,6 +26,30 @@ class SelectPigFeedPopup extends StatefulWidget {
 class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
   final _formKey = GlobalKey<FormState>();
   DateTime _feedingDateTime = DateTime.now();
+  DateTime _startDate = DateUtils.dateOnly(DateTime.now());
+
+  // Keep each submission within one atomic Firestore batch.
+  static const int _maxRecordsPerSave = 500;
+
+  Future<void> _pickDateRange() async {
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+      initialDateRange: DateTimeRange(
+        start: _startDate,
+        end: DateUtils.dateOnly(_feedingDateTime),
+      ),
+    );
+    if (range == null || !mounted) return;
+    setState(() {
+      _startDate = range.start;
+      _feedingDateTime = DateTime(
+        range.end.year, range.end.month, range.end.day,
+        _feedingDateTime.hour, _feedingDateTime.minute,
+      );
+    });
+  }
 
   late List<bool> _checked;
   final TextEditingController _feedTypeController = TextEditingController();
@@ -84,8 +108,11 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
   Future<void> _onSave() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final hasSelection = _checked.skip(1).any((isChecked) => isChecked);
-    if (!hasSelection) {
+    final selectedPigs = [
+      for (var i = 0; i < widget.pigs.length; i++)
+        if (_checked[i + 1]) widget.pigs[i],
+    ];
+    if (selectedPigs.isEmpty) {
       CustomSnackbar.show(
         context: context,
         message: 'Please select at least one pig.',
@@ -93,11 +120,25 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       return;
     }
 
+    final end = _feedingDateTime;
+    final days = DateTime.utc(end.year, end.month, end.day)
+        .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+        .inDays + 1;
+    final recordCount = selectedPigs.length * days;
+    if (recordCount > _maxRecordsPerSave) {
+      CustomSnackbar.show(
+        context: context,
+        message: 'Save up to 500 records at a time. Select fewer pigs or dates.',
+      );
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => const CustomConfirmDialog(
+      builder: (_) => CustomConfirmDialog(
         title: 'Confirm Feeding',
-        content: 'Save feeding record for selected pigs?',
+        content: 'Save $recordCount feeding record(s) for '
+            '${selectedPigs.length} pig(s) across $days day(s)?',
         confirmText: 'Save',
         cancelText: 'Cancel',
         confirmColor: Colors.blue,
@@ -124,23 +165,21 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       return;
     }
 
-    final selectedPigs = <AppPig>[];
-    for (int i = 0; i < widget.pigs.length; i++) {
-      if (_checked[i + 1]) selectedPigs.add(widget.pigs[i]);
-    }
-
-    final recordsToSave = selectedPigs
-        .map(
-          (pig) => AppFeedingRecord(
-        id: '',
-        userId: pig.userId,
-        pigId: pig.pigId,
-        feedType: feedType,
-        amount: amount,
-        timestamp: _feedingDateTime,
-      ),
-    )
-        .toList();
+    final recordsToSave = [
+      for (var day = 0; day < days; day++)
+        for (final pig in selectedPigs)
+          AppFeedingRecord(
+            id: '',
+            userId: pig.userId,
+            pigId: pig.pigId,
+            feedType: feedType,
+            amount: amount,
+            timestamp: DateTime(
+              _startDate.year, _startDate.month, _startDate.day + day,
+              end.hour, end.minute,
+            ),
+          ),
+    ];
 
     final success =
     await context.read<FeedingRecordCubit>().addBatchRecords(recordsToSave);
@@ -153,7 +192,7 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
       CustomSnackbar.show(
         context: context,
         message:
-        'Successfully saved feeding records for ${selectedPigs.length} pig(s)!',
+        'Saved $recordCount feeding record(s) for ${selectedPigs.length} pig(s).',
       );
     } else {
       CustomSnackbar.show(
@@ -337,7 +376,17 @@ class _SelectPigFeedPopupState extends State<SelectPigFeedPopup> {
                             ],
                           ),
                           const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: _pickDateRange,
+                            icon: const Icon(Icons.date_range),
+                            label: Text(
+                              'Start: ${MaterialLocalizations.of(context).formatShortDate(_startDate)}\n'
+                              'End: ${MaterialLocalizations.of(context).formatShortDate(_feedingDateTime)}',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           FeedingDateTimeFields(
+                            showDate: false,
                             value: _feedingDateTime,
                             onChanged: (value) =>
                                 setState(() => _feedingDateTime = value),

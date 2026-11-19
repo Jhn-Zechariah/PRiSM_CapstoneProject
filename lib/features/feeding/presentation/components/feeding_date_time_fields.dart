@@ -5,11 +5,13 @@ import 'package:intl/intl.dart';
 class FeedingDateTimeFields extends StatelessWidget {
   final DateTime value;
   final ValueChanged<DateTime> onChanged;
+  final bool showDate;
 
   const FeedingDateTimeFields({
     super.key,
     required this.value,
     required this.onChanged,
+    this.showDate = true,
   });
 
   @override
@@ -60,15 +62,15 @@ class FeedingDateTimeFields extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Feeding date and time',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            Text(
+              showDate ? 'Feeding date and time' : 'Feeding time for each day',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 6),
             Wrap(
               spacing: 12,
               runSpacing: 4,
-              children: [dateButton, timeButton],
+              children: [if (showDate) dateButton, timeButton],
             ),
             if (field.hasError)
               Padding(
