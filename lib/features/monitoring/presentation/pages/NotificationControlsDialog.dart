@@ -19,6 +19,7 @@ class _NotificationControlsDialogState
   bool isNotifEnabled = true;
   bool isHighTempAlert = true;
   bool isHighHumidityAlert = true;
+  bool isHighAirTempAlert = true;
   bool isLowStockAlert = true;
   bool isVaxSchedAlert = true;
   bool isMedExpAlert = true;
@@ -39,6 +40,7 @@ class _NotificationControlsDialogState
       isNotifEnabled = prefs.getBool('isNotifEnabled') ?? true;
       isHighTempAlert = prefs.getBool('isHighTempAlert') ?? true;
       isHighHumidityAlert = prefs.getBool('isHighHumidityAlert') ?? true;
+      isHighAirTempAlert = prefs.getBool('isHighAirTempAlert') ?? true;
       isLowStockAlert = prefs.getBool('isLowStockAlert') ?? true;
       isVaxSchedAlert = prefs.getBool('isVaxSchedAlert') ?? true;
       isMedExpAlert = prefs.getBool('isMedExpAlert') ?? true;
@@ -54,6 +56,7 @@ class _NotificationControlsDialogState
     await prefs.setBool('isNotifEnabled', isNotifEnabled);
     await prefs.setBool('isHighTempAlert', isHighTempAlert);
     await prefs.setBool('isHighHumidityAlert', isHighHumidityAlert);
+    await prefs.setBool('isHighAirTempAlert', isHighAirTempAlert);
     await prefs.setBool('isLowStockAlert', isLowStockAlert);
     await prefs.setBool('isVaxSchedAlert', isVaxSchedAlert);
     await prefs.setBool('isMedExpAlert', isMedExpAlert);
@@ -69,6 +72,7 @@ class _NotificationControlsDialogState
           'isNotifEnabled': isNotifEnabled,
           'isHighTempAlert': isHighTempAlert,
           'isHighHumidityAlert': isHighHumidityAlert,
+          'isHighAirTempAlert': isHighAirTempAlert,
           'isLowStockAlert': isLowStockAlert,
           'isVaxSchedAlert': isVaxSchedAlert,
           'isMedExpAlert': isMedExpAlert,
@@ -130,6 +134,7 @@ class _NotificationControlsDialogState
                   if (!val) {
                     isHighTempAlert = false;
                     isHighHumidityAlert = false;
+                    isHighAirTempAlert = false;
                     isLowStockAlert = false;
                     isVaxSchedAlert = false;
                     isMedExpAlert = false;
@@ -147,12 +152,12 @@ class _NotificationControlsDialogState
             _buildSwitchRow(
               context: context,
               dotColor: Colors.blue[900]!,
-              label: 'High temperature alert',
+              label: 'High pig temperature alert',
               value: isHighTempAlert,
               onChanged: (val) => setState(() => isHighTempAlert = val),
               isEnabled: isNotifEnabled,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
             _buildSwitchRow(
               context: context,
               dotColor: Colors.red[600]!,
@@ -161,7 +166,16 @@ class _NotificationControlsDialogState
               onChanged: (val) => setState(() => isHighHumidityAlert = val),
               isEnabled: isNotifEnabled,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
+            _buildSwitchRow(
+              context: context,
+              dotColor: Colors.orange[800]!,
+              label: 'High air temperature alert',
+              value: isHighAirTempAlert,
+              onChanged: (val) => setState(() => isHighAirTempAlert = val),
+              isEnabled: isNotifEnabled,
+            ),
+            const SizedBox(height: 11),
             _buildSwitchRow(
               context: context,
               dotColor: Colors.orange[800]!,
@@ -170,7 +184,7 @@ class _NotificationControlsDialogState
               onChanged: (val) => setState(() => isLowStockAlert = val),
               isEnabled: isNotifEnabled,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
             _buildSwitchRow(
               context: context,
               dotColor: Colors.blue[900]!,
@@ -179,7 +193,7 @@ class _NotificationControlsDialogState
               onChanged: (val) => setState(() => isVaxSchedAlert = val),
               isEnabled: isNotifEnabled,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 11),
             _buildSwitchRow(
               context: context,
               dotColor: Colors.red[600]!,

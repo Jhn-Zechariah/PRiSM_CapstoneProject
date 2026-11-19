@@ -1,8 +1,24 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import '../../features/auth/domain/repo/profile_repo.dart';
 import 'local_notification_service.dart';
 
 class NotificationService {
+  NotificationService(this._profileRepo);
+
+  final ProfileRepo _profileRepo;
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+
+  Future<void> _syncToken(User user, {String? refreshedToken}) async {
+    try {
+      final token = refreshedToken ?? await _fcm.getToken();
+      if (token != null && FirebaseAuth.instance.currentUser?.uid == user.uid) {
+        await _profileRepo.updateFcmToken(user.uid, token);
+      }
+    } catch (error) {
+      print("Error syncing notification token: $error");
+    }
+  }
 
   Future<void> init() async {
     print("📡 REQUESTING NOTIFICATION PERMISSIONS...");
@@ -24,6 +40,14 @@ class NotificationService {
       );
     });
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) _syncToken(user);
+    });
+    _fcm.onTokenRefresh.listen((token) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) _syncToken(user, refreshedToken: token);
+    });
   }
 
   /// For testing your Sound/Vibrate settings.

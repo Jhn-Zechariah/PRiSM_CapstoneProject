@@ -114,7 +114,7 @@ class _LandingPageState extends State<LandingPage>
 
                 // Tagline
                 Text(
-                  'Smart pig monitoring for healthier \npig farm.',
+                  'Pig monitoring for a healthier\npig farm.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 15,
@@ -264,14 +264,15 @@ class _LandingPageState extends State<LandingPage>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'PRISM is a smart pig monitoring system designed to help '
+                    'PRISM is a pig monitoring system designed to help '
                     'farmers monitor the health, environment, and overall well-being '
                     'of their pigs in real time. Through IoT-powered technology, the '
-                    'application tracks body temperature and environmental humidity, '
-                    'while also providing a smart cooling system to help regulate heat '
-                    'when necessary. PRISM also allows farmers to manage feeding and '
-                    'medication records, while offering insights and recommendations '
-                    'to support better farm management and improve livestock care.',
+                    'application tracks surface body temperature and environmental humidity, '
+                    'while also providing a remotely controlled cooling system to help '
+                    'regulate heat when necessary. PRISM also allows farmers to manage '
+                    'feeding and medication records and uses machine learning to '
+                    'generate predictions from monitoring data to support farm management '
+                    'and livestock care.',
                     textAlign: TextAlign.justify,
                     style: TextStyle(
                       fontSize: 14,
@@ -307,7 +308,7 @@ class _LandingPageState extends State<LandingPage>
                   ),
                   _buildFeatureItem(
                     icon: Icons.notifications_outlined,
-                    title: 'Smart Alerts',
+                    title: 'Alerts',
                     description:
                         'Get notified instantly when something needs your attention.',
                     textColor: textColor,
@@ -322,10 +323,10 @@ class _LandingPageState extends State<LandingPage>
                     subtitleColor: subtitleColor,
                   ),
                   _buildFeatureItem(
-                    icon: Icons.recommend_outlined,
-                    title: 'Smart Recommendations',
+                    icon: Icons.trending_up_outlined,
+                    title: 'ML Predictions',
                     description:
-                        'Get personalized insights and suggestions based on your farm data.',
+                        'View machine learning predictions based on monitoring data.',
                     textColor: textColor,
                     subtitleColor: subtitleColor,
                   ),

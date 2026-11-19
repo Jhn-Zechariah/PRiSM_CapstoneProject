@@ -25,13 +25,13 @@ def test_envelope_is_union_plus_margin(cfg):
 
 
 def test_range_report_percentages(cfg):
-    df = pd.DataFrame({PIG: [35.0, 30.0, 36.0, 50.0], AMB: [20.0, 28.0, 30.0, 29.0],
+    df = pd.DataFrame({PIG: [35.0, 30.0, 36.0, 50.0], AMB: [14.9, 15.0, 30.0, 30.1],
                        HUM: [65.0, 80.0, 90.0, 85.0]})
     rep = range_report(df, cfg)["per_sensor"]
     assert rep[PIG]["pct_in_normal_band"] == 50.0          # 35, 36
     assert rep[PIG]["pct_in_observed_band"] == 50.0        # 30, 35
     assert rep[PIG]["pct_in_training_envelope"] == 75.0    # 50 is outside
-    assert rep[AMB]["pct_in_normal_band"] == 25.0
+    assert rep[AMB]["pct_in_normal_band"] == 50.0          # 15.0 and 30.0 are included
 
 
 def test_warning_when_too_many_outside(cfg):

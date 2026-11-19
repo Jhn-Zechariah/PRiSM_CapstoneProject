@@ -1097,6 +1097,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _sprinklerStatus = "OFF";
   String _lastActivated = "--";
   String _date = "--";
+  DateTime? _lastActivationAt;
   String _duration = "--";
 
   // ML — start with empty state; card is hidden until sensor is live
@@ -1279,6 +1280,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (!_sprinklerJustToggled) {
         _localIsActivated = sprinklerNotifier.value;
         _sprinklerStatus = _localIsActivated ? "ON" : "OFF";
+      }
+
+      final activationEpoch = data['lastSprinklerActivationEpoch'];
+      if (activationEpoch is int && activationEpoch > 0) {
+        final activatedAt = DateTime.fromMillisecondsSinceEpoch(
+          activationEpoch * 1000,
+        );
+        final previous = _lastActivationAt;
+        if (previous == null || activatedAt.isAfter(previous)) {
+          _lastActivationAt = activatedAt;
+        }
       }
 
       if (!_sprinklerMemoryLoaded && _lastActivated == "--") {
@@ -2516,8 +2528,18 @@ class _DashboardScreenState extends State<DashboardScreen>
             _sprinklerStatus,
             valueColor: _sprinklerStatus == "ON" ? Colors.green : null,
           ),
-          stat("Last Activated Time", _lastActivated),
-          stat("Last Activated Date", _date),
+          stat(
+            "Last Activated Time",
+            _lastActivationAt == null
+                ? _lastActivated
+                : DateFormat('h:mm a').format(_lastActivationAt!),
+          ),
+          stat(
+            "Last Activated Date",
+            _lastActivationAt == null
+                ? _date
+                : DateFormat('MMM dd').format(_lastActivationAt!),
+          ),
           stat("Duration", _duration),
         ],
       ),

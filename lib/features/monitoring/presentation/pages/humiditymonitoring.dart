@@ -24,20 +24,18 @@ const int _kHumHourlyMinSpanHours =
 
 // The air temperature line uses a right-hand axis of 0 to this many °C.
 const double _kHumAmbientAxisMax = 50;
-// Air temperature limits (same as the Arduino code).
-const double _kAirLowNormal = 15.6;
-const double _kAirHighNormal = 23.9;
+const double _kAirLowNormal = 15;
+const double _kAirHighNormal = 30;
 const double _kHumLowNormal = 60;
 const double _kHumHighNormal = 70;
-const double _kAirCritical = 30.0; // always HIGH at or above this (PAES max)
 
-// -1 = below range, 0 = in range, 1 = above range.
-// Rounded to the 1 decimal shown on screen.
-int _band(double v, double low, double high) {
-  final r = (v * 10).round() / 10;
-  if (r < low) return -1;
-  if (r > high) return 1;
-  return 0;
+String _readingStatus(double? reading, double low, double high) {
+  if (reading == null) return "";
+  // Classify the reading to the same precision shown on screen.
+  final rounded = (reading * 10).round() / 10;
+  if (rounded < low) return "LOW";
+  if (rounded > high) return "HIGH";
+  return "NORMAL";
 }
 
 Color _statusColorFor(String s) {
@@ -495,31 +493,11 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       _minuteBufferToday.isNotEmpty &&
       _minuteBufferDayKey == SensorMemory.todayKey();
 
-  String get _humidityStatus {
-    // Both readings are required.
-    if (_currentHumidity == null || _currentAmbient == null) return "";
+  String get _humidityStatus =>
+      _readingStatus(_currentHumidity, _kHumLowNormal, _kHumHighNormal);
 
-    final h = _band(_currentHumidity!, _kHumLowNormal, _kHumHighNormal);
-    final a = _band(_currentAmbient!, _kAirLowNormal, _kAirHighNormal);
-
-    // Very hot: heat stress whatever the humidity.
-    if (_currentAmbient! >= _kAirCritical) return "HIGH";
-
-    // Hot: humid or moderate humidity is a risk, dry air is tolerable.
-    if (a > 0) return h < 0 ? "NORMAL" : "HIGH";
-
-    // Comfortable air.
-    if (a == 0) return "NORMAL";
-
-    // Cold air: not heat stress.
-    return "LOW";
-  }
-
-  String get _airStatus {
-    if (_currentAmbient == null) return "";
-    final t = _band(_currentAmbient!, _kAirLowNormal, _kAirHighNormal);
-    return t < 0 ? "LOW" : (t == 0 ? "NORMAL" : "HIGH");
-  }
+  String get _airStatus =>
+      _readingStatus(_currentAmbient, _kAirLowNormal, _kAirHighNormal);
 
   late final List<Map<String, double>> _chartData;
 
@@ -568,6 +546,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   DateTime? _customStart;
   DateTime? _customEnd;
   bool _zoomHumidity = false; // false = 0–100 %, true = 40–100 %
+  bool _fitTodayToDay = false;
   bool _zoomAmbient = false; // false = 0–50 °C, true = 10–40 °C
   double? _holdX; // hours from range start of the held point
   double? _holdValue; // reading of the held hour
@@ -2464,7 +2443,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
   }
 
   void _scrollChartToNow() {
-    if (!mounted) return;
+    if (!mounted || _fitTodayToDay) return;
     final c = _todayChartScrollController;
     if (!c.hasClients) {
       // Chart not mounted yet: allow the next build to try again.
@@ -2558,7 +2537,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     }
 
     final bool isFitTab = isCustomTab;
-    final bool zoom = isFitTab && (ambient ? _zoomAmbient : _zoomHumidity);
+    final bool zoom = ambient ? _zoomAmbient : _zoomHumidity;
     final yMin = zoom ? (ambient ? 10.0 : 40.0) : 0.0;
     final yMax = ambient ? (zoom ? 40.0 : _kHumAmbientAxisMax) : 100.0;
     final yStep = ambient ? 5.0 : 10.0;
@@ -2576,7 +2555,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     // The scroll view is destroyed in these cases, so the next time the Today
     // chart appears it must jump to the latest reading again. The humidity
     // graph drives this; the temperature graph follows its scrolling.
-    if (!ambient && (!isTodayTab || isBusy || data.isEmpty)) {
+    if (!ambient && (!isTodayTab || _fitTodayToDay || isBusy || data.isEmpty)) {
       _hasScrolledChartToNow = false;
     }
 
@@ -2594,6 +2573,30 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               ? "Hourly history unavailable for this range."
               : "No data for selected range",
           style: TextStyle(color: _textSecondary(isDark)),
+        ),
+      );
+    } else if (isTodayTab && _fitTodayToDay) {
+      // Preserve the full midnight-to-midnight timeline, including gaps.
+      chartBody = ClipRect(
+        child: RepaintBoundary(
+          child: CustomPaint(
+            painter: _HumidityChartPainter(
+              data: List.from(data),
+              isDark: isDark,
+              color: lineColor,
+              valueKey: valueKey,
+              yMin: yMin,
+              yMax: yMax,
+              yStep: yStep,
+              unit: unit,
+              xDomainMin: 0,
+              xDomainMax: 24,
+              fitMode: true,
+              gapHours: _kHumGapHours,
+              gapBlankHours: double.infinity,
+            ),
+            child: const SizedBox(height: 320, width: double.infinity),
+          ),
         ),
       );
     } else if (isTodayTab) {
@@ -2628,6 +2631,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                     isDark: isDark,
                     color: lineColor,
                     valueKey: valueKey,
+                    yMin: yMin,
                     yMax: yMax,
                     yStep: yStep,
                     unit: unit,
@@ -2647,7 +2651,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
           // Fixed overlay so the axis labels stay visible on the left edge
           // of the card while the chart itself scrolls.
           Positioned.fill(
-            child: _buildFixedYAxisLabels(isDark, yMax, yStep, unit),
+            child: _buildFixedYAxisLabels(isDark, yMax, yStep, unit, yMin: yMin),
           ),
         ],
       );
@@ -2798,7 +2802,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                   ),
                 ),
               ),
-              if (isFitTab && !isBusy && data.isNotEmpty) ...[
+              if ((isTodayTab || isFitTab) && !isBusy && data.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () => setState(() {
@@ -2828,7 +2832,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.zoom_in,
+                          zoom ? Icons.zoom_out : Icons.zoom_in,
                           size: 14,
                           color: zoom
                               ? const Color(0xFFE8622A)
@@ -2836,7 +2840,7 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'Zoom axis',
+                          zoom ? 'Zoom out axis' : 'Zoom axis',
                           style: TextStyle(
                             fontSize: 11,
                             color: zoom
@@ -2851,6 +2855,19 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
               ],
             ],
           ),
+          if (isTodayTab)
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilterChip(
+                label: const Text('12 AM–12 AM', style: TextStyle(fontSize: 11)),
+                avatar: const Icon(Icons.fit_screen, size: 16),
+                selected: _fitTodayToDay,
+                onSelected: (selected) => setState(() {
+                  _fitTodayToDay = selected;
+                  _hasScrolledChartToNow = false;
+                }),
+              ),
+            ),
           const SizedBox(height: 8),
           SizedBox(height: 320, width: double.infinity, child: chartBody),
         ],
@@ -2865,8 +2882,9 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
     bool isDark,
     double yMax,
     double yStep,
-    String unit,
-  ) {
+    String unit, {
+    double yMin = 0,
+  }) {
     const double topPadding = 8;
     const double bottomPadding = 44;
     const double chartHeight = 320 - topPadding - bottomPadding;
@@ -2875,15 +2893,17 @@ class _HumidityMonitoringState extends State<HumidityMonitoring>
       fontSize: 10,
       fontWeight: FontWeight.w500,
     );
-    final steps = [for (double v = 0; v <= yMax + 1e-9; v += yStep) v];
+    final steps = [for (double v = yMin; v <= yMax + 1e-9; v += yStep) v];
     return IgnorePointer(
       child: Stack(
         children: steps.map((v) {
-          final y = topPadding + chartHeight - (v / yMax) * chartHeight;
+          final y = topPadding +
+              chartHeight -
+              ((v - yMin) / (yMax - yMin)) * chartHeight;
           return Positioned(
             // 0 sits just above the baseline so it never covers the
             // first date/time label
-            top: v == 0 ? y - 18 : y - 8,
+            top: v == yMin ? y - 18 : y - 8,
             left: 0,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -3167,10 +3187,12 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
     super.initState();
     final now = DateTime.now();
     final defaultStart = now.subtract(const Duration(hours: 24));
-    _startDate = widget.initialStart ?? defaultStart;
-    _startTime = TimeOfDay.fromDateTime(widget.initialStart ?? defaultStart);
-    _endDate = widget.initialEnd ?? now;
-    _endTime = TimeOfDay.fromDateTime(widget.initialEnd ?? now);
+    final start = _clampToWindow(widget.initialStart ?? defaultStart, now);
+    final end = _clampToWindow(widget.initialEnd ?? now, now);
+    _startDate = start;
+    _startTime = TimeOfDay.fromDateTime(start);
+    _endDate = end;
+    _endTime = TimeOfDay.fromDateTime(end);
   }
 
   DateTime get _fullStart => DateTime(
@@ -3187,8 +3209,17 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
     _endTime.hour,
     _endTime.minute,
   );
-    // Raise this if you want longer ranges.
   static const int _kMaxCustomDays = 31;
+
+  // Include the whole earliest allowed calendar day.
+  DateTime _firstAllowedDate(DateTime now) =>
+      DateTime(now.year, now.month, now.day - _kMaxCustomDays);
+
+  DateTime _clampToWindow(DateTime value, DateTime now) {
+    final firstDate = _firstAllowedDate(now);
+    if (value.isBefore(firstDate)) return firstDate;
+    return value.isAfter(now) ? now : value;
+  }
 
   // The end can never be in the future: a later time today means "now".
   DateTime get _effectiveEnd {
@@ -3197,14 +3228,16 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
   }
 
   String? get _error {
-    if (_fullStart.isAfter(DateTime.now())) {
+    final now = DateTime.now();
+    final firstDate = _firstAllowedDate(now);
+    if (_fullStart.isBefore(firstDate) || _fullEnd.isBefore(firstDate)) {
+      return 'Choose dates within the past $_kMaxCustomDays days.';
+    }
+    if (_fullStart.isAfter(now)) {
       return 'Start time cannot be in the future.';
     }
     if (!_effectiveEnd.isAfter(_fullStart)) {
       return 'End must be after the start.';
-    }
-    if (_effectiveEnd.difference(_fullStart).inDays > _kMaxCustomDays) {
-      return 'Choose a range of up to $_kMaxCustomDays days.';
     }
     return null;
   }
@@ -3212,11 +3245,12 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
   bool get _isValid => _error == null;
 
   Future<void> _pickDate(bool isStart) async {
+    final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: isStart ? _startDate : _endDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now(),
+      initialDate: _clampToWindow(isStart ? _startDate : _endDate, now),
+      firstDate: _firstAllowedDate(now),
+      lastDate: now,
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.light(primary: Color(0xFFE8622A)),
@@ -3224,7 +3258,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
         child: child!,
       ),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() => isStart ? _startDate = picked : _endDate = picked);
   }
 
@@ -3243,7 +3277,7 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
         ),
       ),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() => isStart ? _startTime = picked : _endTime = picked);
   }
 
@@ -3297,6 +3331,11 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
                 child: Icon(Icons.close, color: Colors.grey.shade400, size: 22),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Select dates within the past 31 days.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
           ),
           const SizedBox(height: 20),
           _rowLabel('From'),
@@ -3371,6 +3410,11 @@ class _HumidityCustomRangeSheetState extends State<_HumidityCustomRangeSheet> {
             child: ElevatedButton(
               onPressed: _isValid
                   ? () {
+                      // Recheck if the sheet was left open across midnight.
+                      if (!_isValid) {
+                        setState(() {});
+                        return;
+                      }
                       // Returning `true` tells the caller a range was
                       // actually applied, so it should NOT snap back to Today.
                       Navigator.pop(context, true);

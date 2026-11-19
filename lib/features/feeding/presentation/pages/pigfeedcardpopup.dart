@@ -9,6 +9,7 @@ import '../../../../core/widgets/textfield.dart';
 import '../../../pig_management/domain/model/app_pig.dart';
 import '../../domain/model/app_feeding_record.dart';
 import '../cubits/feeding_record_cubit.dart';
+import '../components/feeding_date_time_fields.dart';
 import '../cubits/feeding_record_states.dart';
 
 class PigFeedCardPopUp extends StatefulWidget {
@@ -27,6 +28,7 @@ class PigFeedCardPopUp extends StatefulWidget {
 
 class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
   final _formKey = GlobalKey<FormState>();
+  DateTime _feedingDateTime = DateTime.now();
   final TextEditingController _feedTypeController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
 
@@ -88,7 +90,7 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
       pigId: widget.pig.pigId,
       feedType: _feedTypeController.text.trim(),
       amount: amount,
-      timestamp: DateTime.now(),
+      timestamp: _feedingDateTime,
     );
 
     final success =
@@ -119,180 +121,188 @@ class _PigFeedCardPopUpState extends State<PigFeedCardPopUp> {
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Container(
-        decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 10,
-                decoration: BoxDecoration(
-                  color: widget.pigColor,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    bottomLeft: Radius.circular(16),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Feeding Record',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black,
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, size: 22),
-                              onPressed: () => Navigator.pop(context),
-                              color:
-                              isDark ? Colors.white60 : Colors.black54,
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // ── Latest record preview ──────────────────────────
-                        BlocBuilder<FeedingRecordCubit, FeedingRecordState>(
-                          buildWhen: (previous, current) =>
-                          (current is LatestFeedingRecordLoading &&
-                              current.pigId == widget.pig.pigId) ||
-                              (current is LatestFeedingRecordLoaded &&
-                                  current.pigId == widget.pig.pigId) ||
-                              (current is LatestFeedingRecordError &&
-                                  current.pigId == widget.pig.pigId),
-                          builder: (context, state) {
-                            String recentFeed = 'No data';
-                            String recentAmount = '0';
-
-                            if (state is LatestFeedingRecordLoading &&
-                                state.pigId == widget.pig.pigId) {
-                              recentFeed = '...';
-                              recentAmount = '...';
-                            } else if (state is LatestFeedingRecordLoaded &&
-                                state.pigId == widget.pig.pigId) {
-                              final AppFeedingRecord? record = state.record;
-                              if (record != null) {
-                                recentFeed = record.feedType;
-                                recentAmount = record.amount.toString();
-                              }
-                            }
-
-                            return Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                    children: [
-                                      _buildInfoText(
-                                          'Breed:', widget.pig.breed, isDark),
-                                      const SizedBox(height: 6),
-                                      _buildInfoText(
-                                          'Recent type:', recentFeed, isDark),
-                                    ],
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                    children: [
-                                      _buildInfoText(
-                                          'Stage:', widget.pig.stage, isDark),
-                                      const SizedBox(height: 6),
-                                      _buildInfoText(
-                                          'Recent amount:', recentAmount, isDark),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // ── Input fields ───────────────────────────────────
-                        Row(
-                          children: [
-                            Expanded(
-                              child: CustomTextField(
-                                controller: _feedTypeController,
-                                label: 'Feed Type:',
-                                border: 6,
-                                validator: (value) =>
-                                (value == null || value.trim().isEmpty)
-                                    ? 'Required'
-                                    : null,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: CustomTextField(
-                                controller: _amountController,
-                                label: 'Amount (kg):',
-                                border: 6,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-
-                                  final parsedAmount =
-                                      double.tryParse(value.trim());
-                                  if (parsedAmount == null) {
-                                    return 'Invalid number';
-                                  }
-                                  // Same limits as the multi-pig feeding form
-                                  if (parsedAmount < 0.1) {
-                                    return 'Min 0.1kg';
-                                  }
-                                  if (parsedAmount > 500) {
-                                    return 'Max 500kg';
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        CustomButton(
-                          text: 'Save Record',
-                          onPressed: _onSave,
-                          backgroundColor: widget.pigColor,
-                          color: Colors.white,
-                          border: 10,
-                        ),
-                      ],
+      child: SingleChildScrollView(
+        child: Container(
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: 10,
+                  decoration: BoxDecoration(
+                    color: widget.pigColor,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
                     ),
                   ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Feeding Record',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.close, size: 22),
+                                onPressed: () => Navigator.pop(context),
+                                color:
+                                isDark ? Colors.white60 : Colors.black54,
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          // ── Latest record preview ──────────────────────────
+                          BlocBuilder<FeedingRecordCubit, FeedingRecordState>(
+                            buildWhen: (previous, current) =>
+                            (current is LatestFeedingRecordLoading &&
+                                current.pigId == widget.pig.pigId) ||
+                                (current is LatestFeedingRecordLoaded &&
+                                    current.pigId == widget.pig.pigId) ||
+                                (current is LatestFeedingRecordError &&
+                                    current.pigId == widget.pig.pigId),
+                            builder: (context, state) {
+                              String recentFeed = 'No data';
+                              String recentAmount = '0';
+
+                              if (state is LatestFeedingRecordLoading &&
+                                  state.pigId == widget.pig.pigId) {
+                                recentFeed = '...';
+                                recentAmount = '...';
+                              } else if (state is LatestFeedingRecordLoaded &&
+                                  state.pigId == widget.pig.pigId) {
+                                final AppFeedingRecord? record = state.record;
+                                if (record != null) {
+                                  recentFeed = record.feedType;
+                                  recentAmount = record.amount.toString();
+                                }
+                              }
+
+                              return Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                      children: [
+                                        _buildInfoText(
+                                            'Breed:', widget.pig.breed, isDark),
+                                        const SizedBox(height: 6),
+                                        _buildInfoText(
+                                            'Recent type:', recentFeed, isDark),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                      children: [
+                                        _buildInfoText(
+                                            'Stage:', widget.pig.stage, isDark),
+                                        const SizedBox(height: 6),
+                                        _buildInfoText(
+                                            'Recent amount:', recentAmount, isDark),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ── Input fields ───────────────────────────────────
+                          Row(
+                            children: [
+                              Expanded(
+                                child: CustomTextField(
+                                  controller: _feedTypeController,
+                                  label: 'Feed Type:',
+                                  border: 6,
+                                  validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                      ? 'Required'
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: CustomTextField(
+                                  controller: _amountController,
+                                  label: 'Amount (kg):',
+                                  border: 6,
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Required';
+                                    }
+
+                                    final parsedAmount =
+                                        double.tryParse(value.trim());
+                                    if (parsedAmount == null) {
+                                      return 'Invalid number';
+                                    }
+                                    // Same limits as the multi-pig feeding form
+                                    if (parsedAmount < 0.1) {
+                                      return 'Min 0.1kg';
+                                    }
+                                    if (parsedAmount > 500) {
+                                      return 'Max 500kg';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          FeedingDateTimeFields(
+                            value: _feedingDateTime,
+                            onChanged: (value) =>
+                                setState(() => _feedingDateTime = value),
+                          ),
+                          const SizedBox(height: 16),
+                          CustomButton(
+                            text: 'Save Record',
+                            onPressed: _onSave,
+                            backgroundColor: widget.pigColor,
+                            color: Colors.white,
+                            border: 10,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

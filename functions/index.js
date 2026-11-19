@@ -9,15 +9,36 @@ const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 initializeApp();
 
-/**
- * Sends a single FCM push to a user, swallowing errors per-send so that
- * one bad/stale token never aborts processing for other users.
- */
 async function safeSend(userId, payload) {
+    const account = getFirestore().collection("admins").doc(userId);
     try {
-        await getMessaging().send(payload);
+        const [profile, devices] = await Promise.all([
+            account.get(),
+            account.collection("notificationDevices").get(),
+        ]);
+        const tokens = new Set(devices.docs.map((device) => device.get("token")));
+        // Older app builds still register a single token on the account.
+        tokens.add(profile.get("fcmToken"));
+        const recipients = [...tokens].filter((token) => typeof token === "string" && token.length > 0);
+
+        let accepted = 0;
+        for (let offset = 0; offset < recipients.length; offset += 500) {
+            const batch = recipients.slice(offset, offset + 500);
+            const result = await getMessaging().sendEachForMulticast({ ...payload, tokens: batch });
+            accepted += result.successCount;
+            for (const response of result.responses) {
+                if (!response.success) {
+                    logger.warn("Failed to send notification to a registered device", {
+                        userId,
+                        code: response.error?.code,
+                    });
+                }
+            }
+        }
+        return accepted;
     } catch (error) {
         logger.error(`Failed to send notification to user ${userId}:`, error);
+        return 0;
     }
 }
 function channelFor(prefs, critical = false) {
@@ -118,7 +139,7 @@ exports.dailyLowStockCheck = onSchedule({
             const userData = await getCachedAdmin(firestore, adminCache, userId);
             const prefs = userData?.notificationPreferences || {};
 
-            if (prefs.isNotifEnabled !== false && prefs.isLowStockAlert !== false && userData?.fcmToken) {
+            if (prefs.isNotifEnabled !== false && prefs.isLowStockAlert !== false) {
                 const meds = userMedicinesMap[userId];
                 const bodyText = meds.length === 1
                     ? `${meds[0].name} is low on stock (${meds[0].totalStock} ${meds[0].unit} left).`
@@ -127,7 +148,6 @@ exports.dailyLowStockCheck = onSchedule({
                 await safeSend(userId, {
                     notification: { title: "⚠️ Daily Low Stock Summary", body: bodyText },
                     android: { notification: { channelId: channelFor(prefs) } },
-                    token: userData.fcmToken,
                     data: { type: "stock_alert" }
                 });
             }
@@ -197,7 +217,7 @@ exports.dailyExpirationCheck = onSchedule({
             const userData = await getCachedAdmin(firestore, adminCache, userId);
             const prefs = userData?.notificationPreferences || {};
 
-            if (prefs.isNotifEnabled !== false && prefs.isMedExpAlert !== false && userData?.fcmToken) {
+            if (prefs.isNotifEnabled !== false && prefs.isMedExpAlert !== false) {
                 const alerts = userAlertsMap[userId];
                 const body = alerts.length === 1
                     ? alerts[0].message
@@ -206,7 +226,6 @@ exports.dailyExpirationCheck = onSchedule({
                 await safeSend(userId, {
                     notification: { title: "⚠️ Expiration Alert", body },
                     android: { notification: { channelId: channelFor(prefs) } },
-                    token: userData.fcmToken,
                     data: {
                         type: "med_exp_alert",
                         // For multi-item alerts, only the first item's ids are
@@ -309,7 +328,7 @@ exports.dailyIntakeScheduleCheck = onSchedule({
             const userData = await getCachedAdmin(firestore, adminCache, userId);
             const prefs = userData?.notificationPreferences || {};
 
-            if (prefs.isNotifEnabled === false || prefs.isVaxSchedAlert === false || !userData?.fcmToken) {
+            if (prefs.isNotifEnabled === false || prefs.isVaxSchedAlert === false) {
                 continue;
             }
 
@@ -329,7 +348,6 @@ exports.dailyIntakeScheduleCheck = onSchedule({
             await safeSend(userId, {
                 notification: { title, body },
                 android: { notification: { channelId: channelFor(prefs) } },
-                token: userData.fcmToken,
                 data: { type: "vax_alert", pigId: data.pigId }
             });
         }
@@ -347,11 +365,11 @@ exports.dailyIntakeScheduleCheck = onSchedule({
 
 /**
  * Real-time trigger on live_sensor/latest. Fires whenever the ESP32 pushes
- * a new live reading. Compares pigBodyTemp/ambientHumidity against each admin's saved
+ * a new live reading. Compares surface temperature, humidity, and air temperature against each admin's saved
  * IoT thresholds (admins/{uid}.iotThresholds) and sends a push if a metric
  * is at or above its configured max.
  *
- * Debounce: each admin doc tracks `iotAlertState.{tempAvg|humidity}` as a
+ * Debounce: each admin doc tracks `iotAlertState.{tempAvg|humidity|airTemp}` as a
  * boolean "currently over threshold" flag. A notification is only sent on
  * the transition from false -> true, so the user gets one alert when the
  * limit is first breached instead of one every time live_sensor updates
@@ -407,13 +425,12 @@ async function getIotAdmins(firestore) {
  * the admin should not be alerted at all, otherwise the alert-state
  * updates to write and the breach messages to send.
  */
-function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
+function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity, airTemp) {
     const thresholds = userData.iotThresholds;
     if (!thresholds || thresholds.isIotEnabled === false) return null;
 
     const prefs = userData.notificationPreferences || {};
     if (prefs.isNotifEnabled === false) return null;
-    if (!userData.fcmToken) return null;
 
     const alertState = userData.iotAlertState || {};
     const updates = {};
@@ -430,7 +447,7 @@ function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
 
         if (isOver && !wasOver) {
             breaches.push(
-                `Body temperature is ${tempAvg.toFixed(1)}°C, at or above the ${thresholds.maxTemp}°C limit.`
+                `Body surface temperature is ${tempAvg.toFixed(1)}°C, at or above the ${thresholds.maxTemp}°C limit.`
             );
         }
         if (isOver !== wasOver) {
@@ -445,7 +462,13 @@ function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
         prefs.isHighHumidityAlert !== false
     ) {
         const isOver = humidity >= thresholds.maxHumidity;
-        const wasOver = alertState.humidity === true;
+        // A newly configured limit starts its own alert cycle.
+        const sameLimit = alertState.humidityLimit === thresholds.maxHumidity;
+        const wasOver = sameLimit && alertState.humidity === true;
+        if (!sameLimit) {
+            updates["iotAlertState.humidityLimit"] = thresholds.maxHumidity;
+            updates["iotAlertState.humidity"] = isOver;
+        }
 
         if (isOver && !wasOver) {
             breaches.push(
@@ -457,7 +480,88 @@ function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
         }
     }
 
+    if (
+        Number.isFinite(airTemp) &&
+        Number.isFinite(thresholds.maxAirTemp) &&
+        prefs.isHighAirTempAlert !== false
+    ) {
+        const isOver = airTemp >= thresholds.maxAirTemp;
+        const sameLimit = alertState.airTempLimit === thresholds.maxAirTemp;
+        const wasOver = sameLimit && alertState.airTemp === true;
+        if (!sameLimit) {
+            updates["iotAlertState.airTempLimit"] = thresholds.maxAirTemp;
+        }
+        if (!sameLimit || isOver !== wasOver) {
+            updates["iotAlertState.airTemp"] = isOver;
+        }
+        if (isOver && !wasOver) {
+            breaches.push(
+                `Air temperature is ${airTemp.toFixed(1)}°C, at or above the ${thresholds.maxAirTemp}°C limit.`
+            );
+        }
+    }
+
     return { userData, prefs, updates, breaches };
+}
+
+function scheduledSprinklerAlerts(before, after) {
+    const alerts = [];
+    const started = after.lastScheduledSprinklerStart;
+    const ended = after.lastScheduledSprinklerEnd;
+
+    if (Number.isSafeInteger(started) && started > 0 && started !== before.lastScheduledSprinklerStart) {
+        alerts.push({
+            run: started,
+            phase: "started",
+            title: "Scheduled Sprinkler Started",
+            body: "The sprinkler started its daily automatic run.",
+        });
+    }
+
+    if (Number.isSafeInteger(ended) && ended > 0 && ended !== before.lastScheduledSprinklerEnd) {
+        const seconds = after.lastScheduledSprinklerDurationSec;
+        const duration = Number.isSafeInteger(seconds) && seconds >= 0
+            ? ` It ran for ${Math.floor(seconds / 60)} min ${seconds % 60} sec.`
+            : "";
+        alerts.push({
+            run: ended,
+            phase: "ended",
+            title: "Scheduled Sprinkler Ended",
+            body: `The daily automatic sprinkler run ended.${duration}`,
+        });
+    }
+
+    return alerts;
+}
+
+async function sendScheduledSprinklerAlerts(firestore, admin, alerts) {
+    for (const alert of alerts) {
+        const prefs = await firestore.runTransaction(async (transaction) => {
+            const account = (await transaction.get(admin.ref)).data();
+            const preferences = account?.notificationPreferences || {};
+            if (account?.iotThresholds?.isIotEnabled !== true || preferences.isNotifEnabled === false) {
+                return null;
+            }
+            const state = account.scheduledSprinklerAlertState || {};
+            if (alert.run <= (state[alert.phase] || 0)) return null;
+            // Suppress a late start event if this run's end was already processed.
+            if (alert.phase === "started" && alert.run <= (state.ended || 0)) return null;
+            transaction.update(admin.ref, {
+                [`scheduledSprinklerAlertState.${alert.phase}`]: alert.run,
+            });
+            return preferences;
+        });
+        if (prefs === null) continue;
+
+        const devices = await safeSend(admin.id, {
+            notification: { title: alert.title, body: alert.body },
+            android: { notification: { channelId: channelFor(prefs) } },
+            data: { type: `scheduled_sprinkler_${alert.phase}` },
+        });
+        if (devices > 0) {
+            logger.info("FCM accepted scheduled sprinkler alert", { phase: alert.phase, devices });
+        }
+    }
 }
 
 exports.onLiveSensorUpdate = onDocumentWritten(
@@ -473,7 +577,10 @@ exports.onLiveSensorUpdate = onDocumentWritten(
 
         const hasTemp = !Number.isNaN(tempAvg);
         const hasHumidity = !Number.isNaN(humidity);
-        if (!hasTemp && !hasHumidity) return;
+        const airTemp = after.ambientTempValid === false ? NaN : parseFloat(after.ambientTemp);
+        const hasReading = hasTemp || hasHumidity || Number.isFinite(airTemp);
+        const sprinklerAlerts = scheduledSprinklerAlerts(event.data?.before?.data() || {}, after);
+        if (!hasReading && sprinklerAlerts.length === 0) return;
 
         // This runs on every ESP32 push (~8,640/day). Reading the admins on
         // every push used most of the daily Firestore read quota, so the list
@@ -482,8 +589,17 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         const cachedAdmins = await getIotAdmins(firestore);
 
         for (const cached of cachedAdmins) {
+            if (sprinklerAlerts.length > 0) {
+                try {
+                    await sendScheduledSprinklerAlerts(firestore, cached, sprinklerAlerts);
+                } catch (error) {
+                    logger.error("Failed to process scheduled sprinkler alert", error);
+                }
+            }
+            if (!hasReading) continue;
+
             const userId = cached.id;
-            let result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity);
+            let result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity, airTemp);
             if (!result) continue;
 
             // Only when an alert state is about to change: re-read this admin
@@ -493,7 +609,7 @@ exports.onLiveSensorUpdate = onDocumentWritten(
                 const fresh = await cached.ref.get();
                 if (!fresh.exists) continue;
                 cached.data = fresh.data();
-                result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity);
+                result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity, airTemp);
                 if (!result) continue;
             }
 
@@ -507,6 +623,13 @@ exports.onLiveSensorUpdate = onDocumentWritten(
                 const state = { ...(cached.data.iotAlertState || {}) };
                 if ("iotAlertState.tempAvg" in updates) state.tempAvg = updates["iotAlertState.tempAvg"];
                 if ("iotAlertState.humidity" in updates) state.humidity = updates["iotAlertState.humidity"];
+                if ("iotAlertState.humidityLimit" in updates) {
+                    state.humidityLimit = updates["iotAlertState.humidityLimit"];
+                }
+                if ("iotAlertState.airTemp" in updates) state.airTemp = updates["iotAlertState.airTemp"];
+                if ("iotAlertState.airTempLimit" in updates) {
+                    state.airTempLimit = updates["iotAlertState.airTempLimit"];
+                }
                 cached.data = { ...cached.data, iotAlertState: state };
             }
 
@@ -516,16 +639,15 @@ exports.onLiveSensorUpdate = onDocumentWritten(
                 ? breaches[0]
                 : breaches.join(" ");
 
-            await safeSend(userId, {
+            const sent = await safeSend(userId, {
                 notification: { title: "🌡️ IoT Threshold Alert", body },
                 android: { notification: { channelId: channelFor(prefs, true) } },
-                token: userData.fcmToken,
                 data: { type: "iot_threshold_alert" },
             });
 
-            logger.info(
-                `📩 Sent IoT threshold alert to user ${userId}: ${body}`
-            );
+            if (sent > 0) {
+                logger.info("FCM accepted IoT threshold alert", { userId, devices: sent });
+            }
         }
     }
 );
