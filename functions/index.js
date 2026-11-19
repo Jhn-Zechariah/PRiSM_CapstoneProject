@@ -504,6 +504,66 @@ function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity, a
     return { userData, prefs, updates, breaches };
 }
 
+function scheduledSprinklerAlerts(before, after) {
+    const alerts = [];
+    const started = after.lastScheduledSprinklerStart;
+    const ended = after.lastScheduledSprinklerEnd;
+
+    if (Number.isSafeInteger(started) && started > 0 && started !== before.lastScheduledSprinklerStart) {
+        alerts.push({
+            run: started,
+            phase: "started",
+            title: "Scheduled Sprinkler Started",
+            body: "The sprinkler started its daily automatic run.",
+        });
+    }
+
+    if (Number.isSafeInteger(ended) && ended > 0 && ended !== before.lastScheduledSprinklerEnd) {
+        const seconds = after.lastScheduledSprinklerDurationSec;
+        const duration = Number.isSafeInteger(seconds) && seconds >= 0
+            ? ` It ran for ${Math.floor(seconds / 60)} min ${seconds % 60} sec.`
+            : "";
+        alerts.push({
+            run: ended,
+            phase: "ended",
+            title: "Scheduled Sprinkler Ended",
+            body: `The daily automatic sprinkler run ended.${duration}`,
+        });
+    }
+
+    return alerts;
+}
+
+async function sendScheduledSprinklerAlerts(firestore, admin, alerts) {
+    for (const alert of alerts) {
+        const prefs = await firestore.runTransaction(async (transaction) => {
+            const account = (await transaction.get(admin.ref)).data();
+            const preferences = account?.notificationPreferences || {};
+            if (account?.iotThresholds?.isIotEnabled !== true || preferences.isNotifEnabled === false) {
+                return null;
+            }
+            const state = account.scheduledSprinklerAlertState || {};
+            if (alert.run <= (state[alert.phase] || 0)) return null;
+            // Suppress a late start event if this run's end was already processed.
+            if (alert.phase === "started" && alert.run <= (state.ended || 0)) return null;
+            transaction.update(admin.ref, {
+                [`scheduledSprinklerAlertState.${alert.phase}`]: alert.run,
+            });
+            return preferences;
+        });
+        if (prefs === null) continue;
+
+        const devices = await safeSend(admin.id, {
+            notification: { title: alert.title, body: alert.body },
+            android: { notification: { channelId: channelFor(prefs) } },
+            data: { type: `scheduled_sprinkler_${alert.phase}` },
+        });
+        if (devices > 0) {
+            logger.info("FCM accepted scheduled sprinkler alert", { phase: alert.phase, devices });
+        }
+    }
+}
+
 exports.onLiveSensorUpdate = onDocumentWritten(
     "live_sensor/latest",
     async (event) => {
@@ -518,7 +578,9 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         const hasTemp = !Number.isNaN(tempAvg);
         const hasHumidity = !Number.isNaN(humidity);
         const airTemp = after.ambientTempValid === false ? NaN : parseFloat(after.ambientTemp);
-        if (!hasTemp && !hasHumidity && !Number.isFinite(airTemp)) return;
+        const hasReading = hasTemp || hasHumidity || Number.isFinite(airTemp);
+        const sprinklerAlerts = scheduledSprinklerAlerts(event.data?.before?.data() || {}, after);
+        if (!hasReading && sprinklerAlerts.length === 0) return;
 
         // This runs on every ESP32 push (~8,640/day). Reading the admins on
         // every push used most of the daily Firestore read quota, so the list
@@ -527,6 +589,15 @@ exports.onLiveSensorUpdate = onDocumentWritten(
         const cachedAdmins = await getIotAdmins(firestore);
 
         for (const cached of cachedAdmins) {
+            if (sprinklerAlerts.length > 0) {
+                try {
+                    await sendScheduledSprinklerAlerts(firestore, cached, sprinklerAlerts);
+                } catch (error) {
+                    logger.error("Failed to process scheduled sprinkler alert", error);
+                }
+            }
+            if (!hasReading) continue;
+
             const userId = cached.id;
             let result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity, airTemp);
             if (!result) continue;
