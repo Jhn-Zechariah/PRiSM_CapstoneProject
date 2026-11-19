@@ -414,7 +414,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
             _buildInputRow(
               context: context,
               dotColor: Colors.orange[800]!,
-              label: 'Max air temperature',
+              label: 'Max air temperature for alert',
               controller: _airTempController,
               hintText: '${_minAirTemp.toStringAsFixed(0)}–${_maxAirTempLimit.toStringAsFixed(0)} °C',
               enabled: isIotEnabled,

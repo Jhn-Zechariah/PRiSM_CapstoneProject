@@ -365,11 +365,11 @@ exports.dailyIntakeScheduleCheck = onSchedule({
 
 /**
  * Real-time trigger on live_sensor/latest. Fires whenever the ESP32 pushes
- * a new live reading. Compares pigBodyTemp/ambientHumidity against each admin's saved
+ * a new live reading. Compares surface temperature, humidity, and air temperature against each admin's saved
  * IoT thresholds (admins/{uid}.iotThresholds) and sends a push if a metric
  * is at or above its configured max.
  *
- * Debounce: each admin doc tracks `iotAlertState.{tempAvg|humidity}` as a
+ * Debounce: each admin doc tracks `iotAlertState.{tempAvg|humidity|airTemp}` as a
  * boolean "currently over threshold" flag. A notification is only sent on
  * the transition from false -> true, so the user gets one alert when the
  * limit is first breached instead of one every time live_sensor updates
@@ -425,7 +425,7 @@ async function getIotAdmins(firestore) {
  * the admin should not be alerted at all, otherwise the alert-state
  * updates to write and the breach messages to send.
  */
-function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
+function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity, airTemp) {
     const thresholds = userData.iotThresholds;
     if (!thresholds || thresholds.isIotEnabled === false) return null;
 
@@ -480,6 +480,27 @@ function checkIotThresholds(userData, tempAvg, humidity, hasTemp, hasHumidity) {
         }
     }
 
+    if (
+        Number.isFinite(airTemp) &&
+        Number.isFinite(thresholds.maxAirTemp) &&
+        prefs.isHighAirTempAlert !== false
+    ) {
+        const isOver = airTemp >= thresholds.maxAirTemp;
+        const sameLimit = alertState.airTempLimit === thresholds.maxAirTemp;
+        const wasOver = sameLimit && alertState.airTemp === true;
+        if (!sameLimit) {
+            updates["iotAlertState.airTempLimit"] = thresholds.maxAirTemp;
+        }
+        if (!sameLimit || isOver !== wasOver) {
+            updates["iotAlertState.airTemp"] = isOver;
+        }
+        if (isOver && !wasOver) {
+            breaches.push(
+                `Air temperature is ${airTemp.toFixed(1)}°C, at or above the ${thresholds.maxAirTemp}°C limit.`
+            );
+        }
+    }
+
     return { userData, prefs, updates, breaches };
 }
 
@@ -496,7 +517,8 @@ exports.onLiveSensorUpdate = onDocumentWritten(
 
         const hasTemp = !Number.isNaN(tempAvg);
         const hasHumidity = !Number.isNaN(humidity);
-        if (!hasTemp && !hasHumidity) return;
+        const airTemp = after.ambientTempValid === false ? NaN : parseFloat(after.ambientTemp);
+        if (!hasTemp && !hasHumidity && !Number.isFinite(airTemp)) return;
 
         // This runs on every ESP32 push (~8,640/day). Reading the admins on
         // every push used most of the daily Firestore read quota, so the list
@@ -506,7 +528,7 @@ exports.onLiveSensorUpdate = onDocumentWritten(
 
         for (const cached of cachedAdmins) {
             const userId = cached.id;
-            let result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity);
+            let result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity, airTemp);
             if (!result) continue;
 
             // Only when an alert state is about to change: re-read this admin
@@ -516,7 +538,7 @@ exports.onLiveSensorUpdate = onDocumentWritten(
                 const fresh = await cached.ref.get();
                 if (!fresh.exists) continue;
                 cached.data = fresh.data();
-                result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity);
+                result = checkIotThresholds(cached.data, tempAvg, humidity, hasTemp, hasHumidity, airTemp);
                 if (!result) continue;
             }
 
@@ -532,6 +554,10 @@ exports.onLiveSensorUpdate = onDocumentWritten(
                 if ("iotAlertState.humidity" in updates) state.humidity = updates["iotAlertState.humidity"];
                 if ("iotAlertState.humidityLimit" in updates) {
                     state.humidityLimit = updates["iotAlertState.humidityLimit"];
+                }
+                if ("iotAlertState.airTemp" in updates) state.airTemp = updates["iotAlertState.airTemp"];
+                if ("iotAlertState.airTempLimit" in updates) {
+                    state.airTempLimit = updates["iotAlertState.airTempLimit"];
                 }
                 cached.data = { ...cached.data, iotAlertState: state };
             }
