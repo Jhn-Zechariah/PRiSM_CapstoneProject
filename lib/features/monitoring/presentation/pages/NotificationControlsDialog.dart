@@ -7,7 +7,9 @@ import '../../../auth/presentation/cubits/profile_cubit.dart';
 import '../../../../core/services/notification_feedback.dart';
 
 class NotificationControlsDialog extends StatefulWidget {
-  const NotificationControlsDialog({super.key});
+  final bool canAccessSensors;
+
+  const NotificationControlsDialog({super.key, this.canAccessSensors = false});
 
   @override
   State<NotificationControlsDialog> createState() =>
@@ -26,6 +28,7 @@ class _NotificationControlsDialogState
   bool isSoundOn = true;
   bool isVibrateOn = true;
   bool _isLoading = true;
+  final String? _accountUid = FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void initState() {
@@ -36,6 +39,7 @@ class _NotificationControlsDialogState
   // Load preferences from SharedPreferences
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       isNotifEnabled = prefs.getBool('isNotifEnabled') ?? true;
       isHighTempAlert = prefs.getBool('isHighTempAlert') ?? true;
@@ -52,11 +56,16 @@ class _NotificationControlsDialogState
 
   // Save preferences to SharedPreferences AND sync to Firestore
   Future<void> _savePreferences() async {
+    final uid = _accountUid;
+    if (uid == null || FirebaseAuth.instance.currentUser?.uid != uid) return;
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted || FirebaseAuth.instance.currentUser?.uid != uid) return;
     await prefs.setBool('isNotifEnabled', isNotifEnabled);
-    await prefs.setBool('isHighTempAlert', isHighTempAlert);
-    await prefs.setBool('isHighHumidityAlert', isHighHumidityAlert);
-    await prefs.setBool('isHighAirTempAlert', isHighAirTempAlert);
+    if (widget.canAccessSensors) {
+      await prefs.setBool('isHighTempAlert', isHighTempAlert);
+      await prefs.setBool('isHighHumidityAlert', isHighHumidityAlert);
+      await prefs.setBool('isHighAirTempAlert', isHighAirTempAlert);
+    }
     await prefs.setBool('isLowStockAlert', isLowStockAlert);
     await prefs.setBool('isVaxSchedAlert', isVaxSchedAlert);
     await prefs.setBool('isMedExpAlert', isMedExpAlert);
@@ -65,22 +74,22 @@ class _NotificationControlsDialogState
 
     // 🔹 Synchronize preferences to Firestore for backend reference
     if (mounted) {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final profileCubit = context.read<ProfileCubit>();
-        await profileCubit.syncNotificationPreferences(user.uid, {
-          'isNotifEnabled': isNotifEnabled,
+      if (FirebaseAuth.instance.currentUser?.uid != uid) return;
+      final profileCubit = context.read<ProfileCubit>();
+      await profileCubit.syncNotificationPreferences(uid, {
+        'isNotifEnabled': isNotifEnabled,
+        if (widget.canAccessSensors) ...{
           'isHighTempAlert': isHighTempAlert,
           'isHighHumidityAlert': isHighHumidityAlert,
           'isHighAirTempAlert': isHighAirTempAlert,
-          'isLowStockAlert': isLowStockAlert,
-          'isVaxSchedAlert': isVaxSchedAlert,
-          'isMedExpAlert': isMedExpAlert,
-          'isSoundOn': isSoundOn,
-          'isVibrateOn': isVibrateOn,
-        });
-      }
-
+        },
+        'isLowStockAlert': isLowStockAlert,
+        'isVaxSchedAlert': isVaxSchedAlert,
+        'isMedExpAlert': isMedExpAlert,
+        'isSoundOn': isSoundOn,
+        'isVibrateOn': isVibrateOn,
+      });
+      if (!mounted || FirebaseAuth.instance.currentUser?.uid != uid) return;
       CustomSnackbar.show(
         context: context,
         message: "Notification preferences saved and synced!",
@@ -132,9 +141,11 @@ class _NotificationControlsDialogState
                 setState(() {
                   isNotifEnabled = val;
                   if (!val) {
-                    isHighTempAlert = false;
-                    isHighHumidityAlert = false;
-                    isHighAirTempAlert = false;
+                    if (widget.canAccessSensors) {
+                      isHighTempAlert = false;
+                      isHighHumidityAlert = false;
+                      isHighAirTempAlert = false;
+                    }
                     isLowStockAlert = false;
                     isVaxSchedAlert = false;
                     isMedExpAlert = false;
@@ -153,27 +164,27 @@ class _NotificationControlsDialogState
               context: context,
               dotColor: Colors.blue[900]!,
               label: 'High pig temperature alert',
-              value: isHighTempAlert,
+              value: widget.canAccessSensors && isHighTempAlert,
               onChanged: (val) => setState(() => isHighTempAlert = val),
-              isEnabled: isNotifEnabled,
+              isEnabled: isNotifEnabled && widget.canAccessSensors,
             ),
             const SizedBox(height: 11),
             _buildSwitchRow(
               context: context,
               dotColor: Colors.red[600]!,
               label: 'High humidity alert',
-              value: isHighHumidityAlert,
+              value: widget.canAccessSensors && isHighHumidityAlert,
               onChanged: (val) => setState(() => isHighHumidityAlert = val),
-              isEnabled: isNotifEnabled,
+              isEnabled: isNotifEnabled && widget.canAccessSensors,
             ),
             const SizedBox(height: 11),
             _buildSwitchRow(
               context: context,
               dotColor: Colors.orange[800]!,
               label: 'High air temperature alert',
-              value: isHighAirTempAlert,
+              value: widget.canAccessSensors && isHighAirTempAlert,
               onChanged: (val) => setState(() => isHighAirTempAlert = val),
-              isEnabled: isNotifEnabled,
+              isEnabled: isNotifEnabled && widget.canAccessSensors,
             ),
             const SizedBox(height: 11),
             _buildSwitchRow(

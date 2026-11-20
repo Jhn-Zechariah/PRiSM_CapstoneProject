@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -38,7 +41,13 @@ class _AppNavState extends State<AppNav> {
   int selectedIndex = 2;
   bool _showHumidity = false;
   bool _showPigMeds = false;
+  StreamSubscription<User?>? _authSubscription;
+  String? _sensorAccessUid;
+  int _sensorAccessRequest = 0;
 
+  bool get _canAccessSensors =>
+      _sensorAccessUid != null &&
+      _sensorAccessUid == FirebaseAuth.instance.currentUser?.uid;
 
   final List<Widget> _navItems = const [
     Icon(Symbols.savings, size: 30, color: Colors.white),
@@ -51,10 +60,36 @@ class _AppNavState extends State<AppNav> {
   @override
   void initState() {
     super.initState();
-  } // ✅ only ONE closing brace here
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
+      _refreshSensorAccess,
+    );
+  }
+
+  Future<void> _refreshSensorAccess(User? user) async {
+    final request = ++_sensorAccessRequest;
+    if (_sensorAccessUid != null) {
+      setState(() => _sensorAccessUid = null);
+    }
+    if (user == null) return;
+
+    try {
+      final token = await user.getIdTokenResult(true);
+      if (!mounted ||
+          request != _sensorAccessRequest ||
+          FirebaseAuth.instance.currentUser?.uid != user.uid) {
+        return;
+      }
+      if (token.claims?['farm'] == true) {
+        setState(() => _sensorAccessUid = user.uid);
+      }
+    } catch (error) {
+      debugPrint('Could not refresh sensor access: $error');
+    }
+  }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     super.dispose();
   }
 
@@ -178,20 +213,27 @@ class _AppNavState extends State<AppNav> {
                 ),
               );
             }),
-            _drawerTile(Symbols.barcode_reader, 'IoT Control', () {
-              Navigator.pop(context);
-              showDialog(
-                context: context,
-                builder: (BuildContext context) =>
-                const IoTControlsDialog(),
-              );
-            }),
+            _drawerTile(
+              Symbols.barcode_reader,
+              'IoT Control',
+              _canAccessSensors
+                  ? () {
+                      if (!_canAccessSensors) return;
+                      Navigator.pop(context);
+                      showDialog(
+                        context: context,
+                        builder: (_) => const IoTControlsDialog(),
+                      );
+                    }
+                  : null,
+            ),
             _drawerTile(Symbols.notifications_active, 'Notification', () {
               Navigator.pop(context);
               showDialog(
                 context: context,
-                builder: (BuildContext context) =>
-                const NotificationControlsDialog(),
+                builder: (_) => NotificationControlsDialog(
+                  canAccessSensors: _canAccessSensors,
+                ),
               );
             }),
             _drawerTile(
@@ -246,13 +288,13 @@ class _AppNavState extends State<AppNav> {
     );
   }
 
-  Widget _drawerTile(IconData icon, String title, VoidCallback onTap) {
+  Widget _drawerTile(IconData icon, String title, VoidCallback? onTap) {
     return ListTile(
-      leading: Icon(icon, color: Colors.white, size: 24),
-      title: Text(
-        title,
-        style: const TextStyle(color: Colors.white, fontSize: 16),
-      ),
+      enabled: onTap != null,
+      iconColor: onTap == null ? Colors.white54 : Colors.white,
+      textColor: onTap == null ? Colors.white54 : Colors.white,
+      leading: Icon(icon, size: 24),
+      title: Text(title, style: const TextStyle(fontSize: 16)),
       onTap: onTap,
     );
   }

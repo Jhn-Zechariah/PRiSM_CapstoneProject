@@ -1,9 +1,7 @@
 import 'package:prism_app/core/services/account_cache_policy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/widgets/snackbar.dart';
 import '../../../auth/presentation/cubits/profile_cubit.dart';
 import 'package:flutter/services.dart';
@@ -43,7 +41,10 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
   final TextEditingController _scheduleController = TextEditingController();
   final TextEditingController _durationController = TextEditingController();
 
+  final String? _accountUid = AccountCachePolicy.currentUid;
   bool _isLoading = true;
+  bool _isSaving = false;
+  String? _loadError;
 
   // Context under the dialog's own ScaffoldMessenger, so error messages are
   // drawn on top of the dialog instead of behind it.
@@ -75,45 +76,44 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     super.dispose();
   }
 
-  // Load preferences from SharedPreferences
   Future<void> _loadPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    // Start with the local values
-    bool iot = prefs.getBool('isIotEnabled') ?? true;
-    bool auto = prefs.getBool('isSprinklerAuto') ?? true;
-    String schedule = prefs.getString('iotSchedule') ?? '';
-    String duration = prefs.getString('iotDuration') ?? '';
-
-    // Firestore wins if it has saved settings
+    final uid = _accountUid;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('sprinkler_settings')
-          .doc('config')
-          .getForAccount();
-      final data = snap.data();
-      if (data != null) {
-        iot = data['isIotEnabled'] ?? iot;
-        auto = data['isSprinklerAuto'] ?? auto;
-        schedule = (data['schedule'] ?? schedule).toString();
-        final d = data['durationMins'];
-        if (d != null) duration = d.toString();
-      }
-    } catch (_) {
-      // offline: keep the local values
-    }
+      if (uid == null) throw StateError('Sign in to manage IoT settings.');
+      AccountCachePolicy.checkSession(uid);
+      final firestore = FirebaseFirestore.instance;
+      final snapshots = await Future.wait([
+        firestore.collection('admins').doc(uid).getForAccount(),
+        firestore.collection('sprinkler_settings').doc('config').getForAccount(),
+      ]);
+      AccountCachePolicy.checkSession(uid);
+      if (!mounted) return;
 
-    if (!mounted) return;
-    setState(() {
-      isIotEnabled = iot;
-      isSprinklerAuto = auto;
-      _tempController.text = prefs.getString('iotMaxTemp') ?? '';
-      _humidityController.text = prefs.getString('iotMaxHumidity') ?? '';
-      _airTempController.text = prefs.getString('iotMaxAirTemp') ?? '';
-      _scheduleController.text = schedule;
-      _durationController.text = duration;
-      _isLoading = false;
-    });
+      final thresholds = snapshots[0].data()?['iotThresholds'];
+      final settings = snapshots[1].data();
+      String thresholdText(String key) {
+        final value = thresholds is Map ? thresholds[key] : null;
+        return value is num ? value.toString() : '';
+      }
+
+      setState(() {
+        _tempController.text = thresholdText('maxTemp');
+        _humidityController.text = thresholdText('maxHumidity');
+        _airTempController.text = thresholdText('maxAirTemp');
+        isIotEnabled = settings?['isIotEnabled'] as bool? ?? true;
+        isSprinklerAuto = settings?['isSprinklerAuto'] as bool? ?? true;
+        _scheduleController.text = settings?['schedule'] as String? ?? '';
+        _durationController.text = settings?['durationMins']?.toString() ?? '';
+        _isLoading = false;
+      });
+    } catch (error) {
+      debugPrint('Could not load IoT settings: $error');
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = 'Could not load IoT settings. Reopen IoT Control from an authorized farm account.';
+      });
+    }
   }
 
   // Opens a clock picker and writes the time like "6:00 PM"
@@ -185,8 +185,13 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
     );
   }
 
-  // Save preferences to SharedPreferences AND sync to Firestore
   Future<void> _savePreferences() async {
+    if (_isSaving) return;
+    final uid = _accountUid;
+    if (uid == null || uid != AccountCachePolicy.currentUid) {
+      _showError('Account changed. Reopen IoT Control before saving.');
+      return;
+    }
     // Validate schedule: format like 6:00 PM or 11:30 AM
     final scheduleRaw = _scheduleController.text.trim().toUpperCase();
     final match = RegExp(
@@ -257,52 +262,31 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
         : '${int.parse(match.group(1)!)}:${match.group(2)} ${match.group(3)}';
     _scheduleController.text = scheduleText;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isIotEnabled', isIotEnabled);
-    await prefs.setBool('isSprinklerAuto', isSprinklerAuto);
-    await prefs.setString('iotMaxTemp', _tempController.text);
-    await prefs.setString('iotMaxHumidity', _humidityController.text);
-    await prefs.setString('iotMaxAirTemp', _airTempController.text);
-    await prefs.setString('iotSchedule', scheduleText);
-    await prefs.setString('iotDuration', _durationController.text);
-
-    final maxTemp = double.tryParse(_tempController.text);
-    final maxHumidity = double.tryParse(_humidityController.text);
-    final maxAirTemp = double.tryParse(_airTempController.text);
-
-    // Settings document the ESP32 reads (fixed path, no user id needed)
-    await FirebaseFirestore.instance
-        .collection('sprinkler_settings')
-        .doc('config')
-        .set({
-          'isIotEnabled': isIotEnabled,
-          'isSprinklerAuto': isSprinklerAuto,
-          'schedule': scheduleText,
-          'durationMins': durationValue ?? 5,
-        }, SetOptions(merge: true));
-
-    // 🔹 Synchronize thresholds to Firestore so the backend (Cloud
-    // Functions) can compare incoming live sensor readings against them.
-    if (mounted) {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final profileCubit = context.read<ProfileCubit>();
-        await profileCubit.syncIotThresholds(user.uid, {
-          'isIotEnabled': isIotEnabled,
-          'isSprinklerAuto': isSprinklerAuto,
-          'maxTemp': maxTemp,
-          'maxHumidity': maxHumidity,
-          'maxAirTemp': maxAirTemp,
-          'schedule': scheduleText,
-          'durationMins': durationValue,
-        });
+    final profileCubit = context.read<ProfileCubit>();
+    setState(() => _isSaving = true);
+    try {
+      await profileCubit.syncIotSettings(uid, {
+        'isIotEnabled': isIotEnabled,
+        'isSprinklerAuto': isSprinklerAuto,
+        'schedule': scheduleText,
+        'durationMins': durationValue ?? 5,
+      }, {
+        'maxTemp': tempValue,
+        'maxHumidity': humidityValue,
+        'maxAirTemp': airTempValue,
+      });
+      if (!mounted) return;
+      if (uid != AccountCachePolicy.currentUid) {
+        _showError('Account changed. Reopen IoT Control.');
+        return;
       }
-
-      CustomSnackbar.show(
-        context: context,
-        message: "IoT settings saved and synced!",
-      );
+      CustomSnackbar.show(context: context, message: 'IoT settings saved!');
       Navigator.pop(context);
+    } catch (error) {
+      debugPrint('Could not save IoT settings: $error');
+      _showError('Could not save IoT settings. Check your connection and try again.');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -322,6 +306,19 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
             child: CircularProgressIndicator(),
           ),
         ),
+      );
+    }
+
+    final loadError = _loadError;
+    if (loadError != null) {
+      return AlertDialog(
+        content: Text(loadError),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       );
     }
 

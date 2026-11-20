@@ -94,10 +94,27 @@ class ProfileCubit extends Cubit<ProfileState> {
     }
   }
 
-  Future<void> syncIotThresholds(String uid, Map<String, dynamic> data) async {
-    await FirebaseFirestore.instance
-        .collection('admins')
-        .doc(uid)
-        .set({'iotThresholds': data}, SetOptions(merge: true));
+  Future<void> syncIotSettings(
+    String uid,
+    Map<String, dynamic> sprinklerSettings,
+    Map<String, dynamic> thresholds,
+  ) async {
+    if (FirebaseAuth.instance.currentUser?.uid != uid) {
+      throw StateError('Account changed while saving IoT settings.');
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    final batch = firestore.batch();
+    batch.set(
+      firestore.collection('admins').doc(uid),
+      {'iotThresholds': {...sprinklerSettings, ...thresholds}},
+      SetOptions(merge: true),
+    );
+    batch.set(
+      firestore.collection('sprinkler_settings').doc('config'),
+      sprinklerSettings,
+      SetOptions(merge: true),
+    );
+    await batch.commit();
   }
 }
