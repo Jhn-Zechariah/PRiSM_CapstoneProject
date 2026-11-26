@@ -564,6 +564,49 @@ async function sendScheduledSprinklerAlerts(firestore, admin, alerts) {
     }
 }
 
+function scheduledSprinklerReminder(settings, scheduledAt) {
+    if (settings?.isIotEnabled !== true || settings.isSprinklerAuto !== true ||
+        !Object.hasOwn(settings, "maxTemp") || !Number.isFinite(scheduledAt)) {
+        return null;
+    }
+    const schedule = settings.schedule;
+    if (typeof schedule !== "string") return null;
+    const match = /^(0?[1-9]|1[0-2]):([0-5]\d)\s+(AM|PM)$/i.exec(schedule.trim());
+    if (!match) return null;
+
+    const clockMinute = (Number(match[1]) % 12 + (match[3].toUpperCase() === "PM" ? 12 : 0)) * 60
+        + Number(match[2]);
+    const minuteMs = 60000;
+    const tick = Math.floor(scheduledAt / minuteMs) * minuteMs;
+    const manilaMs = tick + MANILA_OFFSET_MS;
+    const dayStart = Math.floor(manilaMs / DAY_MS) * DAY_MS - MANILA_OFFSET_MS;
+    let startsAt = dayStart + clockMinute * minuteMs;
+    if (startsAt <= tick) startsAt += DAY_MS;
+    const minutes = (startsAt - tick) / minuteMs;
+    if (minutes !== 60 && minutes !== 30) return null;
+
+    const lead = minutes === 60 ? "1 Hour" : "30 Minutes";
+    return {
+        run: startsAt / 1000,
+        phase: minutes === 60 ? "reminder60" : "reminder30",
+        title: `Scheduled Sprinkler in ${lead}`,
+        body: `The daily sprinkler run is scheduled for ${schedule}. It may be skipped based on the pig surface temperature at that time.`,
+    };
+}
+
+exports.scheduledSprinklerReminderCheck = onSchedule({
+    schedule: "* * * * *",
+    timeZone: "Asia/Manila",
+}, async (event) => {
+    const firestore = getFirestore();
+    const settings = (await firestore.collection("sprinkler_settings").doc("config").get()).data();
+    const alert = scheduledSprinklerReminder(settings, Date.parse(event.scheduleTime));
+    if (!alert || Date.now() >= alert.run * 1000) return;
+
+    const admins = await getIotAdmins(firestore);
+    await Promise.all(admins.map((admin) => sendScheduledSprinklerAlerts(firestore, admin, [alert])));
+});
+
 exports.onLiveSensorUpdate = onDocumentWritten(
     "live_sensor/latest",
     async (event) => {

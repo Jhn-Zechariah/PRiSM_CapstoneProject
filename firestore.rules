@@ -124,7 +124,11 @@ service cloud.firestore {
     match /sprinkler_settings/{doc} {
       allow read: if isFarmUser() || isDevice();
       allow write: if isFarmUser()
-        && changesOnly(['isIotEnabled', 'isSprinklerAuto', 'schedule', 'durationMins']);
+        && changesOnly(['isIotEnabled', 'isSprinklerAuto', 'schedule', 'durationMins', 'maxTemp'])
+        && (request.resource.data.get('maxTemp', null) == null
+          || (request.resource.data.maxTemp is number
+            && request.resource.data.maxTemp >= 34
+            && request.resource.data.maxTemp <= 37));
     }
     // App-side shared farm state (Dashboard_Screen.dart, today_max_service.dart)
     match /sprinkler_state/{doc} {

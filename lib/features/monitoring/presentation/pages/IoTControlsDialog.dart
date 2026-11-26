@@ -213,6 +213,7 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
 
     if (tempText.isNotEmpty &&
         (tempValue == null ||
+            !tempValue.isFinite ||
             tempValue < _minTemp ||
             tempValue > _maxTempLimit)) {
       _showError(
@@ -270,8 +271,8 @@ class _IoTControlsDialogState extends State<IoTControlsDialog> {
         'isSprinklerAuto': isSprinklerAuto,
         'schedule': scheduleText,
         'durationMins': durationValue ?? 5,
-      }, {
         'maxTemp': tempValue,
+      }, {
         'maxHumidity': humidityValue,
         'maxAirTemp': airTempValue,
       });
